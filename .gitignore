@@ -115,3 +115,6 @@ ehthumbs.db
 # Package manager lock files at contract level (keep root ones)
 contracts/**/package-lock.json
 contracts/**/yarn.lock
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat
