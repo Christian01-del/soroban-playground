@@ -9,11 +9,19 @@ import React, {
   useState,
 } from "react";
 import { useCompileStore } from "@/state/compileStore";
+import { selectIsCompiling } from "@/state/compileStore";
+import {
+  DEFAULT_API_BASE_URL,
+  DEFAULT_CODE,
+  selectAppendLog,
+  usePlaygroundStore,
+} from "@/state/playgroundStore";
+import EditorPane from "@/components/playground/EditorPane";
+import InvokePanel from "@/components/playground/InvokePanel";
+import OutputDrawer from "@/components/playground/OutputDrawer";
 import {
   Activity,
-  BookOpen,
   ChevronRight,
-  Code2,
   Globe,
   LoaderCircle,
   Orbit,
@@ -24,19 +32,6 @@ import dynamic from "next/dynamic";
 import MobileEditor from "@/components/MobileEditor";
 import { preloadMonacoEditor } from "@/lib/editorLoadScheduler";
 
-const Editor = dynamic(() => import("@/components/Editor"), {
-  ssr: false,
-  loading: () => (
-    <div className="flex items-center justify-center h-full w-full text-gray-500">
-      <div className="flex flex-col items-center gap-3">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-500" />
-        <span className="text-xs font-mono text-gray-400">
-          Loading editor...
-        </span>
-      </div>
-    </div>
-  ),
-});
 const TransactionCallGraphPanel = dynamic(
   () => import("@/components/TransactionCallGraph"),
   {
@@ -49,9 +44,7 @@ const TransactionCallGraphPanel = dynamic(
   },
 );
 import Console from "@/components/Console";
-import { ConsoleAndEventsDrawer } from "@/components/ConsoleAndEventsDrawer";
 import DeployPanel from "@/components/DeployPanel";
-import CallPanel from "@/components/CallPanel";
 import StorageViewer from "@/components/StorageViewer";
 import TransactionCallGraph from "@/components/TransactionCallGraph";
 import StorageTimeline from "@/components/StorageTimeline";
@@ -92,7 +85,6 @@ import SupplyChainPanel, {
   type QualityResult as SupplyChainQuality,
 } from "@/components/SupplyChainPanel";
 import LotteryDashboard from "@/components/LotteryDashboard";
-import ShareSnippet from "@/components/ShareSnippet";
 import { useWallet } from "@/components/providers/WalletProvider";
 import { useTransactionTracker } from "@/hooks/useTransactionTracker";
 import {
@@ -104,30 +96,6 @@ import {
   createInitialStorageTimelineState,
   storageTimelineReducer,
 } from "@/state/storageTimeline";
-import { parseContractAbiFromSource } from "@/utils/contractAbi";
-
-const DEFAULT_CODE = `#![no_std]
-use soroban_sdk::{contract, contractimpl, symbol_short, Env, Symbol};
-
-#[contract]
-pub struct HelloContract;
-
-#[contractimpl]
-impl HelloContract {
-    pub fn hello(_env: Env, name: Symbol) -> Symbol {
-        name
-    }
-
-    pub fn version(_env: Env) -> Symbol {
-        symbol_short!("v1")
-    }
-}
-`;
-
-const DEFAULT_API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ||
-  process.env.NEXT_PUBLIC_BACKEND_URL ||
-  "https://soroban-playground.onrender.com";
 
 type HealthState = "checking" | "online" | "offline";
 
@@ -299,11 +267,8 @@ export default function Home() {
     return preloadMonacoEditor();
   }, []);
 
-  const [code, setCode] = useState(DEFAULT_CODE);
-  const [logs, setLogs] = useState<string[]>([
-    `Soroban Playground ready.`,
-    `Frontend connected to ${DEFAULT_API_BASE_URL}`,
-  ]);
+  const appendLog = usePlaygroundStore(selectAppendLog);
+  const isCompiling = useCompileStore(selectIsCompiling);
   const [healthState, setHealthState] = useState<HealthState>("checking");
   const [healthMessage, setHealthMessage] = useState(
     "Checking backend health...",
@@ -311,7 +276,6 @@ export default function Home() {
   const [isIngestionPaused, setIsIngestionPaused] = useState(false);
   const [droppedMessages, setDroppedMessages] = useState(0);
 
-  const [isCompiling, setIsCompiling] = useState(false);
   const [hasCompiled, setHasCompiled] = useState(false);
   const [isDeploying, setIsDeploying] = useState(false);
   const [isInvoking, setIsInvoking] = useState(false);
@@ -386,10 +350,6 @@ export default function Home() {
   const [lastArtifactName, setLastArtifactName] =
     useState<string>("contract.wasm");
   const [lastDeployMessage, setLastDeployMessage] = useState<string>();
-  const [contractAbi, setContractAbi] = useState<
-    Array<{ name: string; inputs?: Array<{ name: string; type: string }> }>
-  >([]);
-
   const activeSnapshot = useMemo(
     () =>
       storageTimeline.currentIndex >= 0
@@ -450,14 +410,6 @@ export default function Home() {
   const [govProposals, setGovProposals] = useState<GovernanceProposal[]>([]);
   const [govVotingPower, setGovVotingPower] = useState(0);
   const [isGovLoading, setIsGovLoading] = useState(false);
-
-  const appendLog = useCallback((msg: string) => {
-    setLogs((prev) => [...prev, msg]);
-  }, []);
-
-  useEffect(() => {
-    setContractAbi(parseContractAbiFromSource(code));
-  }, [code]);
 
   const checkHealth = useCallback(async () => {
     setHealthState("checking");
@@ -608,7 +560,7 @@ export default function Home() {
       cancelled = true;
       wsRef.current?.close();
     };
-  }, []);
+  }, [appendLog]);
 
   async function requestJson<T>(path: string, body: Record<string, unknown>) {
     const response = await fetch(`${DEFAULT_API_BASE_URL}${path}`, {
@@ -634,7 +586,6 @@ export default function Home() {
   }
 
   const handleCompile = async () => {
-    setIsCompiling(true);
     setCompileError(null);
     setCompileSummary(undefined);
     setHasCompiled(false);
@@ -651,7 +602,7 @@ export default function Home() {
 
     try {
       const payload = await requestJson<CompileResponse>("/api/compile", {
-        code,
+        code: usePlaygroundStore.getState().code,
       });
       const compileLogs = payload.logs ?? [];
 
@@ -690,8 +641,6 @@ export default function Home() {
 
       // Fail compilation in Zustand store
       useCompileStore.getState().failCompile(message);
-    } finally {
-      setIsCompiling(false);
     }
   };
 
@@ -717,7 +666,7 @@ export default function Home() {
       });
 
       setContractId(payload.contractId);
-      setContractAbi([]);
+      usePlaygroundStore.getState().resetContractAbi();
       setLastDeployMessage(payload.message);
       setStorage({
         contractName: payload.contractName,
@@ -2371,17 +2320,17 @@ export default function Home() {
     }
   };
 
-  const handleFormat = async () => {
+  const handleFormat = useCallback(async () => {
     try {
       const rustfmt = await import("rustfmt");
       // ensure we're accessing the format function properly, it might be a default export or named export
-      const formatted = rustfmt.format(code);
-      setCode(formatted);
+      const formatted = rustfmt.format(usePlaygroundStore.getState().code);
+      usePlaygroundStore.getState().setCode(formatted);
       appendLog("[editor] Code formatted successfully");
     } catch (error) {
       appendLog(`[error] Format failed: ${String(error)}`);
     }
-  };
+  }, [appendLog]);
 
   return (
     <div className="min-h-screen px-4 py-4 text-slate-100 sm:px-6 lg:px-8">
@@ -2477,42 +2426,10 @@ export default function Home() {
         <main className="flex-1">
           <MobileEditor
             editor={
-              <section className="flex min-h-[560px] flex-col border-b border-white/8 p-4 lg:border-b-0 lg:border-r">
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-3 px-2">
-                  <div>
-                    <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
-                      <Code2 size={14} />
-                      Contract Editor
-                    </p>
-                    <p className="mt-1 text-sm text-slate-300">
-                      Edit `lib.rs`, then compile against the backend toolchain.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={handleFormat}
-                      className="inline-flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1.5 text-xs font-medium text-emerald-200 transition hover:bg-emerald-400/20"
-                    >
-                      <Code2 size={14} />
-                      Format
-                    </button>
-                    <a
-                      href="https://developers.stellar.org/docs/build/smart-contracts/getting-started"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:border-cyan-400/40 hover:text-cyan-200"
-                    >
-                      <BookOpen size={14} />
-                      Soroban Docs
-                    </a>
-                    <ShareSnippet
-                      code={code}
-                      apiBaseUrl={DEFAULT_API_BASE_URL}
-                    />
-                  </div>
-                </div>
-                <Editor code={code} setCode={setCode} />
-              </section>
+              <EditorPane
+                apiBaseUrl={DEFAULT_API_BASE_URL}
+                onFormat={handleFormat}
+              />
             }
             output={
               <aside className="flex flex-col gap-4 bg-slate-950/40 p-4">
@@ -2575,11 +2492,10 @@ export default function Home() {
                     </div>
                   </div>
                 </div>
-                <CallPanel
+                <InvokePanel
                   onInvoke={handleInvoke}
                   isInvoking={isInvoking}
                   contractId={contractId}
-                  abi={contractAbi}
                 />
                 <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
                   <div className="mb-3 flex items-center justify-between">
@@ -2834,9 +2750,7 @@ export default function Home() {
                   transactions={transactions}
                   onClear={clearTx}
                 />
-                <ConsoleAndEventsDrawer
-                  logs={logs}
-                  baseLineNumber={0}
+                <OutputDrawer
                   droppedMessages={droppedMessages}
                   isIngestionPaused={isIngestionPaused}
                   onIngestionPauseChange={setIsIngestionPaused}
