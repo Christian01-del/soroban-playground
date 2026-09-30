@@ -6,32 +6,280 @@ import React, {
   useState,
   useEffect,
   useCallback,
+  useRef,
   ReactNode,
 } from "react";
-import * as freighterApi from "@stellar/freighter-api";
+import type { ModuleInterface } from "@creit.tech/stellar-wallets-kit/types";
 
-declare global {
-  interface Window {
-    albedo?: {
-      publicKey: (options: Record<string, unknown>) => Promise<{ pubkey: string }>;
-      tx: (options: Record<string, unknown>) => Promise<{ signed_envelope_xdr: string }>;
-    };
-    xBullSDK?: {
-      getPublicKey: () => Promise<string>;
-      signXDR: (xdr: string) => Promise<string>;
-    };
-    xBull?: unknown;
-    soroban?: {
-      getPublicKey: () => Promise<string>;
-      getNetwork: () => Promise<string>;
-    };
+export type WalletType =
+  "freighter" | "albedo" | "xbull" | "hana" | "walletconnect" | "ledger";
+export type ConnectionStatus =
+  "idle" | "connecting" | "connected" | "error" | "unavailable";
+
+const WALLET_MODULE_IDS: Record<WalletType, string> = {
+  freighter: "freighter",
+  albedo: "albedo",
+  xbull: "xbull",
+  hana: "hana",
+  walletconnect: "wallet_connect",
+  ledger: "LEDGER",
+};
+const TESTNET_PASSPHRASE = "Test SDF Network ; September 2015";
+const LEDGER_SIGNING_TIMEOUT_MS = 120_000;
+const NETWORK_CONFIG: Record<string, { name: string; passphrase: string }> = {
+  mainnet: {
+    name: "Mainnet",
+    passphrase: "Public Global Stellar Network ; September 2015",
+  },
+  testnet: { name: "Testnet", passphrase: TESTNET_PASSPHRASE },
+  futurenet: {
+    name: "Futurenet",
+    passphrase: "Test SDF Future Network ; October 2022",
+  },
+  local: {
+    name: "Local Standalone",
+    passphrase: "Standalone Network ; February 2022",
+  },
+};
+const SESSION_STORAGE_KEY = "stellar_wallet_session";
+const SESSION_VERSION = 1;
+const SESSION_INACTIVITY_MS = 30 * 60 * 1000;
+const HORIZON_VALIDATION_INTERVAL_MS = 5 * 60 * 1000;
+const HORIZON_URL_BY_PASSPHRASE: Record<string, string> = {
+  "Public Global Stellar Network ; September 2015":
+    "https://horizon.stellar.org",
+  [TESTNET_PASSPHRASE]: "https://horizon-testnet.stellar.org",
+  "Test SDF Future Network ; October 2022":
+    "https://horizon-futurenet.stellar.org",
+};
+const walletConnectProjectId =
+  process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
+
+interface PersistedWalletSession {
+  version: 1;
+  wallet: WalletType;
+  address: string;
+  network: string;
+  networkPassphrase: string;
+  lastActivityAt: number;
+  signerKeys: string[];
+}
+
+type SessionValidation = "idle" | "checking" | "verified" | "unavailable";
+interface HorizonAccountSnapshot {
+  accountId: string;
+  signerKeys: string[];
+}
+
+function isWalletType(value: unknown): value is WalletType {
+  return (
+    typeof value === "string" &&
+    Object.prototype.hasOwnProperty.call(WALLET_MODULE_IDS, value)
+  );
+}
+
+function parsePersistedSession(value: string | null): PersistedWalletSession | null {
+  if (!value) return null;
+
+  try {
+    const session: unknown = JSON.parse(value);
+    if (!session || typeof session !== "object") return null;
+
+    const candidate = session as Partial<PersistedWalletSession>;
+    if (
+      candidate.version !== SESSION_VERSION ||
+      !isWalletType(candidate.wallet) ||
+      typeof candidate.address !== "string" ||
+      !/^G[A-Z2-7]{55}$/.test(candidate.address) ||
+      typeof candidate.network !== "string" ||
+      typeof candidate.networkPassphrase !== "string" ||
+      typeof candidate.lastActivityAt !== "number" ||
+      !Number.isFinite(candidate.lastActivityAt) ||
+      !Array.isArray(candidate.signerKeys) ||
+      !candidate.signerKeys.every((key) => typeof key === "string")
+    ) {
+      return null;
+    }
+
+    return candidate as PersistedWalletSession;
+  } catch {
+    return null;
   }
 }
 
-export type WalletType =
-  "freighter" | "albedo" | "xbull" | "rango" | "soroban-wallet";
-export type ConnectionStatus =
-  "idle" | "connecting" | "connected" | "error" | "unavailable";
+function readPersistedSession(): PersistedWalletSession | null {
+  try {
+    return parsePersistedSession(window.localStorage.getItem(SESSION_STORAGE_KEY));
+  } catch {
+    return null;
+  }
+}
+
+function writePersistedSession(session: PersistedWalletSession): void {
+  try {
+    window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+  } catch {}
+}
+
+function removePersistedSession(): void {
+  try {
+    window.localStorage.removeItem(SESSION_STORAGE_KEY);
+  } catch {}
+}
+
+function walletErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string" && error.length > 0) return error;
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.length > 0) return message;
+  }
+  return fallback;
+}
+
+function getConfiguredNetwork() {
+  try {
+    const networkId = window.localStorage.getItem("soroban_playground_network");
+    if (networkId && NETWORK_CONFIG[networkId]) return NETWORK_CONFIG[networkId];
+  } catch {}
+  return NETWORK_CONFIG.testnet;
+}
+
+async function validateHorizonAccount(
+  address: string,
+  networkPassphrase: string,
+): Promise<HorizonAccountSnapshot | null> {
+  const horizonUrl = HORIZON_URL_BY_PASSPHRASE[networkPassphrase];
+  if (!horizonUrl) throw new Error("No Horizon endpoint is configured for this network.");
+
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(
+      `${horizonUrl}/accounts/${encodeURIComponent(address)}`,
+      { signal: controller.signal },
+    );
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error(`Horizon returned HTTP ${response.status}.`);
+
+    const account = (await response.json()) as {
+      account_id?: unknown;
+      signers?: Array<{ key?: unknown }>;
+    };
+    if (account.account_id !== address || !Array.isArray(account.signers)) {
+      throw new Error("Horizon returned an invalid account response.");
+    }
+    const signerKeys = account.signers
+      .map((signer) => signer.key)
+      .filter((key): key is string => typeof key === "string")
+      .sort();
+    return { accountId: address, signerKeys };
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+type WalletKit = typeof import("@creit.tech/stellar-wallets-kit/sdk").StellarWalletsKit;
+
+let walletKitPromise: Promise<WalletKit> | null = null;
+
+function initializeWalletKit(): Promise<WalletKit> {
+  if (!walletKitPromise) {
+    walletKitPromise = (async () => {
+      const { Buffer } = await import("buffer");
+      const bufferGlobal = globalThis as typeof globalThis & {
+        Buffer?: typeof Buffer;
+      };
+      bufferGlobal.Buffer ??= Buffer;
+
+      const [
+        { StellarWalletsKit },
+        { Networks },
+        { AlbedoModule },
+        { FreighterModule },
+        { HanaModule },
+        { xBullModule },
+        { LedgerModule },
+        { default: TransportWebHID },
+        { default: TransportWebUSB },
+      ] = await Promise.all([
+        import("@creit.tech/stellar-wallets-kit/sdk"),
+        import("@creit.tech/stellar-wallets-kit/types"),
+        import("@creit.tech/stellar-wallets-kit/modules/albedo"),
+        import("@creit.tech/stellar-wallets-kit/modules/freighter"),
+        import("@creit.tech/stellar-wallets-kit/modules/hana"),
+        import("@creit.tech/stellar-wallets-kit/modules/xbull"),
+        import("@creit.tech/stellar-wallets-kit/modules/ledger"),
+        import("@ledgerhq/hw-transport-webhid"),
+        import("@ledgerhq/hw-transport-webusb"),
+      ]);
+
+      class BrowserLedgerModule extends LedgerModule {
+        private browserTransport: { close: () => Promise<void> } | null = null;
+
+        async isAvailable() {
+          const [webHidAvailable, webUsbAvailable] = await Promise.all([
+            TransportWebHID.isSupported(),
+            TransportWebUSB.isSupported(),
+          ]);
+          return webHidAvailable || webUsbAvailable;
+        }
+
+        async transport() {
+          if (this.browserTransport) return this.browserTransport;
+          if (await TransportWebHID.isSupported()) {
+            this.browserTransport = await TransportWebHID.create();
+          } else if (await TransportWebUSB.isSupported()) {
+            this.browserTransport = await TransportWebUSB.create();
+          } else {
+            throw new Error("This browser does not support Ledger WebHID or WebUSB.");
+          }
+          return this.browserTransport;
+        }
+
+        async disconnect() {
+          const transport = this.browserTransport;
+          this.browserTransport = null;
+          await transport?.close();
+          await super.disconnect();
+        }
+      }
+
+      const modules: ModuleInterface[] = [
+        new FreighterModule(),
+        new xBullModule(),
+        new AlbedoModule(),
+        new HanaModule(),
+        new BrowserLedgerModule(),
+      ];
+
+      if (walletConnectProjectId) {
+        const { WalletConnectModule, WalletConnectTargetChain } = await import(
+          "@creit.tech/stellar-wallets-kit/modules/wallet-connect"
+        );
+        modules.push(
+          new WalletConnectModule({
+            projectId: walletConnectProjectId,
+            metadata: {
+              name: "Soroban Playground",
+              description: "Connect a Stellar wallet to Soroban Playground",
+              url: window.location.origin,
+              icons: [`${window.location.origin}/favicon.ico`],
+            },
+            allowedChains: [WalletConnectTargetChain.TESTNET],
+          }),
+        );
+      }
+
+      StellarWalletsKit.init({ modules, network: Networks.TESTNET });
+      return StellarWalletsKit;
+    })().catch((error) => {
+      walletKitPromise = null;
+      throw error;
+    });
+  }
+  return walletKitPromise;
+}
 
 export interface WalletAccount {
   address: string;
@@ -46,7 +294,11 @@ interface WalletContextType {
   allAccounts: WalletAccount[];
   status: ConnectionStatus;
   network: string | null;
+  networkPassphrase: string;
   error: string | null;
+  sessionValidation: SessionValidation;
+  reauthenticationRequired: boolean;
+  reauthenticate: () => Promise<void>;
   connect: (type: WalletType, auto?: boolean) => Promise<void>;
   disconnect: () => void;
   switchAccount: (address: string) => void;
@@ -64,28 +316,63 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [allAccounts, setAllAccounts] = useState<WalletAccount[]>([]);
   const [status, setStatus] = useState<ConnectionStatus>("idle");
   const [network, setNetwork] = useState<string | null>(null);
+  const [networkPassphrase, setNetworkPassphrase] =
+    useState(TESTNET_PASSPHRASE);
+  const [sessionValidation, setSessionValidation] =
+    useState<SessionValidation>("idle");
+  const [reauthenticationRequired, setReauthenticationRequired] =
+    useState(false);
+  const [reauthenticationWallet, setReauthenticationWallet] =
+    useState<WalletType | null>(null);
+  const [lastActivityAt, setLastActivityAt] = useState(0);
+  const [horizonSignerKeys, setHorizonSignerKeys] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [detectedWallets, setDetectedWallets] = useState<Set<WalletType>>(
+    () => new Set(),
+  );
   const [lastAttemptedWallet, setLastAttemptedWallet] =
     useState<WalletType | null>(null);
+  const lastActivityWriteRef = useRef(0);
 
-  const isWalletDetected = useCallback((type: WalletType) => {
-    if (typeof window === "undefined") return false;
-    switch (type) {
-      case "freighter":
-        return true; // Modern Freighter uses postMessage
-      case "albedo":
-        return true; // Albedo is web-based or window.albedo
-      case "xbull":
-        // @ts-ignore
-        return !!(window.xBullSDK || window.xBull);
-      case "rango":
-        return true; // Rango Web Suite
-      case "soroban-wallet":
-        // @ts-ignore
-        return !!window.soroban;
-      default:
-        return false;
+  const isWalletDetected = useCallback(
+    (type: WalletType) => detectedWallets.has(type),
+    [detectedWallets],
+  );
+
+  const refreshWallets = useCallback(async () => {
+    const kit = await initializeWalletKit();
+    const supportedWallets = await kit.refreshSupportedWallets();
+    const detected = new Set<WalletType>();
+
+    for (const [type, id] of Object.entries(WALLET_MODULE_IDS) as [
+      WalletType,
+      string,
+    ][]) {
+      if (
+        (type === "walletconnect" && walletConnectProjectId) ||
+        supportedWallets.some((wallet) => wallet.id === id && wallet.isAvailable)
+      ) {
+        detected.add(type);
+      }
     }
+
+    setDetectedWallets(detected);
+    return detected;
+  }, []);
+
+  const requireReauthentication = useCallback((wallet: WalletType) => {
+    removePersistedSession();
+    setActiveWallet(null);
+    setActiveAccount(null);
+    setAllAccounts([]);
+    setNetwork(null);
+    setNetworkPassphrase(TESTNET_PASSPHRASE);
+    setStatus("idle");
+    setSessionValidation("idle");
+    setHorizonSignerKeys([]);
+    setReauthenticationWallet(wallet);
+    setReauthenticationRequired(true);
+    setLastAttemptedWallet(null);
   }, []);
 
   const connect = useCallback(
@@ -93,127 +380,130 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       if (typeof window === "undefined") return;
 
       setLastAttemptedWallet(type);
-
-      if (!isWalletDetected(type)) {
-        setStatus("unavailable");
-        setError(`${type} wallet extension or service is not detected.`);
-        return;
-      }
-
       setStatus("connecting");
       setError(null);
 
       try {
-        let address = "";
-        let net = "TESTNET";
-        let fetchedAccounts: WalletAccount[] = [];
+        const kit = await initializeWalletKit();
+        const availableWallets = await refreshWallets();
 
-        if (type === "freighter") {
-          const allowedRes = await freighterApi.isAllowed();
-          let isAllowed = allowedRes.isAllowed === true;
+        if (!availableWallets.has(type)) {
+          if (auto) {
+            setStatus("idle");
+            setLastAttemptedWallet(null);
+            return;
+          }
+          setStatus("unavailable");
+          setError(`${type} wallet is not available in this browser.`);
+          return;
+        }
 
-          if (!isAllowed) {
-            if (auto) {
+        kit.setWallet(WALLET_MODULE_IDS[type]);
+        if (auto) {
+          try {
+            const { address } = await kit.getAddress();
+            if (address) {
+              const activityTime = Date.now();
+              setActiveWallet(type);
+              setActiveAccount(address);
+              setAllAccounts([{ address, name: `${type} Account` }]);
+              setNetwork("TESTNET");
+              setNetworkPassphrase(TESTNET_PASSPHRASE);
+              setLastActivityAt(activityTime);
+              lastActivityWriteRef.current = activityTime;
+              setReauthenticationRequired(false);
+              setReauthenticationWallet(null);
+              setStatus("connected");
+            } else {
               setStatus("idle");
-              return;
             }
-            const accessRes = await freighterApi.requestAccess();
-            if (accessRes.error) throw new Error(accessRes.error);
-            address = accessRes.address;
-          } else {
-            const addressRes = await freighterApi.getAddress();
-            if (addressRes.error) throw new Error(addressRes.error);
-            address = addressRes.address;
+          } catch {
+            setStatus("idle");
           }
+          setLastAttemptedWallet(null);
+          return;
+        }
 
-          const networkRes = await freighterApi.getNetworkDetails();
-          if (networkRes.error) throw new Error(networkRes.error);
-          net = networkRes.network;
-          fetchedAccounts = [{ address, name: "Freighter Main Account" }];
-        } else if (type === "albedo") {
-          if (window.albedo && typeof window.albedo.publicKey === "function") {
-            const res = await window.albedo.publicKey({});
-            address = res.pubkey;
-          } else {
-            const mockAlbedoKey =
-              "G" +
-              Array.from(
-                { length: 55 },
-                (_, i) => "ABCDEFGHJKLMNPQRSTUVWXYZ234567"[i % 30],
-              ).join("");
-            address = mockAlbedoKey;
-          }
-          fetchedAccounts = [
-            { address, name: "Albedo Primary" },
-            {
-              address: address.slice(0, 50) + "MULTISIG",
-              isMultisig: true,
-              name: "Albedo Vault (Multisig)",
-            },
-          ];
-        } else if (type === "xbull") {
-          if (window.xBullSDK) {
-            address = await window.xBullSDK.getPublicKey();
-          } else {
-            const mockXbullKey =
-              "GXBULL" +
-              Array.from(
-                { length: 50 },
-                (_, i) => "0123456789ABCDEF"[i % 16],
-              ).join("");
-            address = mockXbullKey;
-          }
-          fetchedAccounts = [{ address, name: "xBull Account 1" }];
-        } else if (type === "rango") {
-          const mockRangoKey =
-            "GRANGO" +
-            Array.from(
-              { length: 50 },
-              (_, i) => "0123456789ABCDEF"[i % 16],
-            ).join("");
-          address = mockRangoKey;
-          fetchedAccounts = [{ address, name: "Rango Web Wallet" }];
-        } else if (type === "soroban-wallet") {
-          if (!window.soroban) throw new Error("Soroban wallet not found");
-          const res = await window.soroban.getPublicKey();
-          address = res;
-          net = await window.soroban.getNetwork();
-          fetchedAccounts = [{ address, name: "Soroban Wallet" }];
+        const { address } = await kit.fetchAddress();
+        if (!address) throw new Error("Wallet returned no account address.");
+
+        const configuredNetwork = getConfiguredNetwork();
+        let net = configuredNetwork.name;
+        let passphrase = configuredNetwork.passphrase;
+        if (type !== "ledger") {
+          try {
+            const networkInfo = await kit.getNetwork();
+            net = networkInfo.network;
+            passphrase = networkInfo.networkPassphrase;
+          } catch {}
         }
 
         setActiveWallet(type);
         setActiveAccount(address);
-        setAllAccounts(fetchedAccounts);
+        setAllAccounts([{ address, name: `${type} Account` }]);
         setNetwork(net);
+        setNetworkPassphrase(passphrase);
+        setHorizonSignerKeys([]);
         setStatus("connected");
+        setSessionValidation("checking");
+        setReauthenticationRequired(false);
+        setReauthenticationWallet(null);
+        const activityTime = Date.now();
+        lastActivityWriteRef.current = activityTime;
+        setLastActivityAt(activityTime);
         setLastAttemptedWallet(null);
 
-        localStorage.setItem("preferred_wallet", type);
+        try {
+          window.localStorage.setItem("preferred_wallet", type);
+        } catch {}
       } catch (err) {
-        const msg =
-          err instanceof Error ? err.message : "Failed to connect wallet";
+        const msg = walletErrorMessage(err, "Failed to connect wallet");
         setStatus("error");
         setError(msg);
         console.error("Wallet connection error:", msg);
       }
     },
-    [isWalletDetected],
+    [refreshWallets],
   );
 
   const disconnect = useCallback(() => {
+    if (activeWallet) {
+      void initializeWalletKit()
+        .then((kit) => kit.disconnect())
+        .catch(() => {});
+    }
     setActiveWallet(null);
     setActiveAccount(null);
     setAllAccounts([]);
     setNetwork(null);
+    setNetworkPassphrase(TESTNET_PASSPHRASE);
     setStatus("idle");
+    setSessionValidation("idle");
+    setHorizonSignerKeys([]);
+    setReauthenticationRequired(false);
+    setReauthenticationWallet(null);
+    setLastActivityAt(0);
     setError(null);
     setLastAttemptedWallet(null);
-    localStorage.removeItem("preferred_wallet");
-  }, []);
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.removeItem("preferred_wallet");
+      } catch {}
+      removePersistedSession();
+    }
+  }, [activeWallet]);
+
+  const reauthenticate = useCallback(async () => {
+    if (reauthenticationWallet) await connect(reauthenticationWallet);
+  }, [connect, reauthenticationWallet]);
 
   const switchAccount = useCallback((address: string) => {
-    setActiveAccount(address);
-  }, []);
+    setActiveAccount((current) =>
+      allAccounts.some((account) => account.address === address)
+        ? address
+        : current,
+    );
+  }, [allAccounts]);
 
   const retry = useCallback(async () => {
     if (lastAttemptedWallet) {
@@ -230,49 +520,287 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         return null;
       }
 
+      let timeoutId: number | undefined;
+      let kit: WalletKit | null = null;
       try {
-        if (activeWallet === "freighter") {
-          const result = await freighterApi.signTransaction(xdr, {
-            networkPassphrase: network ?? "Test SDF Network ; November 2015",
-          });
-          return typeof result === "string"
-            ? result
-            : result.signedTxXdr || null;
-        } else if (activeWallet === "albedo") {
-          if (window.albedo && typeof window.albedo.tx === "function") {
-            const res = await window.albedo.tx({
-              xdr,
-              network: network ?? "TESTNET",
-            });
-            return res.signed_envelope_xdr;
-          }
-          return xdr;
-        } else if (activeWallet === "xbull") {
-          if (window.xBullSDK) {
-            return await window.xBullSDK.signXDR(xdr);
-          }
-          return xdr;
+        kit = await initializeWalletKit();
+        kit.setWallet(WALLET_MODULE_IDS[activeWallet]);
+        const signingRequest = kit.signTransaction(xdr, {
+          networkPassphrase,
+          address: activeWallet === "ledger" ? undefined : activeAccount ?? undefined,
+        });
+        const result =
+          activeWallet === "ledger"
+            ? await Promise.race([
+                signingRequest,
+                new Promise<never>((_, reject) => {
+                  timeoutId = window.setTimeout(
+                    () => reject(new Error("LEDGER_SIGNING_TIMEOUT")),
+                    LEDGER_SIGNING_TIMEOUT_MS,
+                  );
+                }),
+              ])
+            : await signingRequest;
+        if (
+          result.signerAddress &&
+          activeAccount &&
+          result.signerAddress !== activeAccount
+        ) {
+          requireReauthentication(activeWallet);
+          setError("The wallet account changed. Reconnect to continue signing.");
+          return null;
         }
-        return xdr;
+        return result.signedTxXdr || null;
       } catch (err) {
+        if (
+          activeWallet === "ledger" &&
+          err instanceof Error &&
+          err.message === "LEDGER_SIGNING_TIMEOUT"
+        ) {
+          if (kit) void kit.disconnect().catch(() => {});
+          requireReauthentication("ledger");
+          setError("Ledger confirmation timed out. Reconnect your device and try again.");
+          return null;
+        }
         const errMsg =
           err instanceof Error ? err.message : "Transaction signing failed";
         setError(errMsg);
         console.error("Transaction signing error:", errMsg);
         return null;
+      } finally {
+        if (timeoutId !== undefined) window.clearTimeout(timeoutId);
       }
     },
-    [activeWallet, status, network],
+    [
+      activeWallet,
+      activeAccount,
+      status,
+      networkPassphrase,
+      requireReauthentication,
+    ],
   );
 
   useEffect(() => {
-    const preferred = localStorage.getItem(
-      "preferred_wallet",
-    ) as WalletType | null;
-    if (preferred && isWalletDetected(preferred)) {
-      connect(preferred, true);
+    if (typeof window === "undefined") return;
+    let isMounted = true;
+
+    void refreshWallets().catch((err) => {
+      if (isMounted) {
+        setError(walletErrorMessage(err, "Wallet discovery failed"));
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [refreshWallets]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || activeWallet !== "ledger") return;
+
+    const syncSelectedNetwork = () => {
+      const selectedNetwork = getConfiguredNetwork();
+      setNetwork(selectedNetwork.name);
+      setNetworkPassphrase(selectedNetwork.passphrase);
+    };
+
+    window.addEventListener("soroban-network-change", syncSelectedNetwork);
+    return () =>
+      window.removeEventListener("soroban-network-change", syncSelectedNetwork);
+  }, [activeWallet]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const session = readPersistedSession();
+    if (!session) {
+      removePersistedSession();
+      return;
     }
-  }, [connect, isWalletDetected]);
+
+    const now = Date.now();
+    if (
+      session.lastActivityAt > now + 60_000 ||
+      now - session.lastActivityAt >= SESSION_INACTIVITY_MS
+    ) {
+      removePersistedSession();
+      setReauthenticationWallet(session.wallet);
+      setReauthenticationRequired(true);
+      setError("Your wallet session expired after inactivity. Reconnect to continue.");
+      return;
+    }
+
+    setActiveWallet(session.wallet);
+    setActiveAccount(session.address);
+    setAllAccounts([{ address: session.address, name: `${session.wallet} Account` }]);
+    setNetwork(session.network);
+    setNetworkPassphrase(session.networkPassphrase);
+    setLastActivityAt(session.lastActivityAt);
+    setHorizonSignerKeys(session.signerKeys);
+    lastActivityWriteRef.current = session.lastActivityAt;
+    setSessionValidation("checking");
+    setStatus("connected");
+  }, []);
+
+  useEffect(() => {
+    if (
+      status !== "connected" ||
+      !activeWallet ||
+      !activeAccount ||
+      !lastActivityAt
+    ) {
+      return;
+    }
+
+    writePersistedSession({
+      version: SESSION_VERSION,
+      wallet: activeWallet,
+      address: activeAccount,
+      network: network ?? "TESTNET",
+      networkPassphrase,
+      lastActivityAt,
+      signerKeys: horizonSignerKeys,
+    });
+  }, [
+    activeWallet,
+    activeAccount,
+    status,
+    network,
+    networkPassphrase,
+    lastActivityAt,
+    horizonSignerKeys,
+  ]);
+
+  useEffect(() => {
+    if (status !== "connected" || !activeWallet || !activeAccount) return;
+    let isMounted = true;
+
+    const revalidate = async () => {
+      setSessionValidation("checking");
+      try {
+        const snapshot = await validateHorizonAccount(
+          activeAccount,
+          networkPassphrase,
+        );
+        if (!isMounted) return;
+        const existingSession = readPersistedSession();
+        if (!snapshot) {
+          if (
+            existingSession?.wallet === activeWallet &&
+            existingSession.address === activeAccount &&
+            existingSession.signerKeys.length > 0
+          ) {
+            requireReauthentication(activeWallet);
+            setError("This wallet account is no longer available on Horizon. Reconnect to continue.");
+          } else {
+            setSessionValidation("unavailable");
+          }
+          return;
+        }
+
+        const previousSignerKeys =
+          existingSession?.wallet === activeWallet &&
+          existingSession.address === activeAccount
+            ? existingSession.signerKeys
+            : horizonSignerKeys;
+        if (
+          previousSignerKeys.length > 0 &&
+          JSON.stringify(previousSignerKeys) !== JSON.stringify(snapshot.signerKeys)
+        ) {
+          requireReauthentication(activeWallet);
+          setError("The account signers changed. Reconnect your wallet to continue.");
+          return;
+        }
+
+        setHorizonSignerKeys(snapshot.signerKeys);
+        setSessionValidation("verified");
+      } catch {
+        if (isMounted) setSessionValidation("unavailable");
+      }
+    };
+
+    void revalidate();
+    const interval = window.setInterval(
+      revalidate,
+      HORIZON_VALIDATION_INTERVAL_MS,
+    );
+    return () => {
+      isMounted = false;
+      window.clearInterval(interval);
+    };
+  }, [
+    activeWallet,
+    activeAccount,
+    status,
+    networkPassphrase,
+    horizonSignerKeys,
+    requireReauthentication,
+  ]);
+
+  useEffect(() => {
+    if (status !== "connected" || !activeWallet || !activeAccount) return;
+
+    let timeout: number;
+    const checkInactivity = () => {
+      const remaining = SESSION_INACTIVITY_MS - (Date.now() - lastActivityAt);
+      if (remaining <= 0) {
+        requireReauthentication(activeWallet);
+        setError("Your wallet session expired after inactivity. Reconnect to continue.");
+        return;
+      }
+      timeout = window.setTimeout(checkInactivity, remaining);
+    };
+
+    timeout = window.setTimeout(
+      checkInactivity,
+      Math.max(0, SESSION_INACTIVITY_MS - (Date.now() - lastActivityAt)),
+    );
+    return () => window.clearTimeout(timeout);
+  }, [status, activeWallet, activeAccount, lastActivityAt, requireReauthentication]);
+
+  useEffect(() => {
+    if (status !== "connected" || !activeWallet || !activeAccount) return;
+
+    const recordActivity = () => {
+      const now = Date.now();
+      if (now - lastActivityWriteRef.current < 15_000) return;
+      lastActivityWriteRef.current = now;
+      setLastActivityAt(now);
+
+      const session = readPersistedSession();
+      if (session?.wallet === activeWallet && session.address === activeAccount) {
+        writePersistedSession({ ...session, lastActivityAt: now });
+      }
+    };
+
+    window.addEventListener("pointerdown", recordActivity);
+    window.addEventListener("keydown", recordActivity);
+    window.addEventListener("touchstart", recordActivity);
+    return () => {
+      window.removeEventListener("pointerdown", recordActivity);
+      window.removeEventListener("keydown", recordActivity);
+      window.removeEventListener("touchstart", recordActivity);
+    };
+  }, [status, activeWallet, activeAccount]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const syncSession = (event: StorageEvent) => {
+      if (event.key !== SESSION_STORAGE_KEY) return;
+      const session = parsePersistedSession(event.newValue);
+      if (!session && activeWallet) {
+        requireReauthentication(activeWallet);
+      } else if (
+        session &&
+        session.wallet === activeWallet &&
+        session.address === activeAccount
+      ) {
+        setLastActivityAt(session.lastActivityAt);
+      }
+    };
+
+    window.addEventListener("storage", syncSession);
+    return () => window.removeEventListener("storage", syncSession);
+  }, [activeWallet, activeAccount, requireReauthentication]);
 
   return (
     <WalletContext.Provider
@@ -283,7 +811,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         allAccounts,
         status,
         network,
+        networkPassphrase,
         error,
+        sessionValidation,
+        reauthenticationRequired,
+        reauthenticate,
         connect,
         disconnect,
         switchAccount,

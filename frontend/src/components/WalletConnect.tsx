@@ -1,12 +1,25 @@
 "use client";
 
 import React from "react";
-import { ExternalLink, Wallet, ArrowRight, CheckCircle2 } from "lucide-react";
+import {
+  ExternalLink,
+  Wallet,
+  ArrowRight,
+  CheckCircle2,
+  RefreshCw,
+} from "lucide-react";
 import Link from "next/link";
 import { useWallet } from "./providers/WalletProvider";
 
 export default function WalletConnect() {
-  const { status, address, network, activeWallet } = useWallet();
+  const {
+    status,
+    address,
+    network,
+    activeWallet,
+    reauthenticationRequired,
+    reauthenticate,
+  } = useWallet();
 
   const shortAddress = (addr: string) =>
     `${addr.slice(0, 8)}...${addr.slice(-6)}`;
@@ -25,6 +38,23 @@ export default function WalletConnect() {
           </span>
         )}
       </div>
+
+      {reauthenticationRequired && (
+        <div
+          className="flex items-center justify-between gap-2 border-l-2 border-amber-400 bg-amber-400/10 px-3 py-2 text-[11px] text-amber-200"
+          role="status"
+          aria-live="polite"
+        >
+          <span>Reconnect to refresh wallet access.</span>
+          <button
+            onClick={reauthenticate}
+            className="inline-flex shrink-0 items-center gap-1 font-semibold hover:text-white"
+          >
+            <RefreshCw size={12} />
+            Reconnect
+          </button>
+        </div>
+      )}
 
       {status === "connected" && address ? (
         <div className="space-y-4">

@@ -85,3 +85,40 @@ a {
   color: inherit;
   text-decoration: none;
 }
+
+@keyframes balance-flash-up {
+  from {
+    color: #6ee7b7;
+    background-color: rgba(16, 185, 129, 0.2);
+  }
+  to {
+    color: inherit;
+    background-color: transparent;
+  }
+}
+
+@keyframes balance-flash-down {
+  from {
+    color: #fda4af;
+    background-color: rgba(244, 63, 94, 0.2);
+  }
+  to {
+    color: inherit;
+    background-color: transparent;
+  }
+}
+
+.balance-delta-up {
+  animation: balance-flash-up 900ms ease-out;
+}
+
+.balance-delta-down {
+  animation: balance-flash-down 900ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .balance-delta-up,
+  .balance-delta-down {
+    animation: none;
+  }
+}

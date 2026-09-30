@@ -10,6 +10,8 @@ import {
   ShieldCheck,
   RefreshCw,
   KeyRound,
+  Smartphone,
+  Usb,
 } from "lucide-react";
 import { useWallet, WalletType } from "./providers/WalletProvider";
 
@@ -32,6 +34,9 @@ export default function WalletConnectionWizard() {
     switchAccount,
     status,
     error,
+    reauthenticationRequired,
+    reauthenticate,
+    sessionValidation,
     isWalletDetected,
     retry,
     lastAttemptedWallet,
@@ -64,25 +69,50 @@ export default function WalletConnectionWizard() {
       typeBadge: "Extension / Mobile",
     },
     {
-      id: "rango",
-      name: "Rango Suite",
-      description: "Cross-chain Stellar & Soroban multi-wallet gateway",
-      icon: <RefreshCw className="text-blue-400" size={22} />,
-      installUrl: "https://rango.exchange",
-      typeBadge: "Web Suite",
+      id: "hana",
+      name: "Hana Wallet",
+      description: "Stellar browser wallet for accounts and Soroban signing",
+      icon: <Smartphone className="text-blue-400" size={22} />,
+      installUrl: "https://hana.money",
+      typeBadge: "Extension",
     },
     {
-      id: "soroban-wallet",
-      name: "Soroban Wallet",
-      description: "Developer-focused browser extension for local testing",
-      icon: <Wallet className="text-orange-400" size={22} />,
-      installUrl: "https://soroban.stellar.org",
-      typeBadge: "Dev Tools",
+      id: "walletconnect",
+      name: "WalletConnect",
+      description: "Connect a compatible Stellar wallet with a QR code",
+      icon: <RefreshCw className="text-indigo-300" size={22} />,
+      installUrl: "https://walletconnect.com/wallets",
+      typeBadge: "Mobile / QR",
+    },
+    {
+      id: "ledger",
+      name: "Ledger",
+      description: "Review and sign Stellar transactions on your hardware wallet",
+      icon: <Usb className="text-amber-300" size={22} />,
+      installUrl: "https://www.ledger.com/",
+      typeBadge: "WebHID / WebUSB",
     },
   ];
 
   return (
     <div className="space-y-6">
+      {reauthenticationRequired && (
+        <div
+          className="flex flex-wrap items-center justify-between gap-3 border-l-2 border-amber-400 bg-amber-400/10 px-4 py-3 text-sm text-amber-100"
+          role="status"
+          aria-live="polite"
+        >
+          <span>Reconnect your wallet to refresh this session.</span>
+          <button
+            onClick={reauthenticate}
+            className="inline-flex items-center gap-1.5 font-semibold text-amber-200 hover:text-white"
+          >
+            <RefreshCw size={14} />
+            Reconnect
+          </button>
+        </div>
+      )}
+
       <div className="flex items-center justify-between border-b border-white/10 pb-4">
         <div>
           <h2 className="text-base font-bold text-white flex items-center gap-2">
@@ -114,6 +144,16 @@ export default function WalletConnectionWizard() {
               Connected
             </span>
           </div>
+          {sessionValidation === "checking" && (
+            <p className="text-[11px] text-slate-400" role="status">
+              Verifying account on Horizon...
+            </p>
+          )}
+          {sessionValidation === "unavailable" && (
+            <p className="text-[11px] text-amber-300" role="status">
+              Horizon is unavailable; the wallet remains connected.
+            </p>
+          )}
           <div className="font-mono text-xs text-slate-200 bg-slate-950 p-2.5 rounded-xl border border-white/5 truncate">
             {activeAccount}
           </div>
@@ -146,7 +186,7 @@ export default function WalletConnectionWizard() {
           const isDetected = isWalletDetected(wallet.id);
           const isActive = activeWallet === wallet.id && status === "connected";
           const isConnecting =
-            activeWallet === wallet.id && status === "connecting";
+            lastAttemptedWallet === wallet.id && status === "connecting";
 
           return (
             <div
@@ -188,7 +228,10 @@ export default function WalletConnectionWizard() {
               {!isDetected ? (
                 <div className="mt-auto space-y-3 pt-2">
                   <p className="text-[11px] text-slate-500">
-                    Not detected in browser.
+                    {wallet.id === "walletconnect" &&
+                    !process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
+                      ? "Set NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID to enable."
+                      : "Not detected in browser."}
                   </p>
                   <a
                     href={wallet.installUrl}
