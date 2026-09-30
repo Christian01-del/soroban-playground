@@ -70,7 +70,7 @@ parentPort.on('message', async (job) => {
           sizeBytes: 0,
           path: path.join(job.cacheRoot, `${job.hash}.wasm`),
         },
-        logs: [error.message],
+        logs: error.message.split(/\r?\n/).filter(Boolean),
         memoryPeakBytes: 0,
       },
     });
@@ -83,7 +83,13 @@ function runCargoBuild(cwd, timeoutMs) {
   return new Promise((resolve, reject) => {
     const child = spawn(
       'cargo',
-      ['build', '--target', 'wasm32-unknown-unknown', '--release'],
+      [
+        'build',
+        '--target',
+        'wasm32-unknown-unknown',
+        '--release',
+        '--message-format=json',
+      ],
       {
         cwd,
         shell: false,

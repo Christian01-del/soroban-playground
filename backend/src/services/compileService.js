@@ -418,6 +418,12 @@ async function compileOnce({ code, dependencies = {}, requestId }) {
       'compile.memory_peak_mb': (result.memoryPeakBytes || 0) / (1024 * 1024),
     });
 
+    if (!result.success) {
+      const error = new Error('Cargo compilation failed');
+      error.logs = result.logs || [];
+      throw error;
+    }
+
     const payload = {
       hash,
       requestId,

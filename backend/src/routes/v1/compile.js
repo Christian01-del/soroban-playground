@@ -52,9 +52,20 @@ router.post(
         },
       });
     } catch (error) {
-      return next(
-        createHttpError(500, 'Compilation failed', { details: error.message })
-      );
+      if (!Array.isArray(error.logs)) {
+        return next(
+          createHttpError(500, 'Compilation failed', {
+            details: error.message,
+          })
+        );
+      }
+
+      return res.status(422).json({
+        success: false,
+        status: 'failed',
+        message: 'Compilation failed',
+        logs: error.logs || [error.message],
+      });
     }
   })
 );

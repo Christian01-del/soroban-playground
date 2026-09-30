@@ -13,6 +13,10 @@ import {
   Sparkles,
 } from "lucide-react";
 import Editor from "@/components/Editor";
+import EditorHistoryPanel from "@/components/EditorHistoryPanel";
+import { parseCargoDiagnostics } from "@/utils/cargoDiagnostics";
+import type { CargoDiagnostic } from "@/utils/cargoDiagnostics";
+import { useEditorHistory } from "@/hooks/useEditorHistory";
 import Console from "@/components/Console";
 import DeployPanel from "@/components/DeployPanel";
 import CallPanel from "@/components/CallPanel";
@@ -86,6 +90,7 @@ type CompileResponse = {
   durationMs?: number;
   hash?: string;
   logs?: string[];
+  diagnostics?: unknown[];
   artifact?: {
     name: string;
     sizeBytes: number;
@@ -111,6 +116,7 @@ type ApiErrorPayload = {
   message?: string;
   statusCode?: number;
   details?: unknown;
+  logs?: string[];
 };
 
 type InvokeProgressEvent = {
@@ -294,6 +300,11 @@ export default function Home() {
 
   const [compileSummary, setCompileSummary] = useState<string>();
   const [compileError, setCompileError] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<CargoDiagnostic[]>([]);
+  const editorHistory = useEditorHistory(code, (restoredCode) => {
+    setCode(restoredCode);
+    setDiagnostics([]);
+  });
   const [compileStats, setCompileStats] = useState<CompileStats>({
     activeWorkers: 0,
     maxWorkers: 4,
@@ -512,7 +523,11 @@ export default function Home() {
         : typeof payload.details === "string"
           ? payload.details
           : "";
-      throw new Error([payload.message, details].filter(Boolean).join(": "));
+      const error = new Error(
+        [payload.message, details].filter(Boolean).join(": "),
+      ) as Error & { details?: unknown };
+      error.details = payload.details ?? (payload.logs ? { logs: payload.logs } : undefined);
+      throw error;
     }
 
     return payload;
@@ -521,6 +536,7 @@ export default function Home() {
   const handleCompile = async () => {
     setIsCompiling(true);
     setCompileError(null);
+    setDiagnostics([]);
     setCompileSummary(undefined);
     setHasCompiled(false);
     setContractId(undefined);
@@ -536,6 +552,7 @@ export default function Home() {
         code,
       });
       const compileLogs = payload.logs ?? [];
+      setDiagnostics(parseCargoDiagnostics(payload.diagnostics ?? compileLogs));
 
       setHasCompiled(true);
       setLastArtifactName(payload.artifact?.name ?? "contract.wasm");
@@ -562,6 +579,15 @@ export default function Home() {
       compileLogs.forEach((log) => appendLog(`[cargo] ${log}`));
     } catch (error) {
       const message = formatApiError(error);
+      const details =
+        error && typeof error === "object" && "details" in error
+          ? error.details
+          : undefined;
+      const failureLogs =
+        details && typeof details === "object" && "logs" in details
+          ? details.logs
+          : details;
+      setDiagnostics(parseCargoDiagnostics(failureLogs));
       setCompileError(message);
       appendLog(`[error] Compile failed: ${message}`);
     } finally {
@@ -2166,7 +2192,20 @@ export default function Home() {
                 Soroban Docs
               </a>
             </div>
-            <Editor code={code} setCode={setCode} />
+            <Editor
+              code={code}
+              setCode={(value) => {
+                setCode(value);
+                setDiagnostics([]);
+              }}
+              diagnostics={diagnostics}
+            />
+            <EditorHistoryPanel
+              {...editorHistory}
+              currentCode={code}
+              onRestore={editorHistory.restoreSnapshot}
+              onResolveConflict={editorHistory.resolveConflict}
+            />
           </section>
 
           <aside className="flex flex-col gap-4 bg-slate-950/40 p-4">
