@@ -16,6 +16,8 @@ const CONTRACT_ID_RE = /^C[A-Z2-7]{55}$/;
 const NETWORK_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,31}$/;
 // Identity alias (stellar keys) or a G/S StrKey — never a CLI flag.
 const SOURCE_ACCOUNT_RE = /^[a-zA-Z0-9_][a-zA-Z0-9_-]{0,63}$/;
+// Stellar StrKey ed25519 public key: 'G' + 55 base32 characters.
+const INVOKER_ADDRESS_RE = /^G[A-Z2-7]{55}$/;
 const MAX_BATCH_SIZE = 20;
 
 function requiredString(field, message) {
@@ -61,6 +63,68 @@ export const invokeArgs = z
     message: 'args may contain at most 64 entries',
   });
 
+// ── Custom Invocation Authorization Matrix (require_auth) ───────────────────
+// Allows developers to inject arbitrary invoker addresses, mock signatures,
+// and custom authorization trees during in-browser test simulations.
+
+const invokerAddress = (field = 'invoker') =>
+  requiredString(field, `${field} must be a valid Stellar G-address`).regex(
+    INVOKER_ADDRESS_RE,
+    `${field} must be a valid Stellar G-address`
+  );
+
+const mockSignature = z
+  .string({ invalid_type_error: 'signature must be a string' })
+  .max(256, 'signature must be at most 256 characters')
+  .regex(/^[0-9a-fA-F]*$/, 'signature must be a hex string');
+
+const authNode = z.lazy(() =>
+  z.object({
+    address: invokerAddress('address'),
+    signature: optional(mockSignature),
+    nonce: optional(
+      z
+        .number({ invalid_type_error: 'nonce must be a number' })
+        .int('nonce must be an integer')
+        .nonnegative('nonce must be non-negative')
+    ),
+    subInvocations: optional(
+      z
+        .array(authNode, {
+          invalid_type_error: 'subInvocations must be an array',
+        })
+        .max(32, 'subInvocations may contain at most 32 entries')
+    ),
+  })
+);
+
+export const authMatrix = z
+  .object(
+    {
+      invoker: optional(invokerAddress('invoker')),
+      requireAuth: optional(z.boolean()),
+      signatures: optional(
+        z
+          .array(mockSignature, {
+            invalid_type_error: 'signatures must be an array',
+          })
+          .max(32, 'signatures may contain at most 32 entries')
+      ),
+      authTree: optional(authNode),
+    },
+    { invalid_type_error: 'auth must be an object' }
+  )
+  .refine(
+    (value) =>
+      !value.requireAuth ||
+      value.invoker !== undefined ||
+      value.authTree !== undefined,
+    {
+      message:
+        'auth.invoker or auth.authTree is required when requireAuth is true',
+    }
+  );
+
 const wasmPath = (field) =>
   requiredString(field)
     .min(1, `${field} is required`)
@@ -82,6 +146,7 @@ export const invokeBodyV1 = z.object({
   args: optional(invokeArgs),
   network: optional(network('network')),
   sourceAccount: optional(sourceAccount('sourceAccount')),
+  auth: optional(authMatrix),
 });
 
 export const invokeBodyV2 = z.object({
@@ -90,6 +155,7 @@ export const invokeBodyV2 = z.object({
   args: optional(invokeArgs),
   network: optional(network('network')),
   source_account: optional(sourceAccount('source_account')),
+  auth: optional(authMatrix),
 });
 
 // ── Deploy ──────────────────────────────────────────────────────────────────
