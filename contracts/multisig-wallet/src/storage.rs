@@ -3,25 +3,18 @@
 
 use soroban_sdk::{Address, Env};
 
-use crate::types::{DataKey, Error, InstanceKey, Role, Signer, Transaction};
+use crate::types::{DataKey, Error, InstanceKey, Transaction};
 
 // ── Initialisation guard ──────────────────────────────────────────────────────
 
 pub fn is_initialized(env: &Env) -> bool {
-    env.storage().instance().has(&InstanceKey::Admin)
+    env.storage().instance().has(&InstanceKey::Initialized)
 }
 
-// ── Admin ─────────────────────────────────────────────────────────────────────
-
-pub fn set_admin(env: &Env, admin: &Address) {
-    env.storage().instance().set(&InstanceKey::Admin, admin);
-}
-
-pub fn get_admin(env: &Env) -> Result<Address, Error> {
+pub fn set_initialized(env: &Env) {
     env.storage()
         .instance()
-        .get(&InstanceKey::Admin)
-        .ok_or(Error::NotInitialized)
+        .set(&InstanceKey::Initialized, &true);
 }
 
 // ── Threshold ─────────────────────────────────────────────────────────────────
@@ -37,44 +30,75 @@ pub fn get_threshold(env: &Env) -> u32 {
         .unwrap_or(1)
 }
 
-// ── Signer count ──────────────────────────────────────────────────────────────
+// ── Delays ────────────────────────────────────────────────────────────────────
 
-pub fn get_signer_count(env: &Env) -> u32 {
+pub fn set_min_delay(env: &Env, d: u64) {
+    env.storage().instance().set(&InstanceKey::MinDelay, &d);
+}
+
+pub fn get_min_delay(env: &Env) -> u64 {
     env.storage()
         .instance()
-        .get(&InstanceKey::SignerCount)
+        .get(&InstanceKey::MinDelay)
         .unwrap_or(0)
 }
 
-pub fn set_signer_count(env: &Env, n: u32) {
-    env.storage().instance().set(&InstanceKey::SignerCount, &n);
+pub fn set_max_delay(env: &Env, d: u64) {
+    env.storage().instance().set(&InstanceKey::MaxDelay, &d);
 }
 
-// ── Signers ───────────────────────────────────────────────────────────────────
-
-pub fn set_signer(env: &Env, signer: &Signer) {
+pub fn get_max_delay(env: &Env) -> u64 {
     env.storage()
-        .persistent()
-        .set(&DataKey::Signer(signer.address.clone()), signer);
+        .instance()
+        .get(&InstanceKey::MaxDelay)
+        .unwrap_or(0)
 }
 
-pub fn get_signer(env: &Env, addr: &Address) -> Result<Signer, Error> {
+// ── Owners ────────────────────────────────────────────────────────────────────
+
+pub fn get_owner_count(env: &Env) -> u32 {
     env.storage()
-        .persistent()
-        .get(&DataKey::Signer(addr.clone()))
-        .ok_or(Error::SignerNotFound)
+        .instance()
+        .get(&InstanceKey::OwnerCount)
+        .unwrap_or(0)
 }
 
-pub fn has_signer(env: &Env, addr: &Address) -> bool {
+pub fn set_owner_count(env: &Env, count: u32) {
     env.storage()
-        .persistent()
-        .has(&DataKey::Signer(addr.clone()))
+        .instance()
+        .set(&InstanceKey::OwnerCount, &count);
 }
 
-pub fn remove_signer(env: &Env, addr: &Address) {
+pub fn get_owner_at(env: &Env, idx: u32) -> Option<Address> {
+    env.storage().persistent().get(&DataKey::OwnerAt(idx))
+}
+
+pub fn set_owner_at(env: &Env, idx: u32, owner: &Address) {
     env.storage()
         .persistent()
-        .remove(&DataKey::Signer(addr.clone()));
+        .set(&DataKey::OwnerAt(idx), owner);
+}
+
+pub fn remove_owner_at(env: &Env, idx: u32) {
+    env.storage().persistent().remove(&DataKey::OwnerAt(idx));
+}
+
+pub fn has_owner(env: &Env, addr: &Address) -> bool {
+    env.storage()
+        .persistent()
+        .has(&DataKey::IsOwner(addr.clone()))
+}
+
+pub fn set_is_owner(env: &Env, addr: &Address) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::IsOwner(addr.clone()), &true);
+}
+
+pub fn remove_is_owner(env: &Env, addr: &Address) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::IsOwner(addr.clone()));
 }
 
 // ── Transactions ──────────────────────────────────────────────────────────────
@@ -103,62 +127,83 @@ pub fn get_tx(env: &Env, id: u32) -> Result<Transaction, Error> {
         .ok_or(Error::TransactionNotFound)
 }
 
-// ── Approvals ─────────────────────────────────────────────────────────────────
+// ── Confirmations ─────────────────────────────────────────────────────────────
 
-pub fn has_approved(env: &Env, tx_id: u32, signer: &Address) -> bool {
+pub fn is_confirmed(env: &Env, tx_id: u32, owner: &Address) -> bool {
     env.storage()
         .persistent()
-        .has(&DataKey::Approval(tx_id, signer.clone()))
+        .has(&DataKey::Confirmation(tx_id, owner.clone()))
 }
 
-pub fn record_approval(env: &Env, tx_id: u32, signer: &Address) {
+pub fn record_confirmation(env: &Env, tx_id: u32, owner: &Address) {
     env.storage()
         .persistent()
-        .set(&DataKey::Approval(tx_id, signer.clone()), &true);
+        .set(&DataKey::Confirmation(tx_id, owner.clone()), &true);
 }
 
-// ── Daily withdrawal limit ────────────────────────────────────────────────────
-
-pub fn get_daily_limit(env: &Env) -> i128 {
+pub fn remove_confirmation(env: &Env, tx_id: u32, owner: &Address) {
     env.storage()
-        .instance()
-        .get(&InstanceKey::DailyLimit)
-        .unwrap_or(i128::MAX)
+        .persistent()
+        .remove(&DataKey::Confirmation(tx_id, owner.clone()));
 }
 
-pub fn set_daily_limit(env: &Env, limit: i128) {
+// ── Owner weights, pubkeys & nonces ─────────────────────────────────────────
+
+/// Voting weight of an owner. Defaults to 1 so wallets configured before
+/// weights existed behave exactly as before.
+pub fn get_owner_weight(env: &Env, owner: &Address) -> u32 {
     env.storage()
-        .instance()
-        .set(&InstanceKey::DailyLimit, &limit);
+        .persistent()
+        .get(&DataKey::OwnerWeight(owner.clone()))
+        .unwrap_or(1)
 }
 
-/// Returns (withdrawn_today, day_start_ts).
-pub fn get_daily_state(env: &Env) -> (i128, u64) {
-    let withdrawn: i128 = env
-        .storage()
-        .instance()
-        .get(&InstanceKey::WithdrawnToday)
-        .unwrap_or(0);
-    let day_start: u64 = env
-        .storage()
-        .instance()
-        .get(&InstanceKey::DayStart)
-        .unwrap_or(0);
-    (withdrawn, day_start)
-}
-
-pub fn set_daily_state(env: &Env, withdrawn: i128, day_start: u64) {
+pub fn set_owner_weight(env: &Env, owner: &Address, weight: u32) {
     env.storage()
-        .instance()
-        .set(&InstanceKey::WithdrawnToday, &withdrawn);
-    env.storage()
-        .instance()
-        .set(&InstanceKey::DayStart, &day_start);
+        .persistent()
+        .set(&DataKey::OwnerWeight(owner.clone()), &weight);
 }
 
-// ── Role helpers ──────────────────────────────────────────────────────────────
+pub fn remove_owner_weight(env: &Env, owner: &Address) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::OwnerWeight(owner.clone()));
+}
 
-/// Returns the role of `addr`, or `Error::SignerNotFound`.
-pub fn role_of(env: &Env, addr: &Address) -> Result<Role, Error> {
-    Ok(get_signer(env, addr)?.role)
+pub fn get_owner_pubkey(env: &Env, owner: &Address) -> Option<soroban_sdk::BytesN<32>> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::OwnerPubkey(owner.clone()))
+}
+
+pub fn set_owner_pubkey(env: &Env, owner: &Address, pubkey: &soroban_sdk::BytesN<32>) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::OwnerPubkey(owner.clone()), pubkey);
+}
+
+pub fn remove_owner_pubkey(env: &Env, owner: &Address) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::OwnerPubkey(owner.clone()));
+}
+
+/// Monotonic nonce consumed by off-chain signature confirmations.
+pub fn get_owner_nonce(env: &Env, owner: &Address) -> u64 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::OwnerNonce(owner.clone()))
+        .unwrap_or(0)
+}
+
+pub fn set_owner_nonce(env: &Env, owner: &Address, nonce: u64) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::OwnerNonce(owner.clone()), &nonce);
+}
+
+pub fn remove_owner_nonce(env: &Env, owner: &Address) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::OwnerNonce(owner.clone()));
 }

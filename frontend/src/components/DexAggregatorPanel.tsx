@@ -61,7 +61,11 @@ interface DexAggregatorPanelProps {
     reserveB: number;
     feeBps: number;
   }) => Promise<void>;
-  onGetQuotes: (tokenIn: string, tokenOut: string, amountIn: number) => Promise<QuoteData[]>;
+  onGetQuotes: (
+    tokenIn: string,
+    tokenOut: string,
+    amountIn: number,
+  ) => Promise<QuoteData[]>;
   onSwapBestRoute: (params: {
     tokenIn: string;
     tokenOut: string;
@@ -110,7 +114,8 @@ export default function DexAggregatorPanel({
     if (tokenA === tokenB) return setError("Token A and B must differ.");
     const rA = parseFloat(reserveA);
     const rB = parseFloat(reserveB);
-    if (!rA || rA <= 0 || !rB || rB <= 0) return setError("Reserves must be > 0.");
+    if (!rA || rA <= 0 || !rB || rB <= 0)
+      return setError("Reserves must be > 0.");
     const fee = parseInt(feeBps);
     if (isNaN(fee) || fee > 1000) return setError("Fee must be 0–1000 bps.");
     if (!contractId) return setError("Deploy a contract first.");
@@ -154,9 +159,7 @@ export default function DexAggregatorPanel({
     if (!contractId) return setError("Deploy a contract first.");
     const slip = parseFloat(slippage) / 100;
     const bestQuote = quotes.sort((a, b) => b.amountOut - a.amountOut)[0];
-    const minOut = bestQuote
-      ? Math.floor(bestQuote.amountOut * (1 - slip))
-      : 1;
+    const minOut = bestQuote ? Math.floor(bestQuote.amountOut * (1 - slip)) : 1;
     try {
       const result = await onSwapBestRoute({
         tokenIn: swapIn,
@@ -176,14 +179,22 @@ export default function DexAggregatorPanel({
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {[
           { label: "Pools", value: pools.length },
-          { label: "Active Pools", value: pools.filter((p) => p.isActive).length },
+          {
+            label: "Active Pools",
+            value: pools.filter((p) => p.isActive).length,
+          },
           {
             label: "Total Swaps",
             value: pools.reduce((s, p) => s + p.swapCount, 0),
           },
         ].map(({ label, value }) => (
-          <div key={label} className="rounded-lg border border-gray-800 bg-gray-900 p-3">
-            <p className="text-[10px] uppercase tracking-wider text-gray-500">{label}</p>
+          <div
+            key={label}
+            className="rounded-lg border border-gray-800 bg-gray-900 p-3"
+          >
+            <p className="text-[10px] uppercase tracking-wider text-gray-500">
+              {label}
+            </p>
             <p className="mt-1 font-mono text-sm text-violet-300">{value}</p>
           </div>
         ))}
@@ -216,7 +227,9 @@ export default function DexAggregatorPanel({
               onChange={(e) => setTokenA(e.target.value)}
               className="w-full rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-200 focus:border-violet-500 focus:outline-none"
             >
-              {TOKENS.map((t) => <option key={t}>{t}</option>)}
+              {TOKENS.map((t) => (
+                <option key={t}>{t}</option>
+              ))}
             </select>
           </div>
           <div>
@@ -228,7 +241,9 @@ export default function DexAggregatorPanel({
               onChange={(e) => setTokenB(e.target.value)}
               className="w-full rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-200 focus:border-violet-500 focus:outline-none"
             >
-              {TOKENS.map((t) => <option key={t}>{t}</option>)}
+              {TOKENS.map((t) => (
+                <option key={t}>{t}</option>
+              ))}
             </select>
           </div>
           <div>
@@ -297,7 +312,9 @@ export default function DexAggregatorPanel({
               onChange={(e) => setSwapIn(e.target.value)}
               className="w-full rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-200 focus:border-yellow-500 focus:outline-none"
             >
-              {TOKENS.map((t) => <option key={t}>{t}</option>)}
+              {TOKENS.map((t) => (
+                <option key={t}>{t}</option>
+              ))}
             </select>
           </div>
           <div>
@@ -309,7 +326,9 @@ export default function DexAggregatorPanel({
               onChange={(e) => setSwapOut(e.target.value)}
               className="w-full rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-200 focus:border-yellow-500 focus:outline-none"
             >
-              {TOKENS.map((t) => <option key={t}>{t}</option>)}
+              {TOKENS.map((t) => (
+                <option key={t}>{t}</option>
+              ))}
             </select>
           </div>
           <div>
@@ -447,7 +466,9 @@ export default function DexAggregatorPanel({
                 className="rounded-lg border border-gray-800 bg-gray-950 p-3"
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-gray-200">{p.name}</span>
+                  <span className="text-xs font-medium text-gray-200">
+                    {p.name}
+                  </span>
                   <span
                     className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${
                       p.isActive

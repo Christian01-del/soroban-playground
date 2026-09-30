@@ -51,7 +51,11 @@ interface Props {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const DEFAULT_API = "http://localhost:5000/api/orderbook";
+const DEFAULT_API =
+  (
+    process.env.NEXT_PUBLIC_API_URL ||
+    "https://soroban-playground.onrender.com/api"
+  ).replace(/\/$/, "") + "/orderbook";
 const POLL_INTERVAL_MS = 3000;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -88,7 +92,9 @@ export default function LimitOrderBookPanel({
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"book" | "trades" | "stats">("book");
+  const [activeTab, setActiveTab] = useState<"book" | "trades" | "stats">(
+    "book",
+  );
 
   // Form state
   const [side, setSide] = useState<"buy" | "sell">("buy");
@@ -110,7 +116,8 @@ export default function LimitOrderBookPanel({
         fetch(`${apiBase}/trades?limit=20`),
         fetch(`${apiBase}/stats`),
       ]);
-      if (!bookRes.ok || !tradesRes.ok || !statsRes.ok) throw new Error("Fetch failed");
+      if (!bookRes.ok || !tradesRes.ok || !statsRes.ok)
+        throw new Error("Fetch failed");
       const [bookData, tradesData, statsData] = await Promise.all([
         bookRes.json(),
         tradesRes.json(),
@@ -142,16 +149,24 @@ export default function LimitOrderBookPanel({
 
     const p = parseFloat(price);
     const q = parseFloat(quantity);
-    if (!owner.trim()) return setFormError("Owner / wallet address is required");
-    if (!Number.isFinite(p) || p <= 0) return setFormError("Price must be a positive number");
-    if (!Number.isFinite(q) || q <= 0) return setFormError("Quantity must be a positive number");
+    if (!owner.trim())
+      return setFormError("Owner / wallet address is required");
+    if (!Number.isFinite(p) || p <= 0)
+      return setFormError("Price must be a positive number");
+    if (!Number.isFinite(q) || q <= 0)
+      return setFormError("Quantity must be a positive number");
 
     setSubmitting(true);
     try {
       const res = await fetch(`${apiBase}/orders`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ owner: owner.trim(), side, price: p, quantity: q }),
+        body: JSON.stringify({
+          owner: owner.trim(),
+          side,
+          price: p,
+          quantity: q,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Failed to place order");
@@ -200,35 +215,53 @@ export default function LimitOrderBookPanel({
       </div>
 
       {error && (
-        <div role="alert" className="bg-red-900/40 border border-red-700 rounded p-3 text-sm text-red-300">
+        <div
+          role="alert"
+          className="bg-red-900/40 border border-red-700 rounded p-3 text-sm text-red-300"
+        >
           {error}
         </div>
       )}
 
       {/* Last trades flash */}
       {lastTrades.length > 0 && (
-        <div role="status" className="bg-green-900/30 border border-green-700 rounded p-3 text-sm text-green-300">
-          ✓ {lastTrades.length} trade{lastTrades.length > 1 ? "s" : ""} executed — qty{" "}
-          {lastTrades.map(t => fmt(t.quantity)).join(", ")} @ price{" "}
-          {lastTrades.map(t => fmt(t.price)).join(", ")}
+        <div
+          role="status"
+          className="bg-green-900/30 border border-green-700 rounded p-3 text-sm text-green-300"
+        >
+          ✓ {lastTrades.length} trade{lastTrades.length > 1 ? "s" : ""} executed
+          — qty {lastTrades.map((t) => fmt(t.quantity)).join(", ")} @ price{" "}
+          {lastTrades.map((t) => fmt(t.price)).join(", ")}
         </div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Order Form */}
-        <section aria-label="Place order" className="bg-gray-800 rounded-lg p-4">
-          <h2 className="text-sm font-semibold mb-3 text-gray-300">Place Order</h2>
-          <form onSubmit={handlePlaceOrder} noValidate className="flex flex-col gap-3">
+        <section
+          aria-label="Place order"
+          className="bg-gray-800 rounded-lg p-4"
+        >
+          <h2 className="text-sm font-semibold mb-3 text-gray-300">
+            Place Order
+          </h2>
+          <form
+            onSubmit={handlePlaceOrder}
+            noValidate
+            className="flex flex-col gap-3"
+          >
             {/* Owner */}
             <div>
-              <label htmlFor="lob-owner" className="block text-xs text-gray-400 mb-1">
+              <label
+                htmlFor="lob-owner"
+                className="block text-xs text-gray-400 mb-1"
+              >
                 Wallet Address
               </label>
               <input
                 id="lob-owner"
                 type="text"
                 value={owner}
-                onChange={e => setOwner(e.target.value)}
+                onChange={(e) => setOwner(e.target.value)}
                 placeholder="G..."
                 className="w-full bg-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 aria-required="true"
@@ -236,34 +269,53 @@ export default function LimitOrderBookPanel({
             </div>
 
             {/* Side toggle */}
-            <div role="group" aria-label="Order side" className="flex rounded overflow-hidden">
+            <div
+              role="group"
+              aria-label="Order side"
+              className="flex rounded overflow-hidden"
+            >
               <button
                 type="button"
                 onClick={() => setSide("buy")}
                 className={`flex-1 py-2 text-sm font-medium transition-colors ${
-                  side === "buy" ? "bg-green-600 text-white" : "bg-gray-700 text-gray-400 hover:bg-gray-600"
+                  side === "buy"
+                    ? "bg-green-600 text-white"
+                    : "bg-gray-700 text-gray-400 hover:bg-gray-600"
                 }`}
                 aria-pressed={side === "buy"}
               >
-                <TrendingUp size={14} className="inline mr-1" aria-hidden="true" />
+                <TrendingUp
+                  size={14}
+                  className="inline mr-1"
+                  aria-hidden="true"
+                />
                 Buy
               </button>
               <button
                 type="button"
                 onClick={() => setSide("sell")}
                 className={`flex-1 py-2 text-sm font-medium transition-colors ${
-                  side === "sell" ? "bg-red-600 text-white" : "bg-gray-700 text-gray-400 hover:bg-gray-600"
+                  side === "sell"
+                    ? "bg-red-600 text-white"
+                    : "bg-gray-700 text-gray-400 hover:bg-gray-600"
                 }`}
                 aria-pressed={side === "sell"}
               >
-                <TrendingDown size={14} className="inline mr-1" aria-hidden="true" />
+                <TrendingDown
+                  size={14}
+                  className="inline mr-1"
+                  aria-hidden="true"
+                />
                 Sell
               </button>
             </div>
 
             {/* Price */}
             <div>
-              <label htmlFor="lob-price" className="block text-xs text-gray-400 mb-1">
+              <label
+                htmlFor="lob-price"
+                className="block text-xs text-gray-400 mb-1"
+              >
                 Price
               </label>
               <input
@@ -272,7 +324,7 @@ export default function LimitOrderBookPanel({
                 min="0"
                 step="any"
                 value={price}
-                onChange={e => setPrice(e.target.value)}
+                onChange={(e) => setPrice(e.target.value)}
                 placeholder="0.00"
                 className="w-full bg-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 aria-required="true"
@@ -281,7 +333,10 @@ export default function LimitOrderBookPanel({
 
             {/* Quantity */}
             <div>
-              <label htmlFor="lob-qty" className="block text-xs text-gray-400 mb-1">
+              <label
+                htmlFor="lob-qty"
+                className="block text-xs text-gray-400 mb-1"
+              >
                 Quantity
               </label>
               <input
@@ -290,7 +345,7 @@ export default function LimitOrderBookPanel({
                 min="0"
                 step="any"
                 value={quantity}
-                onChange={e => setQuantity(e.target.value)}
+                onChange={(e) => setQuantity(e.target.value)}
                 placeholder="0.00"
                 className="w-full bg-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 aria-required="true"
@@ -312,16 +367,24 @@ export default function LimitOrderBookPanel({
                   : "bg-red-600 hover:bg-red-500 disabled:bg-red-900"
               } text-white`}
             >
-              {submitting ? "Placing…" : `Place ${side === "buy" ? "Buy" : "Sell"} Order`}
+              {submitting
+                ? "Placing…"
+                : `Place ${side === "buy" ? "Buy" : "Sell"} Order`}
             </button>
           </form>
         </section>
 
         {/* Main panel */}
-        <section aria-label="Order book data" className="lg:col-span-2 bg-gray-800 rounded-lg p-4">
+        <section
+          aria-label="Order book data"
+          className="lg:col-span-2 bg-gray-800 rounded-lg p-4"
+        >
           {/* Tabs */}
-          <div role="tablist" className="flex gap-1 mb-4 border-b border-gray-700 pb-2">
-            {(["book", "trades", "stats"] as const).map(tab => (
+          <div
+            role="tablist"
+            className="flex gap-1 mb-4 border-b border-gray-700 pb-2"
+          >
+            {(["book", "trades", "stats"] as const).map((tab) => (
               <button
                 key={tab}
                 role="tab"
@@ -333,9 +396,27 @@ export default function LimitOrderBookPanel({
                     : "text-gray-400 hover:text-gray-200"
                 }`}
               >
-                {tab === "book" && <BookOpen size={13} className="inline mr-1" aria-hidden="true" />}
-                {tab === "trades" && <History size={13} className="inline mr-1" aria-hidden="true" />}
-                {tab === "stats" && <BarChart2 size={13} className="inline mr-1" aria-hidden="true" />}
+                {tab === "book" && (
+                  <BookOpen
+                    size={13}
+                    className="inline mr-1"
+                    aria-hidden="true"
+                  />
+                )}
+                {tab === "trades" && (
+                  <History
+                    size={13}
+                    className="inline mr-1"
+                    aria-hidden="true"
+                  />
+                )}
+                {tab === "stats" && (
+                  <BarChart2
+                    size={13}
+                    className="inline mr-1"
+                    aria-hidden="true"
+                  />
+                )}
                 {tab}
               </button>
             ))}
@@ -343,15 +424,24 @@ export default function LimitOrderBookPanel({
 
           {/* Book tab */}
           {activeTab === "book" && (
-            <div className="grid grid-cols-2 gap-4" role="tabpanel" aria-label="Order book">
+            <div
+              className="grid grid-cols-2 gap-4"
+              role="tabpanel"
+              aria-label="Order book"
+            >
               {/* Asks */}
               <div>
-                <h3 className="text-xs text-red-400 font-semibold mb-2">Asks (Sell)</h3>
-                <div className="space-y-1 max-h-64 overflow-y-auto" aria-label="Ask orders">
+                <h3 className="text-xs text-red-400 font-semibold mb-2">
+                  Asks (Sell)
+                </h3>
+                <div
+                  className="space-y-1 max-h-64 overflow-y-auto"
+                  aria-label="Ask orders"
+                >
                   {book.asks.length === 0 && (
                     <p className="text-xs text-gray-500">No asks</p>
                   )}
-                  {book.asks.map(o => (
+                  {book.asks.map((o) => (
                     <div
                       key={o.id}
                       className="flex items-center justify-between text-xs bg-red-900/20 rounded px-2 py-1"
@@ -374,12 +464,17 @@ export default function LimitOrderBookPanel({
 
               {/* Bids */}
               <div>
-                <h3 className="text-xs text-green-400 font-semibold mb-2">Bids (Buy)</h3>
-                <div className="space-y-1 max-h-64 overflow-y-auto" aria-label="Bid orders">
+                <h3 className="text-xs text-green-400 font-semibold mb-2">
+                  Bids (Buy)
+                </h3>
+                <div
+                  className="space-y-1 max-h-64 overflow-y-auto"
+                  aria-label="Bid orders"
+                >
                   {book.bids.length === 0 && (
                     <p className="text-xs text-gray-500">No bids</p>
                   )}
-                  {book.bids.map(o => (
+                  {book.bids.map((o) => (
                     <div
                       key={o.id}
                       className="flex items-center justify-between text-xs bg-green-900/20 rounded px-2 py-1"
@@ -418,7 +513,10 @@ export default function LimitOrderBookPanel({
                 <tbody>
                   {trades.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="text-center text-gray-500 py-4">
+                      <td
+                        colSpan={5}
+                        className="text-center text-gray-500 py-4"
+                      >
                         No trades yet
                       </td>
                     </tr>
@@ -441,7 +539,11 @@ export default function LimitOrderBookPanel({
 
           {/* Stats tab */}
           {activeTab === "stats" && stats && (
-            <div role="tabpanel" aria-label="Statistics" className="grid grid-cols-2 gap-3">
+            <div
+              role="tabpanel"
+              aria-label="Statistics"
+              className="grid grid-cols-2 gap-3"
+            >
               {[
                 { label: "Total Orders", value: stats.totalOrders },
                 { label: "Open Orders", value: stats.openOrders },

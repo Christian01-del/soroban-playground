@@ -8,8 +8,12 @@ function normalizeWslCwd(cwd) {
 
   try {
     const escaped = cwd.replaceAll('"', '\\"');
-    const winPath = execSync(`wslpath -w "${escaped}"`, { encoding: "utf8" }).trim();
-    const canonical = execSync(`wslpath "${winPath}"`, { encoding: "utf8" }).trim();
+    const winPath = execSync(`wslpath -w "${escaped}"`, {
+      encoding: "utf8",
+    }).trim();
+    const canonical = execSync(`wslpath "${winPath}"`, {
+      encoding: "utf8",
+    }).trim();
     return canonical || cwd;
   } catch {
     return cwd;

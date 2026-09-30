@@ -11,7 +11,11 @@ export const enum ConsoleRingHeaderIndex {
 
 const UINT32_MASK = 0xff;
 
-export function writeUint32Wrapped(target: Uint8Array, start: number, value: number): void {
+export function writeUint32Wrapped(
+  target: Uint8Array,
+  start: number,
+  value: number,
+): void {
   target[start] = value & UINT32_MASK;
   target[(start + 1) % target.length] = (value >>> 8) & UINT32_MASK;
   target[(start + 2) % target.length] = (value >>> 16) & UINT32_MASK;
@@ -26,7 +30,11 @@ export function readUint32Wrapped(source: Uint8Array, start: number): number {
   return (b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)) >>> 0;
 }
 
-export function writeBytesWrapped(target: Uint8Array, start: number, payload: Uint8Array): void {
+export function writeBytesWrapped(
+  target: Uint8Array,
+  start: number,
+  payload: Uint8Array,
+): void {
   const firstChunkLength = Math.min(payload.length, target.length - start);
   target.set(payload.subarray(0, firstChunkLength), start);
 
@@ -35,7 +43,11 @@ export function writeBytesWrapped(target: Uint8Array, start: number, payload: Ui
   }
 }
 
-export function readBytesWrapped(source: Uint8Array, start: number, length: number): Uint8Array {
+export function readBytesWrapped(
+  source: Uint8Array,
+  start: number,
+  length: number,
+): Uint8Array {
   const firstChunkLength = Math.min(length, source.length - start);
 
   if (firstChunkLength === length) {

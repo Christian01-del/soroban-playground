@@ -1,8 +1,13 @@
 #![cfg(test)]
 
-use super::{types::Error, BridgeContract, BridgeContractClient};
+use super::{
+    types::{Error, ProofStatus},
+    BridgeContract, BridgeContractClient,
+};
 use soroban_sdk::{
-    bytes, testutils::{Address as _, Ledger}, Address, Bytes, Env, String,
+    bytes,
+    testutils::{Address as _, Ledger},
+    Address, Bytes, Env, String,
 };
 
 const FEE_BPS: u32 = 100; // 1%
@@ -308,4 +313,253 @@ fn test_stats_track_correctly() {
     assert_eq!(stats.total_locked, 990_000);
     assert_eq!(stats.total_minted, 990_000);
     assert_eq!(stats.active_deposits, 0);
+}
+
+// ── Additional edge-case error handling ───────────────────────────────────────
+
+#[test]
+fn test_get_deposit_not_found() {
+    let (_env, client, ..) = setup();
+    let result = client.try_get_deposit(&999u32);
+    assert!(matches!(result, Err(Ok(Error::DepositNotFound))));
+}
+
+#[test]
+fn test_non_admin_cannot_set_fee() {
+    let (env, client, _admin, _relayer) = setup();
+    let stranger = Address::generate(&env);
+    let result = client.try_set_fee(&stranger, &50u32);
+    assert!(matches!(result, Err(Ok(Error::Unauthorized))));
+}
+
+#[test]
+fn test_non_admin_cannot_set_relayer() {
+    let (env, client, _admin, relayer) = setup();
+    let stranger = Address::generate(&env);
+    let result = client.try_set_relayer(&stranger, &relayer, &false);
+    assert!(matches!(result, Err(Ok(Error::Unauthorized))));
+}
+
+#[test]
+fn test_non_admin_cannot_set_daily_limit() {
+    let (env, client, _admin, _relayer) = setup();
+    let stranger = Address::generate(&env);
+    let result = client.try_set_daily_limit(&stranger, &999i128);
+    assert!(matches!(result, Err(Ok(Error::Unauthorized))));
+}
+
+#[test]
+fn test_non_admin_cannot_set_expiry() {
+    let (env, client, _admin, _relayer) = setup();
+    let stranger = Address::generate(&env);
+    let result = client.try_set_expiry(&stranger, &7200u64);
+    assert!(matches!(result, Err(Ok(Error::Unauthorized))));
+}
+
+#[test]
+fn test_refund_double_refund_fails() {
+    let (env, client, _admin, _relayer) = setup();
+    let depositor = Address::generate(&env);
+    let token = String::from_str(&env, "USDC");
+    let id = client.lock(&depositor, &token, &1_000_000i128, &eth_dest(&env));
+    env.ledger().with_mut(|l| l.timestamp += EXPIRY + 1);
+    client.refund(&depositor, &id);
+    let result = client.try_refund(&depositor, &id);
+    assert!(matches!(result, Err(Ok(Error::AlreadyProcessed))));
+}
+
+#[test]
+fn test_zero_fee_lock_no_deduction() {
+    let (env, client, admin, _relayer) = setup();
+    client.set_fee(&admin, &0u32);
+    let depositor = Address::generate(&env);
+    let token = String::from_str(&env, "XLM");
+    let id = client.lock(&depositor, &token, &500_000i128, &eth_dest(&env));
+    let deposit = client.get_deposit(&id);
+    assert_eq!(deposit.amount, 500_000);
+    assert_eq!(deposit.fee, 0);
+}
+
+// ── Validator proof verification ──────────────────────────────────────────────
+
+fn proof_hash(env: &Env) -> Bytes {
+    bytes!(env, 0xaabbccdd)
+}
+
+fn setup_with_validators() -> (
+    Env,
+    BridgeContractClient<'static>,
+    Address,
+    Address,
+    Address,
+    Address,
+) {
+    let (env, client, admin, relayer) = setup();
+    let v1 = Address::generate(&env);
+    let v2 = Address::generate(&env);
+    client.set_validator(&admin, &v1, &true);
+    client.set_validator(&admin, &v2, &true);
+    client.set_validator_quorum(&admin, &2u32);
+    (env, client, admin, relayer, v1, v2)
+}
+
+#[test]
+fn test_set_validator_registers_correctly() {
+    let (env, client, admin, _relayer) = setup();
+    let validator = Address::generate(&env);
+    assert!(!client.is_validator(&validator));
+    client.set_validator(&admin, &validator, &true);
+    assert!(client.is_validator(&validator));
+    client.set_validator(&admin, &validator, &false);
+    assert!(!client.is_validator(&validator));
+}
+
+#[test]
+fn test_set_validator_non_admin_fails() {
+    let (env, client, _admin, _relayer) = setup();
+    let stranger = Address::generate(&env);
+    let validator = Address::generate(&env);
+    let result = client.try_set_validator(&stranger, &validator, &true);
+    assert!(matches!(result, Err(Ok(Error::Unauthorized))));
+}
+
+#[test]
+fn test_set_validator_quorum_zero_fails() {
+    let (_env, client, admin, _relayer) = setup();
+    let result = client.try_set_validator_quorum(&admin, &0u32);
+    assert!(matches!(result, Err(Ok(Error::InvalidQuorum))));
+}
+
+#[test]
+fn test_submit_proof_reaches_quorum() {
+    let (env, client, _admin, _relayer, v1, v2) = setup_with_validators();
+    let depositor = Address::generate(&env);
+    let id = client.lock(
+        &depositor,
+        &String::from_str(&env, "USDC"),
+        &1_000_000i128,
+        &eth_dest(&env),
+    );
+
+    let p1 = client.submit_proof(&v1, &id, &proof_hash(&env));
+    assert_eq!(p1.vote_count, 1);
+    assert_eq!(p1.status, ProofStatus::Pending);
+
+    let p2 = client.submit_proof(&v2, &id, &proof_hash(&env));
+    assert_eq!(p2.vote_count, 2);
+    assert_eq!(p2.status, ProofStatus::Verified);
+}
+
+#[test]
+fn test_submit_proof_unknown_validator_fails() {
+    let (env, client, _admin, _relayer, _v1, _v2) = setup_with_validators();
+    let depositor = Address::generate(&env);
+    let id = client.lock(
+        &depositor,
+        &String::from_str(&env, "USDC"),
+        &1_000_000i128,
+        &eth_dest(&env),
+    );
+    let stranger = Address::generate(&env);
+    let result = client.try_submit_proof(&stranger, &id, &proof_hash(&env));
+    assert!(matches!(result, Err(Ok(Error::UnknownValidator))));
+}
+
+#[test]
+fn test_submit_proof_double_vote_fails() {
+    let (env, client, _admin, _relayer, v1, _v2) = setup_with_validators();
+    let depositor = Address::generate(&env);
+    let id = client.lock(
+        &depositor,
+        &String::from_str(&env, "USDC"),
+        &1_000_000i128,
+        &eth_dest(&env),
+    );
+    client.submit_proof(&v1, &id, &proof_hash(&env));
+    let result = client.try_submit_proof(&v1, &id, &proof_hash(&env));
+    assert!(matches!(result, Err(Ok(Error::AlreadyVoted))));
+}
+
+#[test]
+fn test_submit_proof_empty_hash_fails() {
+    let (env, client, _admin, _relayer, v1, _v2) = setup_with_validators();
+    let depositor = Address::generate(&env);
+    let id = client.lock(
+        &depositor,
+        &String::from_str(&env, "USDC"),
+        &1_000_000i128,
+        &eth_dest(&env),
+    );
+    let empty: Bytes = Bytes::new(&env);
+    let result = client.try_submit_proof(&v1, &id, &empty);
+    assert!(matches!(result, Err(Ok(Error::EmptyProofHash))));
+}
+
+#[test]
+fn test_confirm_mint_with_proof_works() {
+    let (env, client, _admin, relayer, v1, v2) = setup_with_validators();
+    let depositor = Address::generate(&env);
+    let id = client.lock(
+        &depositor,
+        &String::from_str(&env, "USDC"),
+        &1_000_000i128,
+        &eth_dest(&env),
+    );
+    client.submit_proof(&v1, &id, &proof_hash(&env));
+    client.submit_proof(&v2, &id, &proof_hash(&env));
+    client.confirm_mint_with_proof(&relayer, &id, &eth_hash(&env));
+    let deposit = client.get_deposit(&id);
+    assert_eq!(deposit.eth_tx_hash, Some(eth_hash(&env)));
+}
+
+#[test]
+fn test_confirm_mint_with_proof_requires_quorum() {
+    let (env, client, _admin, relayer, v1, _v2) = setup_with_validators();
+    let depositor = Address::generate(&env);
+    let id = client.lock(
+        &depositor,
+        &String::from_str(&env, "USDC"),
+        &1_000_000i128,
+        &eth_dest(&env),
+    );
+    // Only one vote — quorum is 2
+    client.submit_proof(&v1, &id, &proof_hash(&env));
+    let result = client.try_confirm_mint_with_proof(&relayer, &id, &eth_hash(&env));
+    assert!(matches!(result, Err(Ok(Error::ProofNotVerified))));
+}
+
+#[test]
+fn test_confirm_mint_with_proof_no_proof_at_all_fails() {
+    let (env, client, _admin, relayer, _v1, _v2) = setup_with_validators();
+    let depositor = Address::generate(&env);
+    let id = client.lock(
+        &depositor,
+        &String::from_str(&env, "USDC"),
+        &1_000_000i128,
+        &eth_dest(&env),
+    );
+    let result = client.try_confirm_mint_with_proof(&relayer, &id, &eth_hash(&env));
+    assert!(matches!(result, Err(Ok(Error::ProofNotVerified))));
+}
+
+#[test]
+fn test_daily_limit_resets_after_window() {
+    let (env, client, admin, _relayer) = setup();
+    client.set_daily_limit(&admin, &1_000i128);
+    let depositor = Address::generate(&env);
+    let token = String::from_str(&env, "XLM");
+    // First lock within limit
+    client.lock(&depositor, &token, &500i128, &eth_dest(&env));
+    // Advance past 24h window
+    env.ledger().with_mut(|l| l.timestamp += 86_401);
+    // Should succeed again after reset
+    let id = client.lock(&depositor, &token, &500i128, &eth_dest(&env));
+    assert_eq!(id, 2);
+}
+
+#[test]
+fn test_set_negative_daily_limit_fails() {
+    let (_env, client, admin, _relayer) = setup();
+    let result = client.try_set_daily_limit(&admin, &-100i128);
+    assert!(matches!(result, Err(Ok(Error::InvalidAmount))));
 }

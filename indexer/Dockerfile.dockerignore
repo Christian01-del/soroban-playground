@@ -1,0 +1,15 @@
+# Applies to `docker build -f indexer/Dockerfile .` (context = repo root).
+# Allow-list only what the Rust workspace needs to resolve and build.
+*
+!Cargo.toml
+!Cargo.lock
+!src
+!contracts
+!indexer
+
+# Build artifacts and local data
+**/target
+indexer/*.db
+indexer/*.db-*
+indexer/data
+contracts/**/test_snapshots

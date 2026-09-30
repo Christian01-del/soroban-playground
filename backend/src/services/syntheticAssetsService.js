@@ -10,8 +10,9 @@
  */
 
 import { invokeContract } from './invokeService.js';
-import { databaseService } from './databaseService.js';
 import { redisService } from './redisService.js';
+import { databaseService } from './databaseService.js';
+import { assertSafeIdentifier } from '../database/safeQuery.js';
 import { logger } from '../utils/logger.js';
 
 const CACHE_TTL = {
@@ -319,8 +320,9 @@ class SyntheticAssetsService {
   async getAssetPrice(assetSymbol) {
     try {
       const cached = await redisService.get(`price:${assetSymbol}`);
-      if (cached) {
-        return JSON.parse(cached);
+      if (cached !== null) {
+        // Cached values are stored as plain strings representing numbers
+        return Number(cached);
       }
 
       const result = await invokeContract({
@@ -332,7 +334,7 @@ class SyntheticAssetsService {
 
       await redisService.set(
         `price:${assetSymbol}`,
-        JSON.stringify(result),
+        String(result),
         CACHE_TTL.ASSET_PRICE
       );
 
@@ -606,7 +608,10 @@ class SyntheticAssetsService {
   }
 
   async updatePosition(positionId, updates) {
-    const fields = Object.keys(updates).map((key, i) => `${key} = $${i + 2}`);
+    const fields = Object.keys(updates).map((key, i) => {
+      assertSafeIdentifier(key, 'column');
+      return `${key} = $${i + 2}`;
+    });
     const values = Object.values(updates);
 
     await databaseService.query(

@@ -23,6 +23,7 @@ npm install
 #### 2. Setup Environment Files
 
 **backend/.env**
+
 ```env
 # Blockchain
 STELLAR_NETWORK=testnet
@@ -53,6 +54,7 @@ LOG_FILE=./logs/app.log
 ```
 
 **frontend/.env.local**
+
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:3000
 NEXT_PUBLIC_NETWORK=testnet
@@ -151,12 +153,12 @@ docker run -d \
 
 ```javascript
 const CONFIG = {
-  MIN_COLLATERAL_RATIO: 15000,      // 150%
-  LIQUIDATION_THRESHOLD: 12000,     // 120%
-  LIQUIDATION_BONUS: 500,           // 5%
-  FEE_PERCENTAGE: 100,              // 1%
-  MAX_PRICE_AGE: 300,               // 5 minutes
-  MIN_PRICE_CONFIDENCE: 50,         // 50%
+  MIN_COLLATERAL_RATIO: 15000, // 150%
+  LIQUIDATION_THRESHOLD: 12000, // 120%
+  LIQUIDATION_BONUS: 500, // 5%
+  FEE_PERCENTAGE: 100, // 1%
+  MAX_PRICE_AGE: 300, // 5 minutes
+  MIN_PRICE_CONFIDENCE: 50, // 50%
 };
 ```
 
@@ -164,12 +166,12 @@ const CONFIG = {
 
 ```javascript
 const BACKEND_CONFIG = {
-  API_TIMEOUT: 30000,               // 30 seconds
+  API_TIMEOUT: 30000, // 30 seconds
   CACHE_TTL: {
-    POSITION: 30,                   // 30 seconds
-    ASSET_PRICE: 5,                 // 5 seconds
-    LIQUIDATION_CHECK: 10,          // 10 seconds
-    PROTOCOL_PARAMS: 300,           // 5 minutes
+    POSITION: 30, // 30 seconds
+    ASSET_PRICE: 5, // 5 seconds
+    LIQUIDATION_CHECK: 10, // 10 seconds
+    PROTOCOL_PARAMS: 300, // 5 minutes
   },
   RATE_LIMITS: {
     COMPILE: { window: 60000, max: 10 },
@@ -177,7 +179,7 @@ const BACKEND_CONFIG = {
     MINT: { window: 60000, max: 50 },
     TRADE: { window: 60000, max: 100 },
   },
-  MONITORING_INTERVAL: 30000,       // 30 seconds
+  MONITORING_INTERVAL: 30000, // 30 seconds
 };
 ```
 
@@ -295,8 +297,8 @@ app.use(compression());
 
 // Set appropriate cache headers
 app.use((req, res, next) => {
-  if (req.path.startsWith('/api/')) {
-    res.set('Cache-Control', 'private, max-age=5');
+  if (req.path.startsWith("/api/")) {
+    res.set("Cache-Control", "private, max-age=5");
   }
   next();
 });
@@ -314,6 +316,7 @@ const pool = new Pool({
 ### Smart Contract Issues
 
 **Contract Deploy Fails**
+
 ```bash
 # Check contract compilation
 cargo build --release --target wasm32-unknown-unknown --verbose
@@ -326,6 +329,7 @@ soroban account balance YOUR_ACCOUNT --network testnet
 ```
 
 **Transaction Timeout**
+
 ```bash
 # Increase timeout in config
 soroban container invoke \
@@ -337,6 +341,7 @@ soroban container invoke \
 ### Backend Issues
 
 **Port Already in Use**
+
 ```bash
 # Find process using port 3000
 lsof -i :3000
@@ -347,6 +352,7 @@ npm run dev
 ```
 
 **Database Connection Error**
+
 ```bash
 # Check PostgreSQL is running
 pg_isready -h localhost -p 5432
@@ -359,6 +365,7 @@ DATABASE_URL=postgresql://user:password@localhost:5432/synthetic_assets?sslmode=
 ```
 
 **Redis Connection Error**
+
 ```bash
 # Check Redis is running
 redis-cli ping
@@ -373,6 +380,7 @@ REDIS_URL=redis://:password@hostname:6379/0
 ### Frontend Issues
 
 **WebSocket Connection Fails**
+
 ```javascript
 // Check WebSocket URL
 NEXT_PUBLIC_API_URL=http://localhost:3000
@@ -384,6 +392,7 @@ curl http://localhost:3000/health
 ```
 
 **Build Fails**
+
 ```bash
 # Clear cache and rebuild
 rm -rf .next

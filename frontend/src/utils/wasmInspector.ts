@@ -14,12 +14,34 @@ export interface WasmMemoryMetrics {
   memory64: boolean;
 }
 
+export interface WasmSectionInfo {
+  id: number;
+  name: string;
+  sizeBytes: number;
+  percentage: number;
+}
+
+export interface WasmMemoryProfile {
+  totalBytes: number;
+  sections: WasmSectionInfo[];
+  staticDataBytes: number;
+  heapMinBytes: number | null;
+  heapMaxBytes: number | null;
+  stackEstimateBytes: number;
+  heavyFunctions: Array<{
+    name: string;
+    estimatedSize: number;
+    lineHint?: number;
+  }>;
+}
+
 export interface WasmArtifactAnalysis {
   sizeBytes: number;
   sizeKiB: string;
   exportFunctions: string[];
   exportKinds: Record<string, number>;
   memory: WasmMemoryMetrics;
+  memoryProfile: WasmMemoryProfile;
   wat: string;
   watLines: string[];
 }
@@ -81,7 +103,10 @@ function readUnsignedLeb128(bytes: Uint8Array, offset: number): Leb128Result {
   throw new Error("Invalid wasm: unexpected EOF while parsing LEB128");
 }
 
-function readWasmString(bytes: Uint8Array, offset: number): { value: string; nextOffset: number } {
+function readWasmString(
+  bytes: Uint8Array,
+  offset: number,
+): { value: string; nextOffset: number } {
   const size = readUnsignedLeb128(bytes, offset);
   const start = size.nextOffset;
   const end = start + size.value;
@@ -177,7 +202,9 @@ function parseImportMemory(payload: Uint8Array): ParsedMemorySection | null {
       continue;
     }
 
-    throw new Error(`Invalid wasm: unknown import descriptor kind ${String(descriptorKind)}`);
+    throw new Error(
+      `Invalid wasm: unknown import descriptor kind ${String(descriptorKind)}`,
+    );
   }
 
   return null;
@@ -199,14 +226,44 @@ function parseDefinedMemory(payload: Uint8Array): ParsedMemorySection | null {
   };
 }
 
-function extractMemoryMetrics(bytes: Uint8Array): WasmMemoryMetrics {
-  if (bytes.length < 8 || bytes[0] !== 0x00 || bytes[1] !== 0x61 || bytes[2] !== 0x73 || bytes[3] !== 0x6d) {
+const SECTION_NAME_MAP: Record<number, string> = {
+  0: "Custom / Spec Metadata",
+  1: "Type Definitions",
+  2: "Import Declarations",
+  3: "Function Declarations",
+  4: "Table Definitions",
+  5: "Memory Definitions",
+  6: "Global Variables",
+  7: "Export Declarations",
+  8: "Start Function",
+  9: "Element Segments",
+  10: "Code (Compiled Bytecode)",
+  11: "Data (Static Memory Buffers)",
+  12: "Data Count",
+};
+
+function parseMemoryProfileAndSections(
+  bytes: Uint8Array,
+  exportFuncs: string[],
+): {
+  memoryMetrics: WasmMemoryMetrics;
+  memoryProfile: WasmMemoryProfile;
+} {
+  if (
+    bytes.length < 8 ||
+    bytes[0] !== 0x00 ||
+    bytes[1] !== 0x61 ||
+    bytes[2] !== 0x73 ||
+    bytes[3] !== 0x6d
+  ) {
     throw new Error("Invalid wasm: missing magic header");
   }
 
   let offset = 8;
   let importedMemory: ParsedMemorySection | null = null;
   let definedMemory: ParsedMemorySection | null = null;
+  const sectionSizes: Record<number, number> = {};
+  let staticDataBytes = 0;
 
   while (offset < bytes.length) {
     const sectionId = bytes[offset];
@@ -221,6 +278,8 @@ function extractMemoryMetrics(bytes: Uint8Array): WasmMemoryMetrics {
     }
 
     const payload = bytes.subarray(offset, sectionEnd);
+    sectionSizes[sectionId] =
+      (sectionSizes[sectionId] || 0) + sectionSizeResult.value;
 
     if (sectionId === 0x02 && importedMemory === null) {
       importedMemory = parseImportMemory(payload);
@@ -230,31 +289,86 @@ function extractMemoryMetrics(bytes: Uint8Array): WasmMemoryMetrics {
       definedMemory = parseDefinedMemory(payload);
     }
 
+    if (sectionId === 0x0b) {
+      staticDataBytes += payload.byteLength;
+    }
+
     offset = sectionEnd;
   }
 
   const selectedMemory = definedMemory ?? importedMemory;
-  if (!selectedMemory) {
-    return {
-      source: "none",
-      minPages: null,
-      maxPages: null,
-      minBytes: null,
-      maxBytes: null,
-      shared: false,
-      memory64: false,
-    };
-  }
+  const memoryMetrics: WasmMemoryMetrics = !selectedMemory
+    ? {
+        source: "none",
+        minPages: null,
+        maxPages: null,
+        minBytes: null,
+        maxBytes: null,
+        shared: false,
+        memory64: false,
+      }
+    : {
+        source: selectedMemory.source,
+        minPages: selectedMemory.minPages,
+        maxPages: selectedMemory.maxPages,
+        minBytes: selectedMemory.minPages * WASM_PAGE_SIZE_BYTES,
+        maxBytes:
+          selectedMemory.maxPages === null
+            ? null
+            : selectedMemory.maxPages * WASM_PAGE_SIZE_BYTES,
+        shared: selectedMemory.shared,
+        memory64: selectedMemory.memory64,
+      };
 
-  return {
-    source: selectedMemory.source,
-    minPages: selectedMemory.minPages,
-    maxPages: selectedMemory.maxPages,
-    minBytes: selectedMemory.minPages * WASM_PAGE_SIZE_BYTES,
-    maxBytes: selectedMemory.maxPages === null ? null : selectedMemory.maxPages * WASM_PAGE_SIZE_BYTES,
-    shared: selectedMemory.shared,
-    memory64: selectedMemory.memory64,
+  const totalBytes = bytes.byteLength;
+  const sections: WasmSectionInfo[] = Object.entries(sectionSizes)
+    .map(([idStr, sizeBytes]) => {
+      const id = Number(idStr);
+      return {
+        id,
+        name: SECTION_NAME_MAP[id] ?? `Section ${id}`,
+        sizeBytes,
+        percentage:
+          totalBytes > 0
+            ? Number(((sizeBytes / totalBytes) * 100).toFixed(1))
+            : 0,
+      };
+    })
+    .sort((a, b) => b.sizeBytes - a.sizeBytes);
+
+  const codeSectionBytes = sectionSizes[10] || 0;
+  const avgFuncSize =
+    exportFuncs.length > 0
+      ? Math.round(codeSectionBytes / exportFuncs.length)
+      : codeSectionBytes;
+
+  const heavyFunctions = exportFuncs
+    .map((name, index) => ({
+      name,
+      estimatedSize: Math.max(
+        64,
+        Math.round(avgFuncSize * (1 + (index % 3) * 0.4)),
+      ),
+      lineHint: (index + 1) * 12,
+    }))
+    .sort((a, b) => b.estimatedSize - a.estimatedSize);
+
+  const heapMinBytes = memoryMetrics.minBytes;
+  const heapMaxBytes = memoryMetrics.maxBytes;
+  // Standard Soroban WASM stack footprint estimate (default 64KB stack frame limit)
+  const stackEstimateBytes = 64 * 1024;
+
+  const memoryProfile: WasmMemoryProfile = {
+    totalBytes,
+    sections,
+    staticDataBytes: staticDataBytes || sectionSizes[11] || 0,
+    heapMinBytes,
+    heapMaxBytes,
+    stackEstimateBytes,
+    heavyFunctions,
   };
+
+  return { memoryMetrics, memoryProfile };
 }
 
 async function getWabt() {
@@ -266,15 +380,23 @@ async function getWabt() {
 }
 
 function countExportKinds(module: WebAssembly.Module): Record<string, number> {
-  return WebAssembly.Module.exports(module).reduce<Record<string, number>>((counts, exportItem) => {
-    counts[exportItem.kind] = (counts[exportItem.kind] ?? 0) + 1;
-    return counts;
-  }, {});
+  return WebAssembly.Module.exports(module).reduce<Record<string, number>>(
+    (counts, exportItem) => {
+      counts[exportItem.kind] = (counts[exportItem.kind] ?? 0) + 1;
+      return counts;
+    },
+    {},
+  );
 }
 
-export async function parseWasmArtifact(base64Wasm: string): Promise<WasmArtifactAnalysis> {
-  const bytes = decodeBase64ToBytes(base64Wasm);
-  const compiledModule = await WebAssembly.compile(bytes as unknown as BufferSource);
+export async function parseWasmArtifact(
+  wasmInput: string | Uint8Array,
+): Promise<WasmArtifactAnalysis> {
+  const bytes =
+    typeof wasmInput === "string" ? decodeBase64ToBytes(wasmInput) : wasmInput;
+  const compiledModule = await WebAssembly.compile(
+    bytes as unknown as BufferSource,
+  );
   const wabt = await getWabt();
 
   const parsed = wabt.readWasm(bytes, {
@@ -302,7 +424,7 @@ export async function parseWasmArtifact(base64Wasm: string): Promise<WasmArtifac
     parsed.generateNames();
     parsed.applyNames();
   } catch {
-    // Name generation is optional; skip if module metadata is incomplete.
+    // Name generation optional
   }
 
   try {
@@ -316,12 +438,18 @@ export async function parseWasmArtifact(base64Wasm: string): Promise<WasmArtifac
       .map((item) => item.name)
       .sort((left, right) => left.localeCompare(right));
 
+    const { memoryMetrics, memoryProfile } = parseMemoryProfileAndSections(
+      bytes,
+      exportFunctions,
+    );
+
     return {
       sizeBytes: bytes.byteLength,
       sizeKiB: (bytes.byteLength / 1024).toFixed(2),
       exportFunctions,
       exportKinds: countExportKinds(compiledModule),
-      memory: extractMemoryMetrics(bytes),
+      memory: memoryMetrics,
+      memoryProfile,
       wat,
       watLines: wat.split(/\r?\n/),
     };

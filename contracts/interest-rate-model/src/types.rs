@@ -1,7 +1,7 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
-use soroban_sdk::{contracterror, contracttype, Address};
+use soroban_sdk::{contracterror, contracttype};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -17,6 +17,8 @@ pub enum Error {
     InvalidTier = 8,
     TooManyTiers = 9,
     InvalidTierThreshold = 10,
+    Overflow = 11,
+    DivisionByZero = 12,
 }
 
 /// Interpolation method for interest rate curves.

@@ -3,7 +3,7 @@
 
 use soroban_sdk::{Address, Env};
 
-use crate::types::{DataKey, Dispute, Error, InstanceKey, License, Patent};
+use crate::types::{DataKey, Dispute, Error, Escrow, InstanceKey, License, Milestone, Patent};
 
 // ── Admin / init ──────────────────────────────────────────────────────────────
 
@@ -74,6 +74,30 @@ pub fn next_dispute_id(env: &Env) -> u32 {
     id
 }
 
+pub fn next_escrow_id(env: &Env) -> u32 {
+    let id: u32 = env
+        .storage()
+        .instance()
+        .get(&InstanceKey::EscrowCount)
+        .unwrap_or(0)
+        + 1;
+    env.storage().instance().set(&InstanceKey::EscrowCount, &id);
+    id
+}
+
+pub fn next_milestone_id(env: &Env) -> u32 {
+    let id: u32 = env
+        .storage()
+        .instance()
+        .get(&InstanceKey::MilestoneCount)
+        .unwrap_or(0)
+        + 1;
+    env.storage()
+        .instance()
+        .set(&InstanceKey::MilestoneCount, &id);
+    id
+}
+
 pub fn get_patent_count(env: &Env) -> u32 {
     env.storage()
         .instance()
@@ -95,12 +119,24 @@ pub fn get_dispute_count(env: &Env) -> u32 {
         .unwrap_or(0)
 }
 
+pub fn get_escrow_count(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&InstanceKey::EscrowCount)
+        .unwrap_or(0)
+}
+
+pub fn get_milestone_count(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&InstanceKey::MilestoneCount)
+        .unwrap_or(0)
+}
+
 // ── Patent ────────────────────────────────────────────────────────────────────
 
 pub fn set_patent(env: &Env, id: u32, patent: &Patent) {
-    env.storage()
-        .persistent()
-        .set(&DataKey::Patent(id), patent);
+    env.storage().persistent().set(&DataKey::Patent(id), patent);
 }
 
 pub fn get_patent(env: &Env, id: u32) -> Result<Patent, Error> {
@@ -138,4 +174,32 @@ pub fn get_dispute(env: &Env, id: u32) -> Result<Dispute, Error> {
         .persistent()
         .get(&DataKey::Dispute(id))
         .ok_or(Error::DisputeNotFound)
+}
+
+// ── Escrow ────────────────────────────────────────────────────────────────────
+
+pub fn set_escrow(env: &Env, id: u32, escrow: &Escrow) {
+    env.storage().persistent().set(&DataKey::Escrow(id), escrow);
+}
+
+pub fn get_escrow(env: &Env, id: u32) -> Result<Escrow, Error> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Escrow(id))
+        .ok_or(Error::EscrowNotFound)
+}
+
+// ── Milestone ─────────────────────────────────────────────────────────────────
+
+pub fn set_milestone(env: &Env, id: u32, milestone: &Milestone) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::Milestone(id), milestone);
+}
+
+pub fn get_milestone(env: &Env, id: u32) -> Result<Milestone, Error> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Milestone(id))
+        .ok_or(Error::MilestoneNotFound)
 }

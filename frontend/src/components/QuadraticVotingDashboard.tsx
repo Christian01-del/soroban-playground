@@ -44,7 +44,11 @@ interface Props {
   maxCredits: number;
   isLoading: boolean;
   onCreateProposal: (title: string, description: string) => Promise<void>;
-  onVote: (proposalId: number, credits: number, isFor: boolean) => Promise<void>;
+  onVote: (
+    proposalId: number,
+    credits: number,
+    isFor: boolean,
+  ) => Promise<void>;
   onFinalize: (proposalId: number) => Promise<void>;
   onWhitelist: (voter: string, allow: boolean) => Promise<void>;
   onPause: () => Promise<void>;
@@ -91,14 +95,28 @@ function votePct(votes: number, total: number): number {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function VoteBar({ votesFor, votesAgainst }: { votesFor: number; votesAgainst: number }) {
+function VoteBar({
+  votesFor,
+  votesAgainst,
+}: {
+  votesFor: number;
+  votesAgainst: number;
+}) {
   const total = votesFor + votesAgainst;
   const forPct = votePct(votesFor, total);
   return (
-    <div className="mt-2" role="img" aria-label={`${forPct}% for, ${100 - forPct}% against`}>
+    <div
+      className="mt-2"
+      role="img"
+      aria-label={`${forPct}% for, ${100 - forPct}% against`}
+    >
       <div className="flex justify-between text-xs text-slate-400 mb-1">
-        <span>For: {votesFor} ({forPct}%)</span>
-        <span>Against: {votesAgainst} ({100 - forPct}%)</span>
+        <span>
+          For: {votesFor} ({forPct}%)
+        </span>
+        <span>
+          Against: {votesAgainst} ({100 - forPct}%)
+        </span>
       </div>
       <div className="h-2 rounded-full bg-slate-700 overflow-hidden">
         <div
@@ -123,7 +141,9 @@ function CreditSlider({
   return (
     <div>
       <label className="text-xs text-slate-400 flex justify-between mb-1">
-        <span>Credits: <strong className="text-white">{value}</strong></span>
+        <span>
+          Credits: <strong className="text-white">{value}</strong>
+        </span>
         <span className="flex items-center gap-1">
           <Zap size={10} className="text-yellow-400" aria-hidden="true" />
           Votes: <strong className="text-yellow-300">{votes}</strong>
@@ -139,7 +159,8 @@ function CreditSlider({
         aria-label={`Credits to spend (${value} credits = ${votes} votes)`}
       />
       <p className="text-xs text-slate-500 mt-1">
-        Cost: {value} credits → {votes} vote{votes !== 1 ? "s" : ""} (√{value} = {votes})
+        Cost: {value} credits → {votes} vote{votes !== 1 ? "s" : ""} (√{value} ={" "}
+        {votes})
       </p>
     </div>
   );
@@ -164,7 +185,9 @@ export default function QuadraticVotingDashboard({
   onUnpause,
 }: Props) {
   // ── Local state ─────────────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState<"proposals" | "admin">("proposals");
+  const [activeTab, setActiveTab] = useState<"proposals" | "admin">(
+    "proposals",
+  );
   const [newTitle, setNewTitle] = useState("");
   const [newDesc, setNewDesc] = useState("");
   const [creating, setCreating] = useState(false);
@@ -182,14 +205,21 @@ export default function QuadraticVotingDashboard({
   const [pauseLoading, setPauseLoading] = useState(false);
 
   // ── Derived ──────────────────────────────────────────────────────────────────
-  const activeProposals = useMemo(() => proposals.filter((p) => p.status === "Active"), [proposals]);
-  const closedProposals = useMemo(() => proposals.filter((p) => p.status !== "Active"), [proposals]);
+  const activeProposals = useMemo(
+    () => proposals.filter((p) => p.status === "Active"),
+    [proposals],
+  );
+  const closedProposals = useMemo(
+    () => proposals.filter((p) => p.status !== "Active"),
+    [proposals],
+  );
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
   const handleCreate = useCallback(async () => {
     setCreateError("");
     if (!newTitle.trim()) return setCreateError("Title is required");
-    if (newTitle.length > 32) return setCreateError("Title must be ≤ 32 characters");
+    if (newTitle.length > 32)
+      return setCreateError("Title must be ≤ 32 characters");
     if (!newDesc.trim()) return setCreateError("Description is required");
     setCreating(true);
     try {
@@ -197,7 +227,9 @@ export default function QuadraticVotingDashboard({
       setNewTitle("");
       setNewDesc("");
     } catch (e: unknown) {
-      setCreateError(e instanceof Error ? e.message : "Failed to create proposal");
+      setCreateError(
+        e instanceof Error ? e.message : "Failed to create proposal",
+      );
     } finally {
       setCreating(false);
     }
@@ -219,7 +251,7 @@ export default function QuadraticVotingDashboard({
         setVoting(null);
       }
     },
-    [voteCredits, onVote]
+    [voteCredits, onVote],
   );
 
   const handleWhitelist = useCallback(async () => {
@@ -230,7 +262,9 @@ export default function QuadraticVotingDashboard({
       await onWhitelist(whitelistAddr.trim(), whitelistAllow);
       setWhitelistAddr("");
     } catch (e: unknown) {
-      setWhitelistError(e instanceof Error ? e.message : "Whitelist operation failed");
+      setWhitelistError(
+        e instanceof Error ? e.message : "Whitelist operation failed",
+      );
     } finally {
       setWhitelisting(false);
     }
@@ -253,7 +287,9 @@ export default function QuadraticVotingDashboard({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Vote size={18} className="text-cyan-400" aria-hidden="true" />
-          <h2 className="text-base font-semibold text-white">Quadratic Voting</h2>
+          <h2 className="text-base font-semibold text-white">
+            Quadratic Voting
+          </h2>
           {isPaused && (
             <span
               className="flex items-center gap-1 text-xs bg-rose-900/50 text-rose-300 px-2 py-0.5 rounded-full"
@@ -266,7 +302,10 @@ export default function QuadraticVotingDashboard({
         </div>
         <div className="flex items-center gap-2 text-xs text-slate-400">
           {walletAddress && (
-            <span className="bg-slate-800 px-2 py-0.5 rounded" title={walletAddress}>
+            <span
+              className="bg-slate-800 px-2 py-0.5 rounded"
+              title={walletAddress}
+            >
               {short(walletAddress)}
             </span>
           )}
@@ -281,8 +320,16 @@ export default function QuadraticVotingDashboard({
       {/* Stats bar */}
       <div className="grid grid-cols-3 gap-2 text-center">
         {[
-          { label: "Total", value: proposals.length, icon: <BarChart2 size={12} /> },
-          { label: "Active", value: activeProposals.length, icon: <Clock size={12} /> },
+          {
+            label: "Total",
+            value: proposals.length,
+            icon: <BarChart2 size={12} />,
+          },
+          {
+            label: "Active",
+            value: activeProposals.length,
+            icon: <Clock size={12} />,
+          },
           { label: "Max Credits", value: maxCredits, icon: <Zap size={12} /> },
         ].map(({ label, value, icon }) => (
           <div key={label} className="bg-slate-800 rounded-lg p-2">
@@ -342,7 +389,10 @@ export default function QuadraticVotingDashboard({
                   aria-label="Proposal description"
                 />
                 {createError && (
-                  <p className="text-xs text-rose-400 flex items-center gap-1" role="alert">
+                  <p
+                    className="text-xs text-rose-400 flex items-center gap-1"
+                    role="alert"
+                  >
                     <AlertTriangle size={10} aria-hidden="true" /> {createError}
                   </p>
                 )}
@@ -360,11 +410,17 @@ export default function QuadraticVotingDashboard({
 
           {/* Active proposals */}
           {isLoading ? (
-            <div className="text-center text-slate-500 py-8" role="status" aria-live="polite">
+            <div
+              className="text-center text-slate-500 py-8"
+              role="status"
+              aria-live="polite"
+            >
               Loading proposals…
             </div>
           ) : proposals.length === 0 ? (
-            <div className="text-center text-slate-500 py-8">No proposals yet.</div>
+            <div className="text-center text-slate-500 py-8">
+              No proposals yet.
+            </div>
           ) : (
             <div className="space-y-3">
               {[...activeProposals, ...closedProposals].map((proposal) => {
@@ -386,7 +442,9 @@ export default function QuadraticVotingDashboard({
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-slate-500">#{proposal.id}</span>
+                          <span className="text-xs text-slate-500">
+                            #{proposal.id}
+                          </span>
                           <span
                             className={`flex items-center gap-1 text-xs ${STATUS_COLOR[proposal.status]}`}
                           >
@@ -394,7 +452,9 @@ export default function QuadraticVotingDashboard({
                             {proposal.status}
                           </span>
                         </div>
-                        <h4 className="text-sm font-medium text-white mt-0.5">{proposal.title}</h4>
+                        <h4 className="text-sm font-medium text-white mt-0.5">
+                          {proposal.title}
+                        </h4>
                         <p className="text-xs text-slate-400 mt-0.5 line-clamp-2">
                           {proposal.description}
                         </p>
@@ -403,7 +463,9 @@ export default function QuadraticVotingDashboard({
                         <div className="text-right shrink-0">
                           <div className="text-xs text-slate-400">
                             {isEnded ? (
-                              <span className="text-amber-400">Ended – finalize</span>
+                              <span className="text-amber-400">
+                                Ended – finalize
+                              </span>
                             ) : (
                               timeRemaining(proposal.voteEnd)
                             )}
@@ -416,7 +478,10 @@ export default function QuadraticVotingDashboard({
                     </div>
 
                     {/* Vote bar */}
-                    <VoteBar votesFor={proposal.votesFor} votesAgainst={proposal.votesAgainst} />
+                    <VoteBar
+                      votesFor={proposal.votesFor}
+                      votesAgainst={proposal.votesAgainst}
+                    />
 
                     {/* Voting controls */}
                     {canVote && (
@@ -425,7 +490,10 @@ export default function QuadraticVotingDashboard({
                           value={credits}
                           max={maxCredits}
                           onChange={(v) =>
-                            setVoteCredits((prev) => ({ ...prev, [proposal.id]: v }))
+                            setVoteCredits((prev) => ({
+                              ...prev,
+                              [proposal.id]: v,
+                            }))
                           }
                         />
                         <div className="flex gap-2">
@@ -449,7 +517,10 @@ export default function QuadraticVotingDashboard({
                           </button>
                         </div>
                         {voteError[proposal.id] && (
-                          <p className="text-xs text-rose-400 flex items-center gap-1" role="alert">
+                          <p
+                            className="text-xs text-rose-400 flex items-center gap-1"
+                            role="alert"
+                          >
                             <AlertTriangle size={10} aria-hidden="true" />
                             {voteError[proposal.id]}
                           </p>
@@ -507,9 +578,13 @@ export default function QuadraticVotingDashboard({
                   aria-busy={pauseLoading}
                 >
                   {isPaused ? (
-                    <><PlayCircle size={12} aria-hidden="true" /> Unpause</>
+                    <>
+                      <PlayCircle size={12} aria-hidden="true" /> Unpause
+                    </>
                   ) : (
-                    <><PauseCircle size={12} aria-hidden="true" /> Pause</>
+                    <>
+                      <PauseCircle size={12} aria-hidden="true" /> Pause
+                    </>
                   )}
                 </button>
               </div>
@@ -543,8 +618,12 @@ export default function QuadraticVotingDashboard({
                 </label>
               </div>
               {whitelistError && (
-                <p className="text-xs text-rose-400 flex items-center gap-1" role="alert">
-                  <AlertTriangle size={10} aria-hidden="true" /> {whitelistError}
+                <p
+                  className="text-xs text-rose-400 flex items-center gap-1"
+                  role="alert"
+                >
+                  <AlertTriangle size={10} aria-hidden="true" />{" "}
+                  {whitelistError}
                 </p>
               )}
               <button
@@ -553,7 +632,11 @@ export default function QuadraticVotingDashboard({
                 className="w-full bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white text-xs py-1.5 rounded transition-colors"
                 aria-busy={whitelisting}
               >
-                {whitelisting ? "Updating…" : whitelistAllow ? "Add to Whitelist" : "Remove from Whitelist"}
+                {whitelisting
+                  ? "Updating…"
+                  : whitelistAllow
+                    ? "Add to Whitelist"
+                    : "Remove from Whitelist"}
               </button>
             </div>
           </section>
@@ -577,7 +660,9 @@ export default function QuadraticVotingDashboard({
                 </div>
                 <div className="flex justify-between text-xs">
                   <span className="text-slate-400">Status</span>
-                  <span className={isPaused ? "text-rose-300" : "text-emerald-300"}>
+                  <span
+                    className={isPaused ? "text-rose-300" : "text-emerald-300"}
+                  >
                     {isPaused ? "Paused" : "Active"}
                   </span>
                 </div>

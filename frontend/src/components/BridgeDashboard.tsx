@@ -81,10 +81,15 @@ export default function BridgeDashboard({
     setError(null);
     const amt = parseFloat(amount);
     if (!amt || amt <= 0) return setError("Amount must be greater than 0.");
-    if (!ethDest.startsWith("0x")) return setError("ETH destination must start with 0x.");
+    if (!ethDest.startsWith("0x"))
+      return setError("ETH destination must start with 0x.");
     if (!contractId) return setError("Deploy a contract first.");
     try {
-      await onLock({ token, amount: Math.floor(amt * 1e7), ethDestination: ethDest });
+      await onLock({
+        token,
+        amount: Math.floor(amt * 1e7),
+        ethDestination: ethDest,
+      });
       setAmount("");
       setEthDest("");
     } catch (e) {
@@ -113,14 +118,19 @@ export default function BridgeDashboard({
         {[
           { label: "Total Locked", value: stats.totalLocked.toLocaleString() },
           { label: "Total Minted", value: stats.totalMinted.toLocaleString() },
-          { label: "Total Refunded", value: stats.totalRefunded.toLocaleString() },
+          {
+            label: "Total Refunded",
+            value: stats.totalRefunded.toLocaleString(),
+          },
           { label: "Active Deposits", value: stats.activeDeposits },
         ].map(({ label, value }) => (
           <div
             key={label}
             className="rounded-lg border border-gray-800 bg-gray-900 p-3"
           >
-            <p className="text-[10px] uppercase tracking-wider text-gray-500">{label}</p>
+            <p className="text-[10px] uppercase tracking-wider text-gray-500">
+              {label}
+            </p>
             <p className="mt-1 font-mono text-sm text-cyan-300">{value}</p>
           </div>
         ))}
@@ -253,7 +263,9 @@ export default function BridgeDashboard({
                 className="rounded-lg border border-gray-800 bg-gray-950 p-3"
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-mono text-xs text-gray-400">#{d.id}</span>
+                  <span className="font-mono text-xs text-gray-400">
+                    #{d.id}
+                  </span>
                   <span
                     className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${STATUS_STYLES[d.status]}`}
                   >
@@ -265,7 +277,9 @@ export default function BridgeDashboard({
                   <span>
                     {d.token}: {d.amount.toLocaleString()}
                   </span>
-                  <span className="truncate font-mono text-[10px]">{d.ethDestination}</span>
+                  <span className="truncate font-mono text-[10px]">
+                    {d.ethDestination}
+                  </span>
                 </div>
                 {d.status === "Pending" && (
                   <button

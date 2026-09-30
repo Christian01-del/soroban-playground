@@ -1,10 +1,20 @@
 "use client";
-import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Filter, ArrowUpDown, ChevronLeft, ChevronRight, Info } from 'lucide-react';
-import SearchInput from './SearchInput';
-import SearchFilters, { SearchFiltersState, FacetCounts } from './SearchFilters';
-import SearchResults, { SearchResult, SearchMeta } from './SearchResults';
-import searchService from '../../services/searchService';
+import React, { useState, useEffect, useCallback } from "react";
+import {
+  Search,
+  Filter,
+  ArrowUpDown,
+  ChevronLeft,
+  ChevronRight,
+  Info,
+} from "lucide-react";
+import SearchInput from "./SearchInput";
+import SearchFilters, {
+  SearchFiltersState,
+  FacetCounts,
+} from "./SearchFilters";
+import SearchResults, { SearchResult, SearchMeta } from "./SearchResults";
+import searchService from "../../services/searchService";
 
 interface PaginationInfo {
   page: number;
@@ -22,22 +32,24 @@ interface SearchResponse {
 }
 
 const SearchPage: React.FC = () => {
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [filters, setFilters] = useState<SearchFiltersState>({});
-  const [facetCounts, setFacetCounts] = useState<FacetCounts | undefined>(undefined);
+  const [facetCounts, setFacetCounts] = useState<FacetCounts | undefined>(
+    undefined,
+  );
   const [pagination, setPagination] = useState<PaginationInfo>({
     page: 1,
     limit: 20,
     total: 0,
     totalPages: 0,
     hasNext: false,
-    hasPrev: false
+    hasPrev: false,
   });
   const [meta, setMeta] = useState<SearchMeta | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingFacets, setIsLoadingFacets] = useState(false);
-  const [sortBy, setSortBy] = useState('relevance');
+  const [sortBy, setSortBy] = useState("relevance");
   const [error, setError] = useState<string | null>(null);
 
   // Load facet counts when query or filters change
@@ -58,7 +70,7 @@ const SearchPage: React.FC = () => {
       const counts = await searchService.getFacetCounts(query);
       setFacetCounts(counts);
     } catch (error) {
-      console.error('Failed to load facet counts:', error);
+      console.error("Failed to load facet counts:", error);
     } finally {
       setIsLoadingFacets(false);
     }
@@ -75,26 +87,26 @@ const SearchPage: React.FC = () => {
         query,
         filters: {
           ...filters,
-          sortBy
+          sortBy,
         },
         pagination: {
           page: pagination.page,
-          limit: pagination.limit
-        }
+          limit: pagination.limit,
+        },
       };
 
       const response: SearchResponse = await searchService.searchProjects(
         searchParams.query,
         searchParams.filters,
-        searchParams.pagination
+        searchParams.pagination,
       );
 
       setResults(response.results);
       setPagination(response.pagination);
       setMeta(response.meta);
     } catch (error) {
-      console.error('Search failed:', error);
-      setError('Search failed. Please try again.');
+      console.error("Search failed:", error);
+      setError("Search failed. Please try again.");
       setResults([]);
     } finally {
       setIsLoading(false);
@@ -103,30 +115,30 @@ const SearchPage: React.FC = () => {
 
   const handleSearch = useCallback((newQuery: string) => {
     setQuery(newQuery);
-    setPagination(prev => ({ ...prev, page: 1 }));
+    setPagination((prev) => ({ ...prev, page: 1 }));
   }, []);
 
   const handleFiltersChange = useCallback((newFilters: SearchFiltersState) => {
     setFilters(newFilters);
-    setPagination(prev => ({ ...prev, page: 1 }));
+    setPagination((prev) => ({ ...prev, page: 1 }));
   }, []);
 
   const handleSortChange = useCallback((newSortBy: string) => {
     setSortBy(newSortBy);
-    setPagination(prev => ({ ...prev, page: 1 }));
+    setPagination((prev) => ({ ...prev, page: 1 }));
   }, []);
 
   const handlePageChange = useCallback((newPage: number) => {
-    setPagination(prev => ({ ...prev, page: newPage }));
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setPagination((prev) => ({ ...prev, page: newPage }));
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
   const sortOptions = [
-    { value: 'relevance', label: 'Relevance' },
-    { value: 'funding', label: 'Funding Amount' },
-    { value: 'recent', label: 'Recently Added' },
-    { value: 'completion', label: 'Completion Rate' },
-    { value: 'title', label: 'Title (A-Z)' }
+    { value: "relevance", label: "Relevance" },
+    { value: "funding", label: "Funding Amount" },
+    { value: "recent", label: "Recently Added" },
+    { value: "completion", label: "Completion Rate" },
+    { value: "title", label: "Title (A-Z)" },
   ];
 
   return (
@@ -141,7 +153,7 @@ const SearchPage: React.FC = () => {
             <p className="text-gray-600 mb-6">
               Find innovative projects and support the next big idea
             </p>
-            
+
             {/* Search Input */}
             <div className="max-w-2xl mx-auto">
               <SearchInput
@@ -182,12 +194,12 @@ const SearchPage: React.FC = () => {
                         Showing {results.length} of {pagination.total} results
                       </span>
                     </div>
-                    
+
                     {meta && (
                       <div className="flex items-center gap-2 text-xs text-gray-500">
                         <Info className="w-3 h-3" />
                         <span>{meta.responseTime}ms</span>
-                        {meta.searchType === 'fuzzy' && (
+                        {meta.searchType === "fuzzy" && (
                           <span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">
                             Fuzzy Search
                           </span>
@@ -204,7 +216,7 @@ const SearchPage: React.FC = () => {
                       onChange={(e) => handleSortChange(e.target.value)}
                       className="text-sm border border-gray-300 rounded-md px-3 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
                     >
-                      {sortOptions.map(option => (
+                      {sortOptions.map((option) => (
                         <option key={option.value} value={option.value}>
                           {option.label}
                         </option>
@@ -218,9 +230,7 @@ const SearchPage: React.FC = () => {
             {/* Error State */}
             {error && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-                <div className="text-red-800">
-                  {error}
-                </div>
+                <div className="text-red-800">{error}</div>
               </div>
             )}
 
@@ -246,32 +256,38 @@ const SearchPage: React.FC = () => {
                   </button>
 
                   <div className="flex items-center gap-1">
-                    {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
-                      let pageNum;
-                      if (pagination.totalPages <= 5) {
-                        pageNum = i + 1;
-                      } else if (pagination.page <= 3) {
-                        pageNum = i + 1;
-                      } else if (pagination.page >= pagination.totalPages - 2) {
-                        pageNum = pagination.totalPages - 4 + i;
-                      } else {
-                        pageNum = pagination.page - 2 + i;
-                      }
+                    {Array.from(
+                      { length: Math.min(5, pagination.totalPages) },
+                      (_, i) => {
+                        let pageNum;
+                        if (pagination.totalPages <= 5) {
+                          pageNum = i + 1;
+                        } else if (pagination.page <= 3) {
+                          pageNum = i + 1;
+                        } else if (
+                          pagination.page >=
+                          pagination.totalPages - 2
+                        ) {
+                          pageNum = pagination.totalPages - 4 + i;
+                        } else {
+                          pageNum = pagination.page - 2 + i;
+                        }
 
-                      return (
-                        <button
-                          key={pageNum}
-                          onClick={() => handlePageChange(pageNum)}
-                          className={`w-8 h-8 text-sm border rounded-md transition-colors ${
-                            pageNum === pagination.page
-                              ? 'bg-blue-600 text-white border-blue-600'
-                              : 'border-gray-300 hover:bg-gray-50'
-                          }`}
-                        >
-                          {pageNum}
-                        </button>
-                      );
-                    })}
+                        return (
+                          <button
+                            key={pageNum}
+                            onClick={() => handlePageChange(pageNum)}
+                            className={`w-8 h-8 text-sm border rounded-md transition-colors ${
+                              pageNum === pagination.page
+                                ? "bg-blue-600 text-white border-blue-600"
+                                : "border-gray-300 hover:bg-gray-50"
+                            }`}
+                          >
+                            {pageNum}
+                          </button>
+                        );
+                      },
+                    )}
                   </div>
 
                   <button
@@ -297,20 +313,23 @@ const SearchPage: React.FC = () => {
                     Start Your Project Discovery
                   </h3>
                   <p className="text-gray-600 mb-6">
-                    Search for innovative projects, explore categories, or discover creators
+                    Search for innovative projects, explore categories, or
+                    discover creators
                   </p>
-                  
+
                   {/* Quick Categories */}
                   <div className="grid grid-cols-2 gap-3">
-                    {['DeFi', 'Payments', 'NFT', 'Infrastructure'].map((category) => (
-                      <button
-                        key={category}
-                        onClick={() => handleSearch(category)}
-                        className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium text-gray-700 transition-colors"
-                      >
-                        {category}
-                      </button>
-                    ))}
+                    {["DeFi", "Payments", "NFT", "Infrastructure"].map(
+                      (category) => (
+                        <button
+                          key={category}
+                          onClick={() => handleSearch(category)}
+                          className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium text-gray-700 transition-colors"
+                        >
+                          {category}
+                        </button>
+                      ),
+                    )}
                   </div>
                 </div>
               </div>

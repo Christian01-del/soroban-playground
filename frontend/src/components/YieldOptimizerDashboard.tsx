@@ -21,7 +21,9 @@ function bpsToPercent(value: number) {
 
 export default function YieldOptimizerDashboard() {
   const [dashboard, setDashboard] = useState<OptimizerDashboard | null>(null);
-  const [selectedStrategyId, setSelectedStrategyId] = useState<number | null>(null);
+  const [selectedStrategyId, setSelectedStrategyId] = useState<number | null>(
+    null,
+  );
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<string>("");
@@ -80,7 +82,11 @@ export default function YieldOptimizerDashboard() {
         await yieldOptimizerService.getHealth();
         await refreshDashboard();
       } catch (error) {
-        setFeedback(error instanceof Error ? error.message : "Failed to connect to backend.");
+        setFeedback(
+          error instanceof Error
+            ? error.message
+            : "Failed to connect to backend.",
+        );
       } finally {
         setLoading(false);
       }
@@ -110,10 +116,15 @@ export default function YieldOptimizerDashboard() {
         <header className="rounded-3xl border border-slate-800 bg-slate-900 p-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-xs uppercase tracking-[0.2em] text-cyan-300">Yield Optimizer</p>
-              <h1 className="mt-2 text-3xl font-semibold text-white">Cross-Protocol Strategy Hub</h1>
+              <p className="text-xs uppercase tracking-[0.2em] text-cyan-300">
+                Yield Optimizer
+              </p>
+              <h1 className="mt-2 text-3xl font-semibold text-white">
+                Cross-Protocol Strategy Hub
+              </h1>
               <p className="mt-2 max-w-3xl text-sm text-slate-300">
-                Create strategies, manage user flows, execute auto-compounds, and run deterministic backtests.
+                Create strategies, manage user flows, execute auto-compounds,
+                and run deterministic backtests.
               </p>
             </div>
             <a
@@ -131,25 +142,63 @@ export default function YieldOptimizerDashboard() {
         </header>
 
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <Metric label="Strategies" value={String(dashboard?.metrics.strategyCount || 0)} />
+          <Metric
+            label="Strategies"
+            value={String(dashboard?.metrics.strategyCount || 0)}
+          />
           <Metric label="TVL" value={money(dashboard?.metrics.totalTvl || 0)} />
-          <Metric label="Average APY" value={bpsToPercent(dashboard?.metrics.averageApyBps || 0)} />
-          <Metric label="Users" value={String(dashboard?.metrics.totalUsers || 0)} />
+          <Metric
+            label="Average APY"
+            value={bpsToPercent(dashboard?.metrics.averageApyBps || 0)}
+          />
+          <Metric
+            label="Users"
+            value={String(dashboard?.metrics.totalUsers || 0)}
+          />
         </section>
 
         <section className="grid gap-6 xl:grid-cols-[1.2fr_1fr]">
           <div className="space-y-6">
             <Card title="Create Strategy">
               <div className="grid gap-3 md:grid-cols-2">
-                <Field label="Name" value={strategyForm.name} onChange={(value) => setStrategyForm((p) => ({ ...p, name: value }))} />
-                <Field label="Protocol" value={strategyForm.protocol} onChange={(value) => setStrategyForm((p) => ({ ...p, protocol: value }))} />
-                <Field label="APY (bps)" value={strategyForm.apyBps} onChange={(value) => setStrategyForm((p) => ({ ...p, apyBps: value }))} />
-                <Field label="Fee (bps)" value={strategyForm.feeBps} onChange={(value) => setStrategyForm((p) => ({ ...p, feeBps: value }))} />
+                <Field
+                  label="Name"
+                  value={strategyForm.name}
+                  onChange={(value) =>
+                    setStrategyForm((p) => ({ ...p, name: value }))
+                  }
+                />
+                <Field
+                  label="Protocol"
+                  value={strategyForm.protocol}
+                  onChange={(value) =>
+                    setStrategyForm((p) => ({ ...p, protocol: value }))
+                  }
+                />
+                <Field
+                  label="APY (bps)"
+                  value={strategyForm.apyBps}
+                  onChange={(value) =>
+                    setStrategyForm((p) => ({ ...p, apyBps: value }))
+                  }
+                />
+                <Field
+                  label="Fee (bps)"
+                  value={strategyForm.feeBps}
+                  onChange={(value) =>
+                    setStrategyForm((p) => ({ ...p, feeBps: value }))
+                  }
+                />
                 <div className="md:col-span-2">
                   <Field
                     label="Compound Interval (seconds)"
                     value={strategyForm.compoundInterval}
-                    onChange={(value) => setStrategyForm((p) => ({ ...p, compoundInterval: value }))}
+                    onChange={(value) =>
+                      setStrategyForm((p) => ({
+                        ...p,
+                        compoundInterval: value,
+                      }))
+                    }
                   />
                 </div>
               </div>
@@ -160,14 +209,16 @@ export default function YieldOptimizerDashboard() {
                 onClick={() =>
                   void runAction(async () => {
                     if (!dashboard) return;
-                    const strategy = await yieldOptimizerService.createStrategy({
-                      actor: dashboard.config.adminAddress,
-                      name: strategyForm.name.trim(),
-                      protocol: strategyForm.protocol.trim(),
-                      apyBps: Number(strategyForm.apyBps),
-                      feeBps: Number(strategyForm.feeBps),
-                      compoundInterval: Number(strategyForm.compoundInterval),
-                    });
+                    const strategy = await yieldOptimizerService.createStrategy(
+                      {
+                        actor: dashboard.config.adminAddress,
+                        name: strategyForm.name.trim(),
+                        protocol: strategyForm.protocol.trim(),
+                        apyBps: Number(strategyForm.apyBps),
+                        feeBps: Number(strategyForm.feeBps),
+                        compoundInterval: Number(strategyForm.compoundInterval),
+                      },
+                    );
                     setSelectedStrategyId(strategy.id);
                   }, "Strategy created")
                 }
@@ -181,12 +232,16 @@ export default function YieldOptimizerDashboard() {
                 <Field
                   label="User Address"
                   value={flowForm.actor}
-                  onChange={(value) => setFlowForm((p) => ({ ...p, actor: value }))}
+                  onChange={(value) =>
+                    setFlowForm((p) => ({ ...p, actor: value }))
+                  }
                 />
                 <Field
                   label="Amount"
                   value={flowForm.amount}
-                  onChange={(value) => setFlowForm((p) => ({ ...p, amount: value }))}
+                  onChange={(value) =>
+                    setFlowForm((p) => ({ ...p, amount: value }))
+                  }
                 />
               </div>
               <div className="mt-4 flex flex-wrap gap-3">
@@ -195,17 +250,14 @@ export default function YieldOptimizerDashboard() {
                   disabled={busy || !selectedStrategy}
                   className="rounded-xl bg-emerald-400 px-4 py-2 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
                   onClick={() =>
-                    void runAction(
-                      async () => {
-                        if (!selectedStrategy) return;
-                        await yieldOptimizerService.deposit(
-                          selectedStrategy.id,
-                          flowForm.actor.trim(),
-                          Number(flowForm.amount)
-                        );
-                      },
-                      "Deposit complete"
-                    )
+                    void runAction(async () => {
+                      if (!selectedStrategy) return;
+                      await yieldOptimizerService.deposit(
+                        selectedStrategy.id,
+                        flowForm.actor.trim(),
+                        Number(flowForm.amount),
+                      );
+                    }, "Deposit complete")
                   }
                 >
                   Deposit
@@ -215,17 +267,14 @@ export default function YieldOptimizerDashboard() {
                   disabled={busy || !selectedStrategy}
                   className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
                   onClick={() =>
-                    void runAction(
-                      async () => {
-                        if (!selectedStrategy) return;
-                        await yieldOptimizerService.withdraw(
-                          selectedStrategy.id,
-                          flowForm.actor.trim(),
-                          Number(flowForm.amount)
-                        );
-                      },
-                      "Withdraw complete"
-                    )
+                    void runAction(async () => {
+                      if (!selectedStrategy) return;
+                      await yieldOptimizerService.withdraw(
+                        selectedStrategy.id,
+                        flowForm.actor.trim(),
+                        Number(flowForm.amount),
+                      );
+                    }, "Withdraw complete")
                   }
                 >
                   Withdraw
@@ -235,19 +284,36 @@ export default function YieldOptimizerDashboard() {
 
             <Card title="Auto-Compound & Backtest">
               <div className="grid gap-3 md:grid-cols-2">
-                <Field label="APY (bps)" value={settingsForm.apyBps} onChange={(value) => setSettingsForm((p) => ({ ...p, apyBps: value }))} />
-                <Field label="Fee (bps)" value={settingsForm.feeBps} onChange={(value) => setSettingsForm((p) => ({ ...p, feeBps: value }))} />
+                <Field
+                  label="APY (bps)"
+                  value={settingsForm.apyBps}
+                  onChange={(value) =>
+                    setSettingsForm((p) => ({ ...p, apyBps: value }))
+                  }
+                />
+                <Field
+                  label="Fee (bps)"
+                  value={settingsForm.feeBps}
+                  onChange={(value) =>
+                    setSettingsForm((p) => ({ ...p, feeBps: value }))
+                  }
+                />
                 <Field
                   label="Compound Interval (seconds)"
                   value={settingsForm.compoundInterval}
-                  onChange={(value) => setSettingsForm((p) => ({ ...p, compoundInterval: value }))}
+                  onChange={(value) =>
+                    setSettingsForm((p) => ({ ...p, compoundInterval: value }))
+                  }
                 />
                 <label className="flex items-center gap-2 rounded-xl border border-slate-800 px-3 py-2 text-sm">
                   <input
                     type="checkbox"
                     checked={settingsForm.isActive}
                     onChange={(event) =>
-                      setSettingsForm((p) => ({ ...p, isActive: event.target.checked }))
+                      setSettingsForm((p) => ({
+                        ...p,
+                        isActive: event.target.checked,
+                      }))
                     }
                   />
                   Strategy Active
@@ -259,22 +325,21 @@ export default function YieldOptimizerDashboard() {
                   disabled={busy || !selectedStrategy || !dashboard}
                   className="rounded-xl bg-cyan-400 px-4 py-2 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
                   onClick={() =>
-                    void runAction(
-                      async () => {
-                        if (!selectedStrategy || !dashboard) return;
-                        await yieldOptimizerService.updateStrategy(
-                          selectedStrategy.id,
-                          dashboard.config.adminAddress,
-                          {
-                            apyBps: Number(settingsForm.apyBps),
-                            feeBps: Number(settingsForm.feeBps),
-                            compoundInterval: Number(settingsForm.compoundInterval),
-                            isActive: settingsForm.isActive,
-                          }
-                        );
-                      },
-                      "Settings updated"
-                    )
+                    void runAction(async () => {
+                      if (!selectedStrategy || !dashboard) return;
+                      await yieldOptimizerService.updateStrategy(
+                        selectedStrategy.id,
+                        dashboard.config.adminAddress,
+                        {
+                          apyBps: Number(settingsForm.apyBps),
+                          feeBps: Number(settingsForm.feeBps),
+                          compoundInterval: Number(
+                            settingsForm.compoundInterval,
+                          ),
+                          isActive: settingsForm.isActive,
+                        },
+                      );
+                    }, "Settings updated")
                   }
                 >
                   Save Settings
@@ -284,16 +349,13 @@ export default function YieldOptimizerDashboard() {
                   disabled={busy || !selectedStrategy || !dashboard}
                   className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
                   onClick={() =>
-                    void runAction(
-                      async () => {
-                        if (!selectedStrategy || !dashboard) return;
-                        await yieldOptimizerService.compound(
-                          selectedStrategy.id,
-                          dashboard.config.executorAddress
-                        );
-                      },
-                      "Compound executed"
-                    )
+                    void runAction(async () => {
+                      if (!selectedStrategy || !dashboard) return;
+                      await yieldOptimizerService.compound(
+                        selectedStrategy.id,
+                        dashboard.config.executorAddress,
+                      );
+                    }, "Compound executed")
                   }
                 >
                   Run Compound
@@ -306,12 +368,16 @@ export default function YieldOptimizerDashboard() {
                   <Field
                     label="Deposit Amount"
                     value={backtestForm.depositAmount}
-                    onChange={(value) => setBacktestForm((p) => ({ ...p, depositAmount: value }))}
+                    onChange={(value) =>
+                      setBacktestForm((p) => ({ ...p, depositAmount: value }))
+                    }
                   />
                   <Field
                     label="Days"
                     value={backtestForm.days}
-                    onChange={(value) => setBacktestForm((p) => ({ ...p, days: value }))}
+                    onChange={(value) =>
+                      setBacktestForm((p) => ({ ...p, days: value }))
+                    }
                   />
                 </div>
                 <button
@@ -319,18 +385,15 @@ export default function YieldOptimizerDashboard() {
                   disabled={busy || !selectedStrategy}
                   className="mt-4 rounded-xl bg-amber-300 px-4 py-2 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
                   onClick={() =>
-                    void runAction(
-                      async () => {
-                        if (!selectedStrategy) return;
-                        const result = await yieldOptimizerService.backtest({
-                          strategyId: selectedStrategy.id,
-                          depositAmount: Number(backtestForm.depositAmount),
-                          days: Number(backtestForm.days),
-                        });
-                        setBacktest(result);
-                      },
-                      "Backtest completed"
-                    )
+                    void runAction(async () => {
+                      if (!selectedStrategy) return;
+                      const result = await yieldOptimizerService.backtest({
+                        strategyId: selectedStrategy.id,
+                        depositAmount: Number(backtestForm.depositAmount),
+                        days: Number(backtestForm.days),
+                      });
+                      setBacktest(result);
+                    }, "Backtest completed")
                   }
                 >
                   Run Backtest
@@ -338,12 +401,22 @@ export default function YieldOptimizerDashboard() {
 
                 {backtest ? (
                   <div className="mt-4 grid gap-2 text-sm text-slate-200 sm:grid-cols-2">
-                    <span>Projected Final: {money(backtest.projectedFinalBalance)}</span>
-                    <span>Projected Yield: {money(backtest.projectedYield)}</span>
-                    <span>Projected APY: {backtest.projectedApyPercent.toFixed(2)}%</span>
-                    <span>Max Drawdown: {backtest.maxDrawdownPercent.toFixed(2)}%</span>
+                    <span>
+                      Projected Final: {money(backtest.projectedFinalBalance)}
+                    </span>
+                    <span>
+                      Projected Yield: {money(backtest.projectedYield)}
+                    </span>
+                    <span>
+                      Projected APY: {backtest.projectedApyPercent.toFixed(2)}%
+                    </span>
+                    <span>
+                      Max Drawdown: {backtest.maxDrawdownPercent.toFixed(2)}%
+                    </span>
                     <span>Fees: {money(backtest.feesPaid)}</span>
-                    <span>Compounding Every: {backtest.compoundEveryDays} days</span>
+                    <span>
+                      Compounding Every: {backtest.compoundEveryDays} days
+                    </span>
                   </div>
                 ) : null}
               </div>
@@ -365,8 +438,12 @@ export default function YieldOptimizerDashboard() {
                           : "border-slate-800 bg-slate-900/50 hover:border-slate-600"
                       }`}
                     >
-                      <p className="text-sm font-semibold text-white">{strategy.name}</p>
-                      <p className="text-xs text-slate-400">{strategy.protocol}</p>
+                      <p className="text-sm font-semibold text-white">
+                        {strategy.name}
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {strategy.protocol}
+                      </p>
                       <div className="mt-2 grid gap-1 text-xs text-slate-300 sm:grid-cols-2">
                         <span>APY: {bpsToPercent(strategy.apyBps)}</span>
                         <span>TVL: {money(strategy.tvl)}</span>
@@ -385,14 +462,25 @@ export default function YieldOptimizerDashboard() {
               <div className="space-y-3">
                 {dashboard?.history.length ? (
                   dashboard.history.slice(0, 10).map((event) => (
-                    <div key={event.id} className="rounded-xl border border-slate-800 bg-slate-900/50 p-3">
-                      <p className="text-sm font-semibold text-white">{event.action}</p>
-                      <p className="text-xs text-slate-400">{new Date(event.timestamp).toLocaleString()}</p>
-                      <p className="text-xs text-slate-500">Actor: {event.actor.slice(0, 8)}...</p>
+                    <div
+                      key={event.id}
+                      className="rounded-xl border border-slate-800 bg-slate-900/50 p-3"
+                    >
+                      <p className="text-sm font-semibold text-white">
+                        {event.action}
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {new Date(event.timestamp).toLocaleString()}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        Actor: {event.actor.slice(0, 8)}...
+                      </p>
                     </div>
                   ))
                 ) : (
-                  <p className="text-sm text-slate-400">History will appear as actions run.</p>
+                  <p className="text-sm text-slate-400">
+                    History will appear as actions run.
+                  </p>
                 )}
               </div>
             </Card>
@@ -406,13 +494,21 @@ export default function YieldOptimizerDashboard() {
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-      <p className="text-xs uppercase tracking-[0.14em] text-slate-400">{label}</p>
+      <p className="text-xs uppercase tracking-[0.14em] text-slate-400">
+        {label}
+      </p>
       <p className="mt-2 text-2xl font-semibold text-white">{value}</p>
     </div>
   );
 }
 
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
+function Card({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
       <h2 className="mb-4 text-lg font-semibold text-white">{title}</h2>
@@ -432,7 +528,9 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="text-xs uppercase tracking-[0.12em] text-slate-400">{label}</span>
+      <span className="text-xs uppercase tracking-[0.12em] text-slate-400">
+        {label}
+      </span>
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}

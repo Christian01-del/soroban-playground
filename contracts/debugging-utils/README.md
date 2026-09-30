@@ -123,24 +123,29 @@ client.clear_error_history(&env).unwrap();
 ### Input Sanitization
 
 **DebugLogger** sanitizes all log inputs:
+
 - Rejects empty strings with `Error::InvalidInput`
 - Truncates messages exceeding 512 characters
 - Strips null bytes and non-printable characters (keeps only ASCII 32-126)
 - If sanitization results in empty string, the operation fails
 
 **StateInspector** validates keys:
+
 - Keys must be non-empty
 - Keys must not exceed 128 characters
 - Invalid keys return `Error::InvalidInput`
 
 **ExecutionTracer** capabilities:
+
 - Maximum 200 steps per trace
 - Additional steps return `Error::CapExceeded`
 
 **ErrorDebugger** limitations:
+
 - Error history capped at 100 entries (FIFO eviction)
 - New entries evict oldest when cap is reached
 
 **GasProfiler** measurements:
+
 - Simulated gas cost using `env.budget().cpu_instruction_count()`
 - Differences are non-negative (saturating subtraction)

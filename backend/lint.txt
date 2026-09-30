@@ -1,0 +1,171 @@
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/src/graphql/resolvers.js
+   11:3   warning  'deployBatchContracts' is defined but never used  no-unused-vars
+  107:26  warning  '_parent' is defined but never used               no-unused-vars
+  107:35  warning  '_args' is defined but never used                 no-unused-vars
+  107:42  warning  'context' is defined but never used               no-unused-vars
+  136:28  warning  '_parent' is defined but never used               no-unused-vars
+  136:37  warning  '_args' is defined but never used                 no-unused-vars
+  136:44  warning  'context' is defined but never used               no-unused-vars
+  154:59  warning  'context' is defined but never used               no-unused-vars
+  177:34  warning  'contractId' is defined but never used            no-unused-vars
+  177:46  warning  'first' is assigned a value but never used        no-unused-vars
+  177:58  warning  'after' is defined but never used                 no-unused-vars
+  185:41  warning  'context' is defined but never used               no-unused-vars
+  209:50  warning  'context' is defined but never used               no-unused-vars
+  230:40  warning  'context' is defined but never used               no-unused-vars
+  247:40  warning  'context' is defined but never used               no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/src/metrics/performance.js
+  1:25  warning  'Meter' is defined but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/src/middleware/tieredRateLimiter.js
+  208:12  warning  'err' is defined but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/src/routes/api.js
+  21:10  warning  'rateLimitMiddleware' is defined but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/src/routes/nftAmm.js
+   44:7   warning  'MAX_PROTOCOL_FEE_BPS' is assigned a value but never used  no-unused-vars
+  534:11  warning  'poolFee' is assigned a value but never used               no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/src/routes/quadraticVoting.js
+  234:25  warning  'admin' is assigned a value but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/src/routes/reit.js
+  176:33  warning  'next' is defined but never used  no-unused-vars
+  408:33  warning  'next' is defined but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/src/routes/sportsPredictionMarket.js
+  213:33  warning  'next' is defined but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/src/routes/tokenizedReit.js
+  170:33  warning  'next' is defined but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/src/routes/treasury.js
+  31:12  warning  'error' is defined but never used  no-unused-vars
+  71:12  warning  'error' is defined but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/src/routes/v1/synthetic-assets.js
+  25:10  warning  'validateInput' is defined but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/src/routes/v2/invoke.js
+  11:45  warning  'network' is assigned a value but never used         no-unused-vars
+  11:54  warning  'source_account' is assigned a value but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/src/routes/warrantyManagement.js
+  221:33  warning  'next' is defined but never used  no-unused-vars
+  301:33  warning  'next' is defined but never used  no-unused-vars
+  413:33  warning  'next' is defined but never used  no-unused-vars
+  451:33  warning  'next' is defined but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/src/routes/yieldOptimizer.js
+  196:33  warning  'next' is defined but never used  no-unused-vars
+  226:33  warning  'next' is defined but never used  no-unused-vars
+  413:33  warning  'next' is defined but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/src/server.js
+  22:8   warning  'oracleRoute' is defined but never used          no-unused-vars
+  23:10  warning  'rateLimitMiddleware' is defined but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/src/services/compileService.js
+  12:3   warning  'getTraceId' is defined but never used             no-unused-vars
+  14:10  warning  'alertManager' is defined but never used           no-unused-vars
+  19:39  warning  '_hashes' is defined but never used                no-unused-vars
+  44:32  warning  '_entry' is defined but never used                 no-unused-vars
+  47:32  warning  '_opts' is defined but never used                  no-unused-vars
+  71:7   warning  'CACHE_TTL_MS' is assigned a value but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/src/services/oracle/lockManager.js
+  254:28  warning  'scope' is defined but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/src/services/oracleWorkerPool.js
+  22:22  warning  'task' is defined but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/src/services/patentRegistryService.js
+  8:10  warning  'nowIso' is defined but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/src/services/rateLimitStrategies.js
+  8:15  warning  'redisService' is defined but never used  no-unused-vars
+  8:29  warning  'key' is defined but never used           no-unused-vars
+  8:34  warning  'limit' is defined but never used         no-unused-vars
+  8:41  warning  'windowMs' is defined but never used      no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/src/services/searchService.js
+  96:45  warning  'pagination' is assigned a value but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/src/services/stablecoinService.js
+  190:28  warning  'signature' is defined but never used  no-unused-vars
+  212:23  warning  'adminKey' is defined but never used   no-unused-vars
+  288:15  warning  'adminKey' is defined but never used   no-unused-vars
+  299:17  warning  'adminKey' is defined but never used   no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/src/utils/alerting.js
+  1:10  warning  'getCurrentSpan' is defined but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/src/utils/migrationCli.js
+  8:7  warning  '__dirname' is assigned a value but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/src/utils/migrationGuide.js
+  23:7  warning  'v2Schema' is assigned a value but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/tests/admin.test.js
+  15:3  warning  'listCacheKeys' is defined but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/tests/authService.test.js
+  279:13  warning  'key2' is assigned a value but never used  no-unused-vars
+  331:13  warning  'key3' is assigned a value but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/tests/load-test.ts
+  14:8   warning  'crypto' is defined but never used      @typescript-eslint/no-unused-vars
+  25:11  warning  'TestResult' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/tests/migrationService.test.js
+  7:3  warning  'getMigrationDashboard' is defined but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/tests/orderbook.test.js
+   6:10  warning  'jest' is defined but never used                no-unused-vars
+  13:3   warning  'getTrades' is assigned a value but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/tests/persistence-test.js
+   9:8   warning  'http' is defined but never used                          no-unused-vars
+  10:10  warning  'spawn' is defined but never used                         no-unused-vars
+  11:8   warning  'fs' is defined but never used                            no-unused-vars
+  12:8   warning  'path' is defined but never used                          no-unused-vars
+  15:7   warning  'SERVER_RESTART_WAIT' is assigned a value but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/tests/syntheticAssets.database.test.js
+  36:11  warning  'migrationSQL' is assigned a value but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/tests/syntheticAssets.e2e.test.js
+   51:9   warning  'redisService' is assigned a value but never used    no-unused-vars
+   52:9   warning  'invokeContract' is assigned a value but never used  no-unused-vars
+  310:11  warning  'invalidInputs' is assigned a value but never used   no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/tests/syntheticAssets.error.test.js
+   49:7   warning  'CONTRACT_ID' is assigned a value but never used  no-unused-vars
+   51:7   warning  'POSITION_ID' is assigned a value but never used  no-unused-vars
+  194:13  warning  'res' is assigned a value but never used          no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/tests/syntheticAssets.unit.test.js
+  503:9  error  Parsing error: Identifier 'syntheticAssetsService' has already been declared
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/tests/syntheticAssets.websocket.test.js
+   43:8   warning  'request' is defined but never used                no-unused-vars
+   49:7   warning  'CONTRACT_ID' is assigned a value but never used   no-unused-vars
+   50:7   warning  'USER_ADDRESS' is assigned a value but never used  no-unused-vars
+   51:7   warning  'POSITION_ID' is assigned a value but never used   no-unused-vars
+   92:10  warning  'data' is defined but never used                   no-unused-vars
+  135:10  warning  'data' is defined but never used                   no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/tests/tokenGatedAccess.test.js
+  23:28  warning  '_next' is defined but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/tests/tokenizedReit.test.js
+  109:15  warning  'name' is assigned a value but never used  no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/backend/tests/websocket.test.js
+  1:10  warning  'EventEmitter' is defined but never used  no-unused-vars
+
+✖ 90 problems (1 error, 89 warnings)
+

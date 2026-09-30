@@ -4,7 +4,7 @@
 import { jest } from '@jest/globals';
 
 // Mock the patent service so tests don't need a live Soroban node
-jest.unstable_mockModule('../src/services/patentService.js', () => ({
+jest.mock('../src/services/patentService.js', () => ({
   filePatent: jest.fn(),
   activatePatent: jest.fn(),
   revokePatent: jest.fn(),
@@ -24,12 +24,12 @@ jest.unstable_mockModule('../src/services/patentService.js', () => ({
   getIsPaused: jest.fn(),
 }));
 
-const patentService = await import('../src/services/patentService.js');
+const patentService = require('../src/services/patentService.js');
 
 import express from 'express';
 import request from 'supertest';
-const { default: patentsRouter } = await import('../src/routes/patents.js');
-const { errorHandler } = await import('../src/middleware/errorHandler.js');
+const { default: patentsRouter } = require('../src/routes/patents.js');
+const { errorHandler } = require('../src/middleware/errorHandler.js');
 
 const app = express();
 app.use(express.json());

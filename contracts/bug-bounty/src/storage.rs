@@ -55,9 +55,9 @@ pub fn set_pool_balance(env: &Env, balance: i128) {
 // ── Reward tiers ──────────────────────────────────────────────────────────────
 
 /// Default reward amounts in stroops (1 XLM = 10_000_000 stroops).
-const DEFAULT_REWARD_LOW: i128 = 10_000_000;       // 1 XLM
-const DEFAULT_REWARD_MEDIUM: i128 = 50_000_000;    // 5 XLM
-const DEFAULT_REWARD_HIGH: i128 = 200_000_000;     // 20 XLM
+const DEFAULT_REWARD_LOW: i128 = 10_000_000; // 1 XLM
+const DEFAULT_REWARD_MEDIUM: i128 = 50_000_000; // 5 XLM
+const DEFAULT_REWARD_HIGH: i128 = 200_000_000; // 20 XLM
 const DEFAULT_REWARD_CRITICAL: i128 = 1_000_000_000; // 100 XLM
 
 pub fn get_reward_for_severity(env: &Env, severity: Severity) -> i128 {

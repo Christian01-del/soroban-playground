@@ -531,6 +531,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "claimed"
+                      },
+                      "val": {
+                        "bool": true
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "unlock_timestamp"
                       },
                       "val": {

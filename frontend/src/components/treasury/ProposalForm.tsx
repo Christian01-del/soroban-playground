@@ -1,12 +1,12 @@
 "use client";
 
-import React, { useState } from 'react';
-import { Send } from 'lucide-react';
+import React, { useState } from "react";
+import { Send } from "lucide-react";
 
 export function ProposalForm() {
-  const [amount, setAmount] = useState('');
-  const [recipient, setRecipient] = useState('');
-  const [description, setDescription] = useState('');
+  const [amount, setAmount] = useState("");
+  const [recipient, setRecipient] = useState("");
+  const [description, setDescription] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -15,23 +15,27 @@ export function ProposalForm() {
     // Mock submission
     setTimeout(() => {
       setIsSubmitting(false);
-      setAmount('');
-      setRecipient('');
-      setDescription('');
+      setAmount("");
+      setRecipient("");
+      setDescription("");
     }, 1500);
   };
 
   return (
     <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-8 shadow-2xl relative overflow-hidden">
       <div className="absolute top-0 right-0 w-64 h-64 bg-purple-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3" />
-      
-      <h3 className="text-2xl font-semibold text-white mb-6">Create Proposal</h3>
-      
+
+      <h3 className="text-2xl font-semibold text-white mb-6">
+        Create Proposal
+      </h3>
+
       <form onSubmit={handleSubmit} className="space-y-5 relative z-10">
         <div>
-          <label className="block text-sm font-medium text-gray-400 mb-2">Amount (XLM)</label>
+          <label className="block text-sm font-medium text-gray-400 mb-2">
+            Amount (XLM)
+          </label>
           <div className="relative">
-            <input 
+            <input
               type="number"
               required
               value={amount}
@@ -46,8 +50,10 @@ export function ProposalForm() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-400 mb-2">Recipient Address</label>
-          <input 
+          <label className="block text-sm font-medium text-gray-400 mb-2">
+            Recipient Address
+          </label>
+          <input
             type="text"
             required
             value={recipient}
@@ -58,8 +64,10 @@ export function ProposalForm() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-400 mb-2">Description</label>
-          <textarea 
+          <label className="block text-sm font-medium text-gray-400 mb-2">
+            Description
+          </label>
+          <textarea
             required
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -68,13 +76,18 @@ export function ProposalForm() {
           />
         </div>
 
-        <button 
+        <button
           type="submit"
           disabled={isSubmitting}
           className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-semibold py-4 rounded-xl shadow-lg hover:shadow-blue-500/25 transition-all flex items-center justify-center gap-2 group disabled:opacity-50"
         >
-          {isSubmitting ? 'Submitting...' : 'Submit Proposal'}
-          {!isSubmitting && <Send size={18} className="group-hover:translate-x-1 transition-transform" />}
+          {isSubmitting ? "Submitting..." : "Submit Proposal"}
+          {!isSubmitting && (
+            <Send
+              size={18}
+              className="group-hover:translate-x-1 transition-transform"
+            />
+          )}
         </button>
       </form>
     </div>

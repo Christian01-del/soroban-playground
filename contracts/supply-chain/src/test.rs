@@ -5,8 +5,8 @@
 
 use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
-use crate::{SupplyChain, SupplyChainClient};
 use crate::types::{Error, ProductStatus, QualityResult};
+use crate::{SupplyChain, SupplyChainClient};
 
 fn setup() -> (Env, Address, SupplyChainClient<'static>) {
     let env = Env::default();
@@ -194,4 +194,162 @@ fn test_recall_unauthorized_fails() {
     let rando = Address::generate(&env);
     let result = client.try_recall_product(&rando, &id);
     assert_eq!(result, Err(Ok(Error::Unauthorized)));
+}
+
+// ── Cold Chain SLA ────────────────────────────────────────────────────────────
+
+use crate::types::{ColdChainSla, SlaStatus, TemperatureLogStatus};
+
+#[test]
+fn test_create_cold_chain_sla() {
+    let (env, admin, client) = setup();
+    let owner = Address::generate(&env);
+    let id = client.register_product(&owner, &String::from_str(&env, "Vaccine"), &1u64);
+
+    let sla_id = client.create_cold_chain_sla(
+        &admin, &id, &2,     // min temp
+        &8,     // max temp
+        &30,    // max violation minutes
+        &1000,  // penalty per violation
+        &50000, // deposit
+        &86400, // duration (1 day)
+    );
+
+    assert_eq!(sla_id, 1);
+    assert_eq!(client.get_sla_count(), 1);
+
+    let sla = client.get_cold_chain_sla(&sla_id);
+    assert_eq!(sla.product_id, id);
+    assert_eq!(sla.min_temp_celsius, 2);
+    assert_eq!(sla.max_temp_celsius, 8);
+    assert_eq!(sla.status, SlaStatus::Active);
+}
+
+#[test]
+fn test_create_cold_chain_sla_invalid_range() {
+    let (env, admin, client) = setup();
+    let owner = Address::generate(&env);
+    let id = client.register_product(&owner, &String::from_str(&env, "Vaccine"), &1u64);
+
+    assert_eq!(
+        client.try_create_cold_chain_sla(
+            &admin, &id, &10, // min > max
+            &5,  // max
+            &30, &1000, &50000, &86400,
+        ),
+        Err(Ok(Error::InvalidTemperatureRange))
+    );
+}
+
+#[test]
+fn test_log_temperature_normal() {
+    let (env, admin, client) = setup();
+    let owner = Address::generate(&env);
+    let recorder = Address::generate(&env);
+    let id = client.register_product(&owner, &String::from_str(&env, "Vaccine"), &1u64);
+
+    client.create_cold_chain_sla(&admin, &id, &2, &8, &30, &1000, &50000, &86400);
+
+    client.log_temperature(&recorder, &id, &5, &60, &12345);
+    let log = client.get_temperature_log(&id, &env.ledger().timestamp());
+    assert!(log.is_some());
+    assert_eq!(log.unwrap().status, TemperatureLogStatus::Normal);
+}
+
+#[test]
+fn test_log_temperature_violation() {
+    let (env, admin, client) = setup();
+    let owner = Address::generate(&env);
+    let recorder = Address::generate(&env);
+    let id = client.register_product(&owner, &String::from_str(&env, "Vaccine"), &1u64);
+
+    client.create_cold_chain_sla(&admin, &id, &2, &8, &30, &1000, &50000, &86400);
+
+    // Temperature below minimum
+    client.log_temperature(&recorder, &id, &0, &60, &12345);
+
+    let sla = client.get_cold_chain_sla(&1);
+    assert_eq!(sla.violation_count, 1);
+    assert_eq!(sla.total_penalties, 1000);
+
+    let product = client.get_product(&id);
+    assert_eq!(product.status, ProductStatus::TemperatureViolation);
+}
+
+#[test]
+fn test_log_temperature_violation_above_max() {
+    let (env, admin, client) = setup();
+    let owner = Address::generate(&env);
+    let recorder = Address::generate(&env);
+    let id = client.register_product(&owner, &String::from_str(&env, "Vaccine"), &1u64);
+
+    client.create_cold_chain_sla(&admin, &id, &2, &8, &30, &1000, &50000, &86400);
+
+    // Temperature above maximum
+    client.log_temperature(&recorder, &id, &15, &60, &12345);
+
+    let sla = client.get_cold_chain_sla(&1);
+    assert_eq!(sla.violation_count, 1);
+}
+
+#[test]
+fn test_multiple_violations_accumulate() {
+    let (env, admin, client) = setup();
+    let owner = Address::generate(&env);
+    let recorder = Address::generate(&env);
+    let id = client.register_product(&owner, &String::from_str(&env, "Vaccine"), &1u64);
+
+    client.create_cold_chain_sla(&admin, &id, &2, &8, &30, &1000, &50000, &86400);
+
+    // Multiple violations
+    client.log_temperature(&recorder, &id, &0, &60, &111);
+    client.log_temperature(&recorder, &id, &15, &60, &222);
+
+    let sla = client.get_cold_chain_sla(&1);
+    assert_eq!(sla.violation_count, 2);
+    assert_eq!(sla.total_penalties, 2000);
+}
+
+#[test]
+fn test_penalty_count() {
+    let (env, admin, client) = setup();
+    let owner = Address::generate(&env);
+    let recorder = Address::generate(&env);
+    let id = client.register_product(&owner, &String::from_str(&env, "Vaccine"), &1u64);
+
+    client.create_cold_chain_sla(&admin, &id, &2, &8, &30, &1000, &50000, &86400);
+
+    client.log_temperature(&recorder, &id, &0, &60, &111);
+    client.log_temperature(&recorder, &id, &15, &60, &222);
+
+    assert_eq!(client.get_penalty_count(), 2);
+}
+
+#[test]
+fn test_get_penalty_record() {
+    let (env, admin, client) = setup();
+    let owner = Address::generate(&env);
+    let recorder = Address::generate(&env);
+    let id = client.register_product(&owner, &String::from_str(&env, "Vaccine"), &1u64);
+
+    client.create_cold_chain_sla(&admin, &id, &2, &8, &30, &1000, &50000, &86400);
+
+    client.log_temperature(&recorder, &id, &0, &60, &111);
+    let penalty = client.get_penalty_record(&1);
+    assert_eq!(penalty.product_id, id);
+    assert_eq!(penalty.penalty_amount, 1000);
+}
+
+#[test]
+fn test_no_sla_means_normal_temperature() {
+    let (env, _admin, client) = setup();
+    let owner = Address::generate(&env);
+    let recorder = Address::generate(&env);
+    let id = client.register_product(&owner, &String::from_str(&env, "Vaccine"), &1u64);
+
+    // No SLA created - should be normal
+    client.log_temperature(&recorder, &id, &50, &60, &12345);
+    let log = client.get_temperature_log(&id, &env.ledger().timestamp());
+    assert!(log.is_some());
+    assert_eq!(log.unwrap().status, TemperatureLogStatus::Normal);
 }

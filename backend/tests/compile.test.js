@@ -1,22 +1,24 @@
 import { jest } from '@jest/globals';
 
-jest.unstable_mockModule('../src/services/compileService.js', () => ({
+jest.mock('../src/services/compileService.js', () => ({
   compileQueued: jest.fn(),
   compileBatch: jest.fn(),
   getCompileSnapshot: jest.fn(),
   compileProgressBus: { on: jest.fn() },
 }));
 
-const { compileQueued, compileBatch } =
-  await import('../src/services/compileService.js');
+const {
+  compileQueued,
+  compileBatch,
+} = require('../src/services/compileService.js');
 
 import express from 'express';
 import request from 'supertest';
-const { default: compileRouter } = await import('../src/routes/v1/compile.js');
-const { errorHandler } = await import('../src/middleware/errorHandler.js');
+const { default: compileRouter } = require('../src/routes/v1/compile.js');
+const { errorHandler } = require('../src/middleware/errorHandler.js');
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '5mb' }));
 app.use('/api/compile', compileRouter);
 app.use(errorHandler);
 
@@ -46,6 +48,7 @@ describe('POST /api/compile', () => {
 
   it('returns cache hit results from the service', async () => {
     compileQueued.mockResolvedValue({
+      success: true,
       cached: true,
       hash: 'abc',
       durationMs: 0,
@@ -60,6 +63,26 @@ describe('POST /api/compile', () => {
     expect(res.status).toBe(200);
     expect(res.body.cached).toBe(true);
     expect(res.body.artifact.name).toBe('abc.wasm');
+  });
+
+  it('rejects oversized source code payloads', async () => {
+    const oversized = 'a'.repeat(1024 * 1024 + 1);
+    const res = await request(app).post('/api/compile').send({
+      code: oversized,
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({
+      message: expect.stringContaining('Code exceeds max size'),
+      statusCode: 400,
+      details: expect.objectContaining({
+        maxSourceBytes: 1024 * 1024,
+      }),
+    });
+    expect(res.body.details.actualBytes).toBeGreaterThan(
+      res.body.details.maxSourceBytes
+    );
+    expect(compileQueued).not.toHaveBeenCalled();
   });
 
   it('returns batch compile results', async () => {

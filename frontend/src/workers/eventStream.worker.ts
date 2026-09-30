@@ -13,26 +13,26 @@
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type WsEvent = 
-  | { 
-      type: "event"; 
-      id: string; 
-      contract_id: string; 
-      ledger: number; 
-      ledger_closed_at: string; 
-      event_type: string; 
-      data: string; 
+export type WsEvent =
+  | {
+      type: "event";
+      id: string;
+      contract_id: string;
+      ledger: number;
+      ledger_closed_at: string;
+      event_type: string;
+      data: string;
     }
-  | { 
-      type: "quorum_update"; 
-      id: string; 
-      quorum_type: string; 
-      state: string; 
-      strategy: string; 
-      threshold: number; 
-      target_id?: string; 
-      created_at: string; 
-      expires_at: string; 
+  | {
+      type: "quorum_update";
+      id: string;
+      quorum_type: string;
+      state: string;
+      strategy: string;
+      threshold: number;
+      target_id?: string;
+      created_at: string;
+      expires_at: string;
     };
 
 type ServerMessage =
@@ -41,7 +41,6 @@ type ServerMessage =
   | { type: "ping"; ts: number }
   | { type: "lagged"; count: number }
   | { type: "error"; message: string };
-
 
 type IncomingWorkerMessage =
   | {
@@ -140,7 +139,11 @@ function writeEventToRing(event: WsEvent): void {
 
   const writeOffset = writeCursor % RING_CAPACITY;
   writeUint32(dataView, writeOffset, encoded.length);
-  writeBytes(dataView, (writeOffset + MESSAGE_HEADER_BYTES) % RING_CAPACITY, encoded);
+  writeBytes(
+    dataView,
+    (writeOffset + MESSAGE_HEADER_BYTES) % RING_CAPACITY,
+    encoded,
+  );
   Atomics.store(headerView, IDX_WRITE, writeCursor + required);
   Atomics.add(headerView, IDX_SEQ, 1);
 }
@@ -234,7 +237,9 @@ function openSocket(url: string): void {
           break;
 
         case "lagged":
-          postStatus(`Stream lagged — missed ${msg.count} event(s). Consider a REST sync.`);
+          postStatus(
+            `Stream lagged — missed ${msg.count} event(s). Consider a REST sync.`,
+          );
           break;
 
         case "error":

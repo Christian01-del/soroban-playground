@@ -1,41 +1,99 @@
-use soroban_sdk::{contracterror, contracttype, Address};
+use soroban_sdk::{contracterror, contracttype, Address, Bytes, BytesN};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
-    AlreadyInitialized   = 1,
-    NotInitialized       = 2,
-    Unauthorized         = 3,
-    EscrowNotFound       = 4,
-    InvalidState         = 5,
-    MilestoneNotFound    = 6,
-    InvalidAmount        = 7,
-    NoMilestones         = 8,
-    TooManyMilestones    = 9,
-    AlreadyDisputed      = 10,
-    InvalidRuling        = 11,
+    AlreadyInitialized = 1,
+    NotInitialized = 2,
+    Unauthorized = 3,
+    EscrowNotFound = 4,
+    InvalidState = 5,
+    MilestoneNotFound = 6,
+    InvalidAmount = 7,
+    NoMilestones = 8,
+    TooManyMilestones = 9,
+    AlreadyDisputed = 10,
+    InvalidRuling = 11,
+    InvalidFeeBps = 12,
+    AtomicSwapNotFound = 13,
+    InvalidSwap = 14,
+    SwapExpired = 15,
+    SwapNotExpired = 16,
+    InvalidHashlock = 17,
+    InvalidPreimage = 18,
+    TimelockOutOfRange = 19,
+    SameAsset = 20,
+    Overflow = 21,
+}
+
+/// Lifecycle of a bilateral hash time-locked atomic swap.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AtomicSwapStatus {
+    /// Maker's offered asset is locked; awaiting the designated taker.
+    AwaitingCounterparty,
+    /// Both assets are locked and can be exchanged with the preimage.
+    Funded,
+    /// Both transfer legs completed atomically.
+    Claimed,
+    /// Locked assets returned after expiry.
+    Refunded,
+    /// Maker recovered the offered asset before counterparty funding.
+    Cancelled,
+}
+
+/// A two-asset HTLC. Amounts use each token contract's native precision.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AtomicSwap {
+    pub id: u64,
+    pub maker: Address,
+    pub taker: Address,
+    pub offered_token: Address,
+    pub offered_amount: i128,
+    pub requested_token: Address,
+    pub requested_amount: i128,
+    pub hashlock: BytesN<32>,
+    pub expires_at: u64,
+    pub status: AtomicSwapStatus,
+    /// Published after a successful claim so linked HTLCs can observe it.
+    pub revealed_preimage: Option<Bytes>,
+    pub created_at: u64,
+    pub funded_at: Option<u64>,
+    pub settled_at: Option<u64>,
+}
+
+/// Aggregate atomic-swap lifecycle counters.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AtomicSwapStats {
+    pub total: u64,
+    pub active: u64,
+    pub claimed: u64,
+    pub refunded: u64,
+    pub cancelled: u64,
 }
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EscrowStatus {
-    Pending,    // created, awaiting client deposit
-    Active,     // funded, work may proceed
-    Completed,  // all milestones paid out
-    Disputed,   // arbiter intervention required
-    Cancelled,  // voided before completion
+    Pending,   // created, awaiting client deposit
+    Active,    // funded, work may proceed
+    Completed, // all milestones paid out
+    Disputed,  // arbiter intervention required
+    Cancelled, // voided before completion
 }
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MilestoneStatus {
-    Pending,      // not yet started
-    InProgress,   // freelancer working
-    UnderReview,  // submitted, client reviewing
-    Approved,     // client signed off, awaiting payment release
-    Rejected,     // client rejected, back to InProgress
-    Paid,         // payment released
+    Pending,     // not yet started
+    InProgress,  // freelancer working
+    UnderReview, // submitted, client reviewing
+    Approved,    // client signed off, awaiting payment release
+    Rejected,    // client rejected, back to InProgress
+    Paid,        // payment released
 }
 
 /// Dispute resolution ruling passed to `resolve_dispute`.
@@ -97,4 +155,7 @@ pub enum DataKey {
     Analytics,
     Escrow(u32),
     Milestone(u32, u32), // (escrow_id, milestone_id)
+    AtomicSwapCount,
+    AtomicSwapStats,
+    AtomicSwap(u64),
 }

@@ -1,5 +1,9 @@
+use crate::types::{Analytics, AtomicSwap, AtomicSwapStats, DataKey, Error, Escrow, Milestone};
+
+// Approximately 30 and 90 days at Stellar's expected five-second ledger time.
+const TTL_RENEWAL_THRESHOLD: u32 = 518_400;
+const TTL_RENEWAL_TARGET: u32 = 1_555_200;
 use soroban_sdk::{Address, Env};
-use crate::types::{Analytics, DataKey, Error, Escrow, Milestone};
 
 // ── Initialization ────────────────────────────────────────────────────────────
 
@@ -101,4 +105,60 @@ pub fn get_analytics(env: &Env) -> Analytics {
 
 pub fn set_analytics(env: &Env, analytics: &Analytics) {
     env.storage().instance().set(&DataKey::Analytics, analytics);
+}
+
+// ── Atomic swaps ──────────────────────────────────────────────────────────────
+
+pub fn next_atomic_swap_id(env: &Env) -> Result<u64, Error> {
+    let current: u64 = env
+        .storage()
+        .instance()
+        .get(&DataKey::AtomicSwapCount)
+        .unwrap_or(0);
+    let next = current.checked_add(1).ok_or(Error::Overflow)?;
+    env.storage()
+        .instance()
+        .set(&DataKey::AtomicSwapCount, &next);
+    Ok(next)
+}
+
+pub fn get_atomic_swap_count(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::AtomicSwapCount)
+        .unwrap_or(0)
+}
+
+pub fn get_atomic_swap(env: &Env, id: u64) -> Result<AtomicSwap, Error> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::AtomicSwap(id))
+        .ok_or(Error::AtomicSwapNotFound)
+}
+
+pub fn set_atomic_swap(env: &Env, swap: &AtomicSwap) {
+    let key = DataKey::AtomicSwap(swap.id);
+    env.storage().persistent().set(&key, swap);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, TTL_RENEWAL_THRESHOLD, TTL_RENEWAL_TARGET);
+}
+
+pub fn get_atomic_swap_stats(env: &Env) -> AtomicSwapStats {
+    env.storage()
+        .instance()
+        .get(&DataKey::AtomicSwapStats)
+        .unwrap_or(AtomicSwapStats {
+            total: 0,
+            active: 0,
+            claimed: 0,
+            refunded: 0,
+            cancelled: 0,
+        })
+}
+
+pub fn set_atomic_swap_stats(env: &Env, stats: &AtomicSwapStats) {
+    env.storage()
+        .instance()
+        .set(&DataKey::AtomicSwapStats, stats);
 }

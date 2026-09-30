@@ -3,9 +3,9 @@
  * Monitors positions at risk of liquidation
  */
 
-'use client';
+"use client";
 
-import React from 'react';
+import React from "react";
 
 interface Position {
   positionId: number;
@@ -33,7 +33,7 @@ const LiquidationMonitor: React.FC<LiquidationMonitorProps> = ({
 }) => {
   const liquidationThreshold = protocolParams?.liquidationThreshold || 120;
   const atRiskPositions = positions.filter(
-    p => p.ratio <= liquidationThreshold && p.status === 'OPEN'
+    (p) => p.ratio <= liquidationThreshold && p.status === "OPEN",
   );
 
   return (
@@ -47,7 +47,9 @@ const LiquidationMonitor: React.FC<LiquidationMonitorProps> = ({
       ) : (
         <div className="at-risk-positions">
           <div className="warning-banner">
-            <strong>⚠️ {atRiskPositions.length} position(s) at liquidation risk</strong>
+            <strong>
+              ⚠️ {atRiskPositions.length} position(s) at liquidation risk
+            </strong>
           </div>
 
           <div className="table-wrapper">
@@ -63,28 +65,40 @@ const LiquidationMonitor: React.FC<LiquidationMonitorProps> = ({
                 </tr>
               </thead>
               <tbody>
-                {atRiskPositions.map(position => {
-                  const riskPercent = ((liquidationThreshold - position.ratio) / liquidationThreshold) * 100;
+                {atRiskPositions.map((position) => {
+                  const riskPercent =
+                    ((liquidationThreshold - position.ratio) /
+                      liquidationThreshold) *
+                    100;
                   const riskLevel =
                     riskPercent < 5
-                      ? 'critical'
+                      ? "critical"
                       : riskPercent < 10
-                      ? 'high'
-                      : 'medium';
+                        ? "high"
+                        : "medium";
 
                   return (
-                    <tr key={position.positionId} className={`risk-${riskLevel}`}>
+                    <tr
+                      key={position.positionId}
+                      className={`risk-${riskLevel}`}
+                    >
                       <td>#{position.positionId}</td>
                       <td>{position.assetSymbol}</td>
                       <td>
-                        <span className="ratio-badge">{(position.ratio / 100).toFixed(1)}%</span>
+                        <span className="ratio-badge">
+                          {(position.ratio / 100).toFixed(1)}%
+                        </span>
                       </td>
                       <td>{position.healthFactor.toFixed(2)}</td>
                       <td>
-                        <span className={`risk-badge ${riskLevel}`}>{riskLevel.toUpperCase()}</span>
+                        <span className={`risk-badge ${riskLevel}`}>
+                          {riskLevel.toUpperCase()}
+                        </span>
                       </td>
                       <td>
-                        <button className="btn btn-small">Add Collateral</button>
+                        <button className="btn btn-small">
+                          Add Collateral
+                        </button>
                       </td>
                     </tr>
                   );
@@ -99,12 +113,14 @@ const LiquidationMonitor: React.FC<LiquidationMonitorProps> = ({
         <h4>How Liquidation Works</h4>
         <div className="info-box">
           <p>
-            <strong>Liquidation Threshold:</strong> {(liquidationThreshold / 100).toFixed(1)}%
+            <strong>Liquidation Threshold:</strong>{" "}
+            {(liquidationThreshold / 100).toFixed(1)}%
           </p>
           <p>
-            When your collateral ratio drops below the liquidation threshold, your position becomes
-            eligible for liquidation. Liquidators can then pay off your debt and claim your collateral
-            plus a liquidation bonus.
+            When your collateral ratio drops below the liquidation threshold,
+            your position becomes eligible for liquidation. Liquidators can then
+            pay off your debt and claim your collateral plus a liquidation
+            bonus.
           </p>
           <p>
             <strong>How to avoid liquidation:</strong>

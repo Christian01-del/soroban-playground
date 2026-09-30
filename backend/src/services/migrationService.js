@@ -1,12 +1,15 @@
 import fs from 'fs';
+import fsp from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
 import DatabaseService from './databaseService.js';
+import { getDatabase, saveDatabase } from './dbService.js';
 
 class MigrationService {
-  constructor(dbPath = null) {
+  constructor(dbPath = null, migrationsPath = null) {
     this.dbService = new DatabaseService(dbPath);
-    this.migrationsPath = path.join(process.cwd(), 'migrations');
+    this.migrationsPath =
+      migrationsPath || path.join(process.cwd(), 'migrations');
     this.migrationTable = '_schema_migrations';
   }
 
@@ -38,7 +41,13 @@ class MigrationService {
       return [];
     }
 
-    const files = fs.readdirSync(this.migrationsPath);
+    let files;
+    try {
+      files = fs.readdirSync(this.migrationsPath);
+    } catch (err) {
+      throw new Error(`Failed to read migrations directory: ${err.message}`);
+    }
+
     const migrationFiles = [];
 
     files.forEach((file) => {
@@ -119,7 +128,14 @@ class MigrationService {
   }
 
   async validateMigrationChecksum(migrationFile) {
-    const content = fs.readFileSync(migrationFile.fullPath, 'utf8');
+    let content;
+    try {
+      content = fs.readFileSync(migrationFile.fullPath, 'utf8');
+    } catch (err) {
+      throw new Error(
+        `Cannot read migration file ${migrationFile.filename}: ${err.message}`
+      );
+    }
     const checksum = await this.calculateChecksum(content);
 
     const appliedMigration = await this.dbService.get(
@@ -156,7 +172,14 @@ class MigrationService {
   }
 
   async executeMigration(migrationFile, dryRun = false) {
-    const content = fs.readFileSync(migrationFile.fullPath, 'utf8');
+    let content;
+    try {
+      content = fs.readFileSync(migrationFile.fullPath, 'utf8');
+    } catch (err) {
+      throw new Error(
+        `Cannot read migration file ${migrationFile.filename}: ${err.message}`
+      );
+    }
     const checksum = await this.calculateChecksum(content);
     const warnings = await this.validateMigrationSQL(content);
 
@@ -174,10 +197,7 @@ class MigrationService {
 
     try {
       await this.dbService.transaction(async (db) => {
-        // Execute migration SQL
         await db.run(content);
-
-        // Record migration
         await db.run(
           `INSERT INTO ${this.migrationTable} (version, checksum, execution_time, status) VALUES (?, ?, ?, ?)`,
           [migrationFile.version, checksum, Date.now() - startTime, 'applied']
@@ -208,7 +228,14 @@ class MigrationService {
       );
     }
 
-    const content = fs.readFileSync(downFile.fullPath, 'utf8');
+    let content;
+    try {
+      content = fs.readFileSync(downFile.fullPath, 'utf8');
+    } catch (err) {
+      throw new Error(
+        `Cannot read rollback file ${downFile.filename}: ${err.message}`
+      );
+    }
     const warnings = await this.validateMigrationSQL(content);
 
     if (dryRun) {
@@ -225,10 +252,7 @@ class MigrationService {
 
     try {
       await this.dbService.transaction(async (db) => {
-        // Execute rollback SQL
         await db.run(content);
-
-        // Update migration record
         await db.run(
           `UPDATE ${this.migrationTable} SET status = ?, execution_time = ? WHERE version = ?`,
           ['rolled_back', Date.now() - startTime, migrationFile.version]
@@ -248,14 +272,21 @@ class MigrationService {
     }
   }
 
-  async migrateUp(dryRun = false) {
+  async migrateUp(dryRun = false, limit = null) {
     const pendingMigrations = await this.getPendingMigrations();
     const results = [];
+    let count = 0;
 
     for (const migration of pendingMigrations) {
+      if (limit !== null && count >= limit) {
+        break;
+      }
       try {
         const result = await this.executeMigration(migration, dryRun);
         results.push(result);
+        if (result.success) {
+          count++;
+        }
 
         if (!dryRun && !result.success) {
           // Attempt rollback on failure
@@ -345,3 +376,363 @@ class MigrationService {
 }
 
 export default MigrationService;
+
+// ── Functional API (sql.js backed) ──────────────────────────────────────────
+
+const MIGRATION_TABLE = '_schema_migrations';
+
+function getMigrationsDir() {
+  return process.env.MIGRATIONS_DIR || path.join(process.cwd(), 'migrations');
+}
+
+function sha256(content) {
+  return crypto.createHash('sha256').update(content).digest('hex');
+}
+
+async function ensureMigrationTable(db) {
+  db.run(`
+    CREATE TABLE IF NOT EXISTS ${MIGRATION_TABLE} (
+      version INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      checksum TEXT NOT NULL,
+      applied_at TEXT DEFAULT (datetime('now')),
+      status TEXT DEFAULT 'applied'
+    )
+  `);
+  await saveDatabase();
+}
+
+async function readMigrationFiles() {
+  const dir = getMigrationsDir();
+  let entries;
+  try {
+    entries = await fsp.readdir(dir);
+  } catch {
+    return [];
+  }
+  const files = [];
+  for (const entry of entries) {
+    const m = entry.match(/^V(\d+)__(.+)\.(up|down)\.sql$/);
+    if (m) {
+      files.push({
+        version: parseInt(m[1], 10),
+        name: m[2],
+        direction: m[3],
+        filename: entry,
+        fullPath: path.join(dir, entry),
+      });
+    }
+  }
+  return files;
+}
+
+export async function validateMigrations() {
+  const files = await readMigrationFiles();
+  const ups = files.filter((f) => f.direction === 'up');
+  const downs = new Set(
+    files.filter((f) => f.direction === 'down').map((f) => f.version)
+  );
+  const errors = [];
+  for (const u of ups) {
+    if (!downs.has(u.version))
+      errors.push(`Missing down migration for version ${u.version}`);
+  }
+  return errors;
+}
+
+export async function initializeMigrationService() {
+  const db = await getDatabase();
+  await ensureMigrationTable(db);
+}
+
+export async function getAppliedMigrations() {
+  const db = await getDatabase();
+  const result = db.exec(
+    `SELECT version, name, checksum, applied_at, status FROM ${MIGRATION_TABLE} ORDER BY version`
+  );
+  if (!result.length) return [];
+  const [{ columns, values }] = result;
+  return values.map((row) =>
+    Object.fromEntries(columns.map((c, i) => [c, row[i]]))
+  );
+}
+
+export async function applyMigration(version, { dryRun = false } = {}) {
+  const files = await readMigrationFiles();
+  const file = files.find((f) => f.version === version && f.direction === 'up');
+  if (!file) throw new Error(`Migration file not found for version ${version}`);
+
+  let sql;
+  try {
+    sql = await fsp.readFile(file.fullPath, 'utf8');
+  } catch (err) {
+    throw new Error(
+      `Cannot read migration file ${file.filename}: ${err.message}`
+    );
+  }
+
+  const checksum = sha256(sql);
+  const db = await getDatabase();
+
+  const existing = db.exec(
+    `SELECT checksum FROM ${MIGRATION_TABLE} WHERE version = ${version}`
+  );
+  if (existing.length && existing[0].values.length) {
+    const storedChecksum = existing[0].values[0][0];
+    if (storedChecksum !== checksum) {
+      throw new Error(
+        `Checksum mismatch for migration ${version}: file has been modified`
+      );
+    }
+    return { status: 'already_applied', version };
+  }
+
+  if (dryRun) return { status: 'dry_run_success', version, sql };
+
+  db.run(sql);
+  db.run(
+    `INSERT INTO ${MIGRATION_TABLE} (version, name, checksum, status) VALUES (?, ?, ?, 'applied')`,
+    [version, file.name, checksum]
+  );
+  await saveDatabase();
+  return { status: 'applied', version };
+}
+
+export async function applyPendingMigrations({ dryRun = false } = {}) {
+  const files = await readMigrationFiles();
+  const ups = files
+    .filter((f) => f.direction === 'up')
+    .sort((a, b) => a.version - b.version);
+  const applied = await getAppliedMigrations();
+  const appliedVersions = new Set(applied.map((m) => m.version));
+  const results = [];
+  for (const f of ups) {
+    if (appliedVersions.has(f.version)) continue;
+    try {
+      const result = await applyMigration(f.version, { dryRun });
+      results.push(result);
+    } catch (err) {
+      results.push({
+        status: 'failed',
+        version: f.version,
+        error: err.message,
+      });
+      break;
+    }
+  }
+  return results;
+}
+
+export async function rollbackMigration(version, { dryRun = false } = {}) {
+  const files = await readMigrationFiles();
+  const file = files.find(
+    (f) => f.version === version && f.direction === 'down'
+  );
+  if (!file) throw new Error(`Down migration not found for version ${version}`);
+
+  let sql;
+  try {
+    sql = await fsp.readFile(file.fullPath, 'utf8');
+  } catch (err) {
+    throw new Error(
+      `Cannot read rollback file ${file.filename}: ${err.message}`
+    );
+  }
+
+  if (dryRun) return { status: 'dry_run_success', version, sql };
+
+  const db = await getDatabase();
+  db.run(sql);
+  db.run(
+    `UPDATE ${MIGRATION_TABLE} SET status = 'rolled_back' WHERE version = ?`,
+    [version]
+  );
+  await saveDatabase();
+  return { status: 'rolled_back', version };
+}
+
+export async function getMigrationDashboard() {
+  const files = await readMigrationFiles();
+  const ups = files.filter((f) => f.direction === 'up');
+  const applied = await getAppliedMigrations();
+  const appliedVersions = new Set(applied.map((m) => m.version));
+  return {
+    total: ups.length,
+    applied: applied.length,
+    pending: ups.filter((f) => !appliedVersions.has(f.version)).length,
+    migrations: applied,
+  };
+}
+
+/**
+ * Reads the first `-- @phase: expand|contract` comment from a migration SQL file.
+ * Returns 'expand', 'contract', or null if no phase tag is present.
+ */
+export function detectPhase(sqlContent) {
+  const m = sqlContent.match(/^--\s*@phase:\s*(expand|contract)/m);
+  return m ? m[1] : null;
+}
+
+/**
+ * Returns an array of warning strings for DDL statements that require a full
+ * table rewrite in SQLite (e.g. ALTER TABLE ADD COLUMN NOT NULL without DEFAULT).
+ */
+export function detectLockingSQL(sql) {
+  const warnings = [];
+  if (
+    /ALTER\s+TABLE\s+\S+\s+ADD\s+COLUMN\s+.+NOT\s+NULL(?!\s+DEFAULT)/i.test(sql)
+  ) {
+    warnings.push(
+      'ADD COLUMN NOT NULL without DEFAULT requires a full table rewrite in SQLite'
+    );
+  }
+  return warnings;
+}
+
+/**
+ * Applies pending migrations filtered by phase.
+ *   phase='expand'   → only migrations tagged `-- @phase: expand`
+ *   phase='contract' → only migrations tagged `-- @phase: contract`
+ *   phase=null       → all pending (same as applyPendingMigrations, backward compat)
+ */
+export async function applyPendingMigrationsPhased(
+  phase = null,
+  { dryRun = false } = {}
+) {
+  const files = await readMigrationFiles();
+  const ups = files
+    .filter((f) => f.direction === 'up')
+    .sort((a, b) => a.version - b.version);
+  const applied = await getAppliedMigrations();
+  const appliedVersions = new Set(applied.map((m) => m.version));
+  const results = [];
+
+  for (const f of ups) {
+    if (appliedVersions.has(f.version)) continue;
+
+    let sql;
+    try {
+      sql = await fsp.readFile(f.fullPath, 'utf8');
+    } catch (err) {
+      results.push({
+        status: 'failed',
+        version: f.version,
+        error: err.message,
+        phase: null,
+      });
+      break;
+    }
+
+    const filePhase = detectPhase(sql);
+    if (phase !== null && filePhase !== phase) continue;
+
+    const lockWarns = detectLockingSQL(sql);
+    lockWarns.forEach((w) =>
+      console.warn(`[migration ${f.version}] LOCK WARNING: ${w}`)
+    );
+
+    try {
+      const r = await applyMigration(f.version, { dryRun });
+      results.push({ ...r, phase: filePhase, lockWarnings: lockWarns });
+    } catch (err) {
+      results.push({
+        status: 'failed',
+        version: f.version,
+        error: err.message,
+        phase: filePhase,
+      });
+      break;
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Verifies that all required tables exist in the database schema.
+ */
+export async function verifyKnexSchemaIntegrity(knex) {
+  const expectedTables = [
+    'users',
+    'organizations',
+    'api_keys',
+    'rate_limit_usage',
+    'tier_limits',
+    'audit_log',
+    'synthetic_assets',
+    'positions',
+    'cors_whitelist',
+    'webhook_subscriptions',
+    'webhook_deliveries',
+    'contract_events',
+    'contract_event_cursor',
+    'contract_verification',
+  ];
+
+  const missingTables = [];
+  for (const table of expectedTables) {
+    const exists = await knex.schema.hasTable(table);
+    if (!exists) missingTables.push(table);
+  }
+
+  if (missingTables.length > 0) {
+    throw new Error(
+      `Schema integrity check failed. Missing expected tables: ${missingTables.join(', ')}`
+    );
+  }
+
+  return { valid: true, tablesChecked: expectedTables.length };
+}
+
+/**
+ * Executes automated Knex migrations on startup with distributed migration locking
+ * and schema integrity verification.
+ */
+export async function runKnexStartupMigrations(customKnex = null) {
+  const env = process.env.NODE_ENV || 'development';
+  const { default: knexConfig } = await import('../../knexfile.js');
+  const { default: knexLib } = await import('knex');
+  const config = knexConfig[env] || knexConfig.development;
+  const knex = customKnex || knexLib(config);
+  const createdInstance = !customKnex;
+
+  try {
+    console.log('[Migrations] Running Knex startup migrations with distributed locking...');
+    const [batchNo, log] = await knex.migrate.latest();
+    console.log(
+      `[Migrations] Startup migrations complete. Batch ${batchNo}: ${log.length} migration(s) applied.`
+    );
+
+    const integrity = await verifyKnexSchemaIntegrity(knex);
+    console.log('[Migrations] Schema integrity verified successfully.');
+
+    return {
+      success: true,
+      batchNo,
+      appliedMigrations: log,
+      integrity,
+    };
+  } catch (err) {
+    console.error('[Migrations] Startup migration failed:', err.message);
+    throw err;
+  } finally {
+    if (createdInstance) {
+      await knex.destroy().catch(() => {});
+    }
+  }
+}
+
+/**
+ * Initialises the migration tracking table and applies all pending migrations.
+ * Intended to be called at server startup before the HTTP server begins listening.
+ */
+export async function runStartupMigrations(customKnex = null) {
+  try {
+    return await runKnexStartupMigrations(customKnex);
+  } catch (err) {
+    console.warn('[Migrations] Knex startup migration fallback to legacy runner:', err.message);
+    await initializeMigrationService().catch(() => {});
+    return applyPendingMigrations({ dryRun: false });
+  }
+}
+

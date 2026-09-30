@@ -34,7 +34,11 @@ interface PredictionMarketPanelProps {
     deadline: number;
     oracle: string;
   }) => Promise<void>;
-  onPlaceBet: (marketId: number, outcome: number, stake: number) => Promise<void>;
+  onPlaceBet: (
+    marketId: number,
+    outcome: number,
+    stake: number,
+  ) => Promise<void>;
   onResolveMarket: (marketId: number, outcome: number) => Promise<void>;
   onCancelMarket: (marketId: number) => Promise<void>;
   onCalculatePayout: (marketId: number) => Promise<number>;
@@ -71,7 +75,8 @@ export default function PredictionMarketPanel({
 
   const handleCreateMarket = async () => {
     if (!question || !oracle) return;
-    const deadline = Math.floor(Date.now() / 1000) + parseInt(deadlineHours) * 3600;
+    const deadline =
+      Math.floor(Date.now() / 1000) + parseInt(deadlineHours) * 3600;
     await onCreateMarket({ question, marketType, deadline, oracle });
     setQuestion("");
     setOracle("");
@@ -157,7 +162,9 @@ export default function PredictionMarketPanel({
                 {/* Market header */}
                 <button
                   onClick={() =>
-                    setExpandedMarket(expandedMarket === market.id ? null : market.id)
+                    setExpandedMarket(
+                      expandedMarket === market.id ? null : market.id,
+                    )
                   }
                   className="w-full flex items-start justify-between p-3 text-left hover:bg-gray-800/50 transition-colors"
                 >
@@ -173,9 +180,15 @@ export default function PredictionMarketPanel({
                     </div>
                   </div>
                   {expandedMarket === market.id ? (
-                    <ChevronUp size={14} className="text-gray-500 shrink-0 mt-1" />
+                    <ChevronUp
+                      size={14}
+                      className="text-gray-500 shrink-0 mt-1"
+                    />
                   ) : (
-                    <ChevronDown size={14} className="text-gray-500 shrink-0 mt-1" />
+                    <ChevronDown
+                      size={14}
+                      className="text-gray-500 shrink-0 mt-1"
+                    />
                   )}
                 </button>
 
@@ -211,7 +224,9 @@ export default function PredictionMarketPanel({
                     {/* Place bet (only for open markets) */}
                     {market.status === "Open" && walletAddress && (
                       <div className="space-y-2">
-                        <p className="text-xs text-gray-400 font-medium">Place Bet</p>
+                        <p className="text-xs text-gray-400 font-medium">
+                          Place Bet
+                        </p>
                         <div className="flex gap-2">
                           <button
                             onClick={() =>
@@ -244,7 +259,10 @@ export default function PredictionMarketPanel({
                             min="1"
                             value={betStake[market.id] ?? ""}
                             onChange={(e) =>
-                              setBetStake((p) => ({ ...p, [market.id]: e.target.value }))
+                              setBetStake((p) => ({
+                                ...p,
+                                [market.id]: e.target.value,
+                              }))
                             }
                             placeholder="Stake (XLM)"
                             className="flex-1 bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500"
@@ -329,7 +347,9 @@ export default function PredictionMarketPanel({
           </div>
 
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Market Type</label>
+            <label className="block text-xs text-gray-400 mb-1">
+              Market Type
+            </label>
             <div className="flex gap-2">
               {([0, 1] as const).map((t) => (
                 <button
@@ -361,7 +381,9 @@ export default function PredictionMarketPanel({
           </div>
 
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Oracle Address</label>
+            <label className="block text-xs text-gray-400 mb-1">
+              Oracle Address
+            </label>
             <input
               type="text"
               value={oracle}

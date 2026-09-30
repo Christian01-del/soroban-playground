@@ -14,13 +14,13 @@ The Insurance Oracle contract allows authorized data sources to submit risk data
 
 ## Events
 
-| Event | Topics | Data |
-|-------|--------|------|
-| RiskDataSubmitted | (risk_type, value) | risk_type, value |
-| RiskDataVerified | (risk_type, count) | risk_type, verification count |
-| CircuitBreakerActivated | () | - |
-| CircuitBreakerDeactivated | () | - |
-| OutlierDetected | () | risk_type, value |
+| Event                     | Topics             | Data                          |
+| ------------------------- | ------------------ | ----------------------------- |
+| RiskDataSubmitted         | (risk_type, value) | risk_type, value              |
+| RiskDataVerified          | (risk_type, count) | risk_type, verification count |
+| CircuitBreakerActivated   | ()                 | -                             |
+| CircuitBreakerDeactivated | ()                 | -                             |
+| OutlierDetected           | ()                 | risk_type, value              |
 
 ## Function Signatures
 

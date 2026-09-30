@@ -1,0 +1,258 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+    branches: ["main", "master"]
+  schedule:
+    - cron: "21 4 * * 1"
+
+jobs:
+  frontend-build:
+    name: Frontend Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Frontend Component Tests
+        run: npm run test --workspace=frontend -- src/__tests__/components
+        env:
+          NODE_ENV: test
+
+      - name: Theme Engine Unit & Integration Tests
+        run: npm run test:theme --workspace=frontend
+
+
+      - name: Build Frontend
+        run: npm run build --workspace=frontend --if-present
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+
+  backend-lint-test:
+    name: Backend Lint & Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Backend Lint
+        run: npm run lint:check --workspace=backend --if-present
+
+      - name: Run Backend Format Check
+        run: npm run format:check --workspace=backend --if-present
+
+      - name: Run Backend Unit & Integration Tests
+        run: npx jest --config backend/jest.config.cjs backend/tests/securityHeaders.test.js backend/tests/metrics.test.js backend/tests/websocket.test.js backend/tests/websocket.heartbeat.test.js backend/tests/sorobanRpcManager.test.js backend/tests/cicd-dummy.test.js backend/tests/workspace.test.js
+        env:
+          NODE_ENV: test
+
+      - name: Run CORS & OpenAPI Tests
+        working-directory: backend
+        run: >-
+          npx jest
+          tests/corsConfig.test.js
+          tests/corsPolicy.test.js
+          tests/corsAdmin.test.js
+          tests/swagger.test.js
+          tests/zodOpenApi.test.js
+
+
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    env:
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          npm_config_registry: https://registry.npmjs.org/
+
+      - name: npm audit high/critical vulnerabilities
+        run: npm audit --workspaces --audit-level=high
+        continue-on-error: true
+
+      - name: Run Snyk dependency scan
+        if: ${{ env.SNYK_TOKEN != '' }}
+        uses: snyk/actions/node@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ env.SNYK_TOKEN }}
+        with:
+          command: test
+          args: --all-projects --severity-threshold=high --sarif-file-output=snyk-dependencies.sarif
+
+      - name: Upload Snyk dependency report
+        if: ${{ env.SNYK_TOKEN != '' && always() }}
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-dependencies.sarif
+
+      - name: Build backend container for image scan
+        if: ${{ env.SNYK_TOKEN != '' }}
+        run: docker build -t soroban-playground-backend:ci backend
+
+      - name: Run Snyk container scan
+        if: ${{ env.SNYK_TOKEN != '' }}
+        uses: snyk/actions/docker@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ env.SNYK_TOKEN }}
+        with:
+          image: soroban-playground-backend:ci
+          args: --severity-threshold=high --sarif-file-output=snyk-container.sarif
+
+      - name: Upload Snyk container report
+        if: ${{ env.SNYK_TOKEN != '' && always() }}
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-container.sarif
+
+  # Covers every workspace member, including the `indexer` service.
+  rust-contracts:
+    name: Rust / Soroban Contracts Build & Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo registry
+        uses: Swatinem/rust-cache@v2
+
+      - name: Rustfmt Check
+        run: cargo fmt --all -- --check
+
+      - name: Clippy Check
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Run Rust Tests
+        run: cargo test --all-targets --all-features
+  backend-security-tests:
+    name: Backend Rate Limit & Validation Tests
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Issues #1573 / #1574 and the static compose checks for #1571 / #1572.
+      - name: Run rate limiter, IP spoofing, validation and compose tests
+        working-directory: backend
+        env:
+          RATE_LIMIT_TEST_REDIS_URL: redis://127.0.0.1:6379
+        run: >-
+          npx jest
+          tests/rateLimiter.test.js
+          tests/tokenBucket.test.js
+          tests/clientIpSpoofing.test.js
+          tests/ddosMitigation.test.js
+          tests/sorobanSchemas.test.js
+          tests/validationZod.test.js
+          tests/invoke.test.js
+          tests/compile.test.js
+          tests/compileBatch.test.js
+          tests/deployBatch.test.js
+          tests/issues_1024_1029_1027_1026.test.js
+          tests/dockerCompose.test.js
+
+  compose-stack:
+    name: Docker Compose Data Stack & Local RPC
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate compose files
+        run: |
+          docker compose config -q
+          docker compose -f docker-compose.yml -f docker-compose.local-rpc.yml \
+            --profile local-rpc config -q
+
+      # #1571: data stores must come up healthy on their own.
+      - name: Boot redis and postgres
+        run: docker compose up -d --wait --wait-timeout 120 redis postgres
+
+      # #1572: offline Stellar network for integration tests.
+      - name: Boot Stellar Quickstart local RPC
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.local-rpc.yml \
+            --profile local-rpc up -d --wait --wait-timeout 600 stellar-rpc
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run local RPC integration tests
+        working-directory: backend
+        env:
+          STELLAR_LOCAL_RPC_URL: http://127.0.0.1:8000/rpc
+        run: npx jest tests/localRpc.integration.test.js
+
+      - name: Dump service logs on failure
+        if: failure()
+        run: docker compose --profile local-rpc logs --no-color --tail 200
+
+      - name: Tear down
+        if: always()
+        run: docker compose --profile local-rpc down -v

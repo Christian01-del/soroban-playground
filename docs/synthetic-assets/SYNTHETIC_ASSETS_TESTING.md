@@ -3,6 +3,7 @@
 ## Overview
 
 The Synthetic Assets system includes comprehensive tests across all three layers:
+
 1. Smart Contract (Rust/Soroban)
 2. Backend API (Node.js)
 3. Frontend (React)
@@ -21,40 +22,47 @@ cargo test --lib -- --nocapture
 The test suite covers:
 
 #### Initialization Tests
+
 - ✓ Successful initialization
 - ✓ Preventing double initialization
 - ✓ Invalid parameter validation
 - ✓ Access control
 
 #### Asset Registration Tests
+
 - ✓ Register new synthetic asset
 - ✓ Prevent duplicate registration
 - ✓ Price initialization
 
 #### Minting Tests
+
 - ✓ Successful minting with proper collateral
 - ✓ Insufficient collateral rejection
 - ✓ Zero amount rejection
 - ✓ Position creation and tracking
 
 #### Burning Tests
+
 - ✓ Burn synthetic assets
 - ✓ Collateral withdrawal
 - ✓ Position closure when fully burned
 - ✓ Collateral ratio verification after burn
 
 #### Collateral Management Tests
+
 - ✓ Add collateral to position
 - ✓ Multiple collateral additions
 - ✓ Health factor improvement
 
 #### Liquidation Tests
+
 - ✓ Detect liquidatable positions
 - ✓ Calculate liquidation rewards
 - ✓ Execute liquidation
 - ✓ Position closure after liquidation
 
 #### Trading Tests
+
 - ✓ Open long positions
 - ✓ Open short positions
 - ✓ Calculate PnL correctly
@@ -63,12 +71,14 @@ The test suite covers:
 - ✓ Liquidate underwater positions
 
 #### Price Oracle Tests
+
 - ✓ Update asset prices
 - ✓ Validate price staleness
 - ✓ Check confidence levels
 - ✓ Price deviation calculation
 
 #### View Function Tests
+
 - ✓ Get position details
 - ✓ Get trading position info
 - ✓ Calculate collateral ratio
@@ -82,10 +92,10 @@ The test suite covers:
 #[test]
 fn test_mint_synthetic() {
     let (env, client, _admin, _, collateral_token) = setup_contract();
-    
+
     let user = Address::generate(&env);
     let symbol = Symbol::new(&env, "sUSD");
-    
+
     // Setup
     client.register_synthetic_asset(
         &symbol,
@@ -93,15 +103,15 @@ fn test_mint_synthetic() {
         &8u32,
         &100000000i128,
     );
-    
+
     mint_collateral_tokens(&env, &collateral_token, &user, 10000000i128);
-    
+
     let token_client = token::Client::new(&env, &collateral_token);
     token_client.approve(&user, &client.address, &5000000i128, &1000u32);
-    
+
     // Execute
     client.mint_synthetic(&user, &symbol, &3000000i128, &2000000i128);
-    
+
     // Assert
     let position_id = 1u64;
     let position = client.get_position(&position_id);
@@ -174,14 +184,14 @@ npm run test:watch
 ### API Testing Examples
 
 ```javascript
-describe('POST /v1/synthetic-assets/mint', () => {
-  it('should mint synthetic assets with valid inputs', async () => {
+describe("POST /v1/synthetic-assets/mint", () => {
+  it("should mint synthetic assets with valid inputs", async () => {
     const response = await request(app)
-      .post('/v1/synthetic-assets/mint')
-      .set('Authorization', `Bearer ${token}`)
+      .post("/v1/synthetic-assets/mint")
+      .set("Authorization", `Bearer ${token}`)
       .send({
-        userAddress: 'GABC...',
-        assetSymbol: 'sUSD',
+        userAddress: "GABC...",
+        assetSymbol: "sUSD",
         collateralAmount: 3000000000,
         mintAmount: 2000000000,
       });
@@ -191,14 +201,14 @@ describe('POST /v1/synthetic-assets/mint', () => {
     expect(response.body.data.positionId).toBeDefined();
   });
 
-  it('should reject mint with insufficient collateral', async () => {
+  it("should reject mint with insufficient collateral", async () => {
     const response = await request(app)
-      .post('/v1/synthetic-assets/mint')
-      .set('Authorization', `Bearer ${token}`)
+      .post("/v1/synthetic-assets/mint")
+      .set("Authorization", `Bearer ${token}`)
       .send({
-        userAddress: 'GABC...',
-        assetSymbol: 'sUSD',
-        collateralAmount: 100,      // Too small
+        userAddress: "GABC...",
+        assetSymbol: "sUSD",
+        collateralAmount: 100, // Too small
         mintAmount: 2000000000,
       });
 
@@ -207,10 +217,9 @@ describe('POST /v1/synthetic-assets/mint', () => {
   });
 });
 
-describe('GET /v1/synthetic-assets/position/:id', () => {
-  it('should return position details', async () => {
-    const response = await request(app)
-      .get('/v1/synthetic-assets/position/1');
+describe("GET /v1/synthetic-assets/position/:id", () => {
+  it("should return position details", async () => {
+    const response = await request(app).get("/v1/synthetic-assets/position/1");
 
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
@@ -220,9 +229,10 @@ describe('GET /v1/synthetic-assets/position/:id', () => {
     expect(response.body.data.mintedAmount).toBeDefined();
   });
 
-  it('should return 500 for non-existent position', async () => {
-    const response = await request(app)
-      .get('/v1/synthetic-assets/position/999999');
+  it("should return 500 for non-existent position", async () => {
+    const response = await request(app).get(
+      "/v1/synthetic-assets/position/999999",
+    );
 
     expect(response.status).toBe(500);
     expect(response.body.success).toBe(false);
@@ -340,46 +350,46 @@ describe('PositionManager', () => {
 ### E2E Test Example (Cypress)
 
 ```typescript
-describe('Synthetic Assets Dashboard', () => {
+describe("Synthetic Assets Dashboard", () => {
   beforeEach(() => {
-    cy.visit('http://localhost:3000');
-    cy.login('test@example.com', 'password');
+    cy.visit("http://localhost:3000");
+    cy.login("test@example.com", "password");
   });
 
-  it('should mint synthetic assets', () => {
+  it("should mint synthetic assets", () => {
     cy.get('[data-testid="asset-selector"]').click();
     cy.get('[data-testid="asset-option-sUSD"]').click();
-    
+
     cy.get('[data-testid="mint-tab"]').click();
-    cy.get('[data-testid="collateral-input"]').type('3000000000');
-    cy.get('[data-testid="mint-amount-input"]').type('2000000000');
-    
+    cy.get('[data-testid="collateral-input"]').type("3000000000");
+    cy.get('[data-testid="mint-amount-input"]').type("2000000000");
+
     cy.get('[data-testid="mint-button"]').click();
-    
+
     cy.get('[data-testid="success-message"]')
-      .should('be.visible')
-      .should('contain', 'successfully');
+      .should("be.visible")
+      .should("contain", "successfully");
   });
 
-  it('should display liquidation warning', () => {
-    cy.visit('/positions/1');
-    
-    cy.get('[data-testid="health-factor"]')
-      .should('contain', '1.05'); // Near liquidation threshold
-    
+  it("should display liquidation warning", () => {
+    cy.visit("/positions/1");
+
+    cy.get('[data-testid="health-factor"]').should("contain", "1.05"); // Near liquidation threshold
+
     cy.get('[data-testid="liquidation-warning"]')
-      .should('be.visible')
-      .should('contain', 'Add collateral');
+      .should("be.visible")
+      .should("contain", "Add collateral");
   });
 
-  it('should update price in real-time', () => {
-    cy.get('[data-testid="price-display"]')
-      .should('contain', '$1.00');
-    
-    cy.updatePrice('sUSD', 105000000); // Mock price update
-    
-    cy.get('[data-testid="price-display"]', { timeout: 5000 })
-      .should('contain', '$1.05');
+  it("should update price in real-time", () => {
+    cy.get('[data-testid="price-display"]').should("contain", "$1.00");
+
+    cy.updatePrice("sUSD", 105000000); // Mock price update
+
+    cy.get('[data-testid="price-display"]', { timeout: 5000 }).should(
+      "contain",
+      "$1.05",
+    );
   });
 });
 ```

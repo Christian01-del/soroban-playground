@@ -1,44 +1,121 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/*
+ * Soroban Playground — dynamic theme engine.
+ *
+ * Design tokens are HSL channel triples (`h s% l%`) so a single value can be
+ * used opaque (`hsl(var(--background))`) or with any alpha channel
+ * (`hsl(var(--panel-border) / 0.16)`).
+ *
+ * The values here mirror `src/lib/theme/tokens.ts`; `src/__tests__/theme/tokens.test.ts`
+ * fails if the two ever drift, and `src/__tests__/theme/contrast.test.ts` proves
+ * every text/highlight pair reaches WCAG AAA.
+ *
+ * The dark palette is the historical (and default) look. `[data-theme="light"]`
+ * adds a light palette and inverts the Tailwind `slate`/`teal`/`orange` scales
+ * plus `white`/`black` so existing utility classes flip with the theme.
+ */
+
+/* ---------- Default + dark theme ---------- */
+
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --background: 217 59% 8%;
+  --foreground: 214 52% 94%;
+  --accent: 172 66% 50%;
+  --accent-strong: 25 95% 53%;
+  --panel: 217 59% 8%;
+  --panel-border: 220 30% 60%;
+  --grid: 220 30% 60%;
+
+  /* Code highlight tokens (Monaco + any <code> surface). */
+  --code-background: 220 45% 7%;
+  --code-foreground: 210 40% 96%;
+  --code-keyword: 268 85% 78%;
+  --code-string: 152 65% 68%;
+  --code-number: 30 95% 72%;
+  --code-comment: 215 22% 66%;
+  --code-function: 190 80% 72%;
+  --code-type: 45 90% 70%;
+  --code-operator: 210 25% 85%;
 }
+
+/* ---------- Light theme ---------- */
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  --background: 210 40% 98%;
+  --foreground: 222 47% 11%;
+  --accent: 172 80% 25%;
+  --accent-strong: 25 92% 36%;
+  --panel: 0 0% 100%;
+  --panel-border: 222 25% 45%;
+  --grid: 222 25% 45%;
+
+  --code-background: 210 30% 96%;
+  --code-foreground: 222 47% 11%;
+  --code-keyword: 268 60% 35%;
+  --code-string: 152 75% 20%;
+  --code-number: 20 85% 30%;
+  --code-comment: 215 28% 32%;
+  --code-function: 200 95% 24%;
+  --code-type: 34 90% 25%;
+  --code-operator: 222 30% 25%;
+
+  /* Invert the neutral scale so `bg-slate-950`, `text-slate-400`, … flip. */
+  --color-slate-950: oklch(0.984 0.003 247.858);
+  --color-slate-900: oklch(0.968 0.007 247.896);
+  --color-slate-800: oklch(0.929 0.013 255.508);
+  --color-slate-700: oklch(0.869 0.022 252.894);
+  --color-slate-600: oklch(0.704 0.04 256.788);
+  --color-slate-500: oklch(0.554 0.046 257.417);
+  --color-slate-400: oklch(0.446 0.043 257.281);
+  --color-slate-300: oklch(0.372 0.044 257.287);
+  --color-slate-200: oklch(0.279 0.041 260.031);
+  --color-slate-100: oklch(0.208 0.042 265.755);
+  --color-slate-50: oklch(0.129 0.042 264.695);
+
+  /* Brand accents: keep the hue, move to the readable end of the ramp. */
+  --color-teal-950: oklch(0.984 0.014 180.72);
+  --color-teal-900: oklch(0.953 0.051 180.801);
+  --color-teal-800: oklch(0.91 0.096 180.426);
+  --color-teal-700: oklch(0.855 0.138 181.071);
+  --color-teal-600: oklch(0.777 0.152 181.912);
+  --color-teal-500: oklch(0.704 0.14 182.503);
+  --color-teal-400: oklch(0.6 0.118 184.704);
+  --color-teal-300: oklch(0.511 0.096 186.391);
+  --color-teal-200: oklch(0.437 0.078 188.216);
+  --color-teal-100: oklch(0.386 0.063 188.416);
+  --color-teal-50: oklch(0.277 0.046 192.524);
+
+  --color-orange-950: oklch(0.98 0.016 73.684);
+  --color-orange-900: oklch(0.954 0.038 75.164);
+  --color-orange-800: oklch(0.901 0.076 70.697);
+  --color-orange-700: oklch(0.837 0.128 66.29);
+  --color-orange-600: oklch(0.75 0.183 55.934);
+  --color-orange-500: oklch(0.705 0.213 47.604);
+  --color-orange-400: oklch(0.646 0.222 41.116);
+  --color-orange-300: oklch(0.553 0.195 38.402);
+  --color-orange-200: oklch(0.47 0.157 37.304);
+  --color-orange-100: oklch(0.408 0.123 38.172);
+  --color-orange-50: oklch(0.266 0.079 36.259);
+
+  /* `bg-white/5` overlays and `text-white` headings are dark-on-light here. */
+  --color-white: oklch(0.208 0.042 265.755);
+  --color-black: oklch(0.984 0.003 247.858);
+}
+
+/* ---------- Tailwind theme bridge ---------- */
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
-}
-@import "tailwindcss";
-
-:root {
-  --background: #08111f;
-  --foreground: #e6edf7;
-  --panel: rgba(7, 17, 31, 0.82);
-  --panel-border: rgba(120, 140, 180, 0.16);
-  --accent: #2dd4bf;
-  --accent-strong: #f97316;
-  --grid: rgba(120, 140, 180, 0.08);
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-panel: hsl(var(--panel));
+  --color-accent: hsl(var(--accent));
+  --color-accent-strong: hsl(var(--accent-strong));
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -49,16 +126,32 @@ body {
 
 html {
   background:
-    radial-gradient(circle at top left, rgba(45, 212, 191, 0.14), transparent 30%),
-    radial-gradient(circle at top right, rgba(249, 115, 22, 0.18), transparent 24%),
-    linear-gradient(180deg, #08111f 0%, #0c1728 48%, #09111d 100%);
+    radial-gradient(
+      circle at top left,
+      hsl(var(--accent) / 0.14),
+      transparent 30%
+    ),
+    radial-gradient(
+      circle at top right,
+      hsl(var(--accent-strong) / 0.18),
+      transparent 24%
+    ),
+    linear-gradient(
+      180deg,
+      hsl(var(--background)) 0%,
+      hsl(var(--background)) 48%,
+      hsl(var(--background)) 100%
+    );
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
   min-height: 100vh;
+  transition:
+    background-color 200ms ease,
+    color 200ms ease;
 }
 
 body::before {
@@ -67,8 +160,8 @@ body::before {
   inset: 0;
   pointer-events: none;
   background-image:
-    linear-gradient(var(--grid) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    linear-gradient(hsl(var(--grid) / 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--grid) / 0.08) 1px, transparent 1px);
   background-size: 32px 32px;
   mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.38), transparent 92%);
 }
@@ -76,4 +169,248 @@ body::before {
 a {
   color: inherit;
   text-decoration: none;
+}
+
+/* ---------- Code surfaces (tokens shared with the Monaco theme) ---------- */
+
+.code-surface {
+  background: hsl(var(--code-background));
+  color: hsl(var(--code-foreground));
+}
+
+.code-keyword {
+  color: hsl(var(--code-keyword));
+}
+
+.code-string {
+  color: hsl(var(--code-string));
+}
+
+.code-number {
+  color: hsl(var(--code-number));
+}
+
+.code-comment {
+  color: hsl(var(--code-comment));
+}
+
+.code-function {
+  color: hsl(var(--code-function));
+}
+
+.code-type {
+  color: hsl(var(--code-type));
+}
+
+.code-operator {
+  color: hsl(var(--code-operator));
+}
+
+/* ==========================================================================
+   Micro-animations & content-aware skeletons (issue #1529)
+   --------------------------------------------------------------------------
+   One grammar for every loading state and every in-place content swap:
+
+     .skeleton-block   the placeholder shape
+     .skeleton-shimmer the sweep across it
+     .layout-enter     fade + 4px rise
+     .layout-pop       fade + slight scale-up
+     .layout-fade      opacity only
+     .layout-stagger   per-child rise, offset by [data-stagger]
+
+   Everything animates `transform` / `opacity` only (compositor-friendly, no
+   layout thrash) and the whole layer is switched off under
+   `prefers-reduced-motion: reduce` at the bottom of this file.
+   ========================================================================== */
+
+:root {
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+  --motion-slow: 320ms;
+  --motion-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --motion-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --skeleton-base: hsl(var(--muted) / 0.55);
+  --skeleton-sheen: hsl(var(--foreground) / 0.07);
+  --stagger-step: 45ms;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* ---------- Skeleton primitives ---------- */
+
+  .skeleton-block {
+    position: relative;
+    display: block;
+    overflow: hidden;
+    background-color: var(--skeleton-base);
+  }
+
+  /* The sheen is a pseudo-element so it never disturbs the block's box. */
+  .skeleton-block::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      var(--skeleton-sheen),
+      transparent
+    );
+    animation: skeleton-sweep 1.6s var(--motion-ease) infinite;
+    animation-delay: calc(var(--stagger-step) * var(--stagger-index, 0));
+    will-change: transform;
+  }
+
+  .skeleton-anim-pulse::after {
+    animation: none;
+  }
+
+  .skeleton-anim-pulse {
+    animation: skeleton-pulse 1.8s var(--motion-ease) infinite;
+  }
+
+  .skeleton-anim-none::after {
+    animation: none;
+  }
+
+  /* ---------- Layout transitions ---------- */
+
+  .layout-enter {
+    animation: layout-enter var(--motion-base) var(--motion-ease-out) both;
+  }
+
+  .layout-pop {
+    animation: layout-pop var(--motion-base) var(--motion-ease-out) both;
+  }
+
+  .layout-fade {
+    animation: layout-fade var(--motion-fast) var(--motion-ease) both;
+  }
+
+  .layout-stagger > * {
+    animation: layout-enter var(--motion-base) var(--motion-ease-out) both;
+    animation-delay: calc(var(--stagger-step) * var(--stagger-index, 0));
+  }
+
+  /* ---------- Interaction feedback ---------- */
+
+  .pressable {
+    transition:
+      transform var(--motion-fast) var(--motion-ease),
+      box-shadow var(--motion-fast) var(--motion-ease),
+      border-color var(--motion-fast) var(--motion-ease);
+  }
+
+  .pressable:hover {
+    transform: translateY(-1px);
+  }
+
+  .pressable:active {
+    transform: translateY(0) scale(0.985);
+  }
+
+  /* Progress rail: a single element that fills left → right. */
+  .progress-rail {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .progress-rail::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform-origin: left center;
+    animation: progress-rail 1.4s var(--motion-ease) infinite;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Keep the *shape* of a skeleton — only the motion is removed. */
+  .skeleton-block {
+    background-color: var(--skeleton-base);
+  }
+
+  .skeleton-block::after,
+  .layout-enter,
+  .layout-pop,
+  .layout-fade,
+  .layout-stagger > *,
+  .pressable,
+  .progress-rail::after {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .pressable:hover,
+  .pressable:active {
+    transform: none;
+  }
+}
+
+@keyframes skeleton-sweep {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@keyframes layout-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes layout-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes layout-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes progress-rail {
+  0% {
+    transform: scaleX(0);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scaleX(0.7);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleX(0);
+    opacity: 0.7;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body {
+    transition: none;
+  }
 }

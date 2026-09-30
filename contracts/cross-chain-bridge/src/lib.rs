@@ -1,12 +1,18 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
-//! # Cross-Chain Bridge (Lock-Mint)
+//! # Cross-Chain Bridge (Lock-Mint + Validator Proof Verification)
 //!
 //! Stellar-side of a Stellar ↔ Ethereum bridge:
 //! - Users lock tokens on Stellar; a trusted relayer confirms the ETH mint.
 //! - If the relayer never confirms, the depositor can reclaim after expiry.
 //! - Admin controls: pause, fee, expiry window, daily volume cap, relayer set.
+//!
+//! Validator proof layer (issue #822):
+//! - Multiple validators independently submit a proof hash for each deposit.
+//! - Once a configurable quorum is reached, the proof is marked Verified.
+//! - `confirm_mint_with_proof` uses the decentralised quorum path instead of a
+//!   single trusted relayer, enabling manipulation-resistant bridge confirmations.
 
 #![no_std]
 
@@ -18,11 +24,12 @@ use soroban_sdk::{contract, contractimpl, symbol_short, Address, Bytes, Env, Str
 
 use crate::storage::{
     accumulate_daily_volume, get_admin, get_daily_limit, get_deposit, get_deposit_count,
-    get_expiry_seconds, get_fee_bps, get_stats, is_initialized, is_paused, is_relayer,
-    set_admin, set_deposit, set_deposit_count, set_expiry_seconds, set_fee_bps,
-    set_daily_limit, set_paused, set_relayer, set_stats,
+    get_expiry_seconds, get_fee_bps, get_proof, get_stats, get_validator_quorum, is_initialized,
+    is_paused, is_relayer, is_validator, set_admin, set_daily_limit, set_deposit,
+    set_deposit_count, set_expiry_seconds, set_fee_bps, set_paused, set_relayer, set_stats,
+    set_validator, set_validator_quorum, submit_validator_vote,
 };
-use crate::types::{Deposit, DepositStatus, Error, BridgeStats};
+use crate::types::{BridgeStats, Deposit, DepositStatus, Error, ProofStatus, ValidatorProof};
 
 const MAX_FEE_BPS: u32 = 1_000; // 10 %
 
@@ -87,12 +94,20 @@ impl BridgeContract {
     /// Update the daily volume cap (in stroops).
     pub fn set_daily_limit(env: Env, admin: Address, limit: i128) -> Result<(), Error> {
         Self::assert_admin(&env, &admin)?;
+        if limit < 0 {
+            return Err(Error::InvalidAmount);
+        }
         set_daily_limit(&env, limit);
         Ok(())
     }
 
     /// Register or deregister a relayer address.
-    pub fn set_relayer(env: Env, admin: Address, relayer: Address, active: bool) -> Result<(), Error> {
+    pub fn set_relayer(
+        env: Env,
+        admin: Address,
+        relayer: Address,
+        active: bool,
+    ) -> Result<(), Error> {
         Self::assert_admin(&env, &admin)?;
         set_relayer(&env, &relayer, active);
         env.events()
@@ -134,13 +149,21 @@ impl BridgeContract {
         }
 
         let fee_bps = get_fee_bps(&env);
-        let fee = (amount * fee_bps as i128) / 10_000;
-        let net_amount = amount - fee;
+        let fee = amount
+            .checked_mul(fee_bps as i128)
+            .ok_or(Error::ArithmeticOverflow)?
+            .checked_div(10_000)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let net_amount = amount.checked_sub(fee).ok_or(Error::ArithmeticOverflow)?;
 
         let now = env.ledger().timestamp();
-        let expiry = now + get_expiry_seconds(&env);
+        let expiry = now
+            .checked_add(get_expiry_seconds(&env))
+            .ok_or(Error::ArithmeticOverflow)?;
 
-        let id = get_deposit_count(&env) + 1;
+        let id = get_deposit_count(&env)
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
         let deposit = Deposit {
             depositor: depositor.clone(),
             token: token.clone(),
@@ -157,9 +180,18 @@ impl BridgeContract {
         set_deposit_count(&env, id);
 
         let mut stats = get_stats(&env);
-        stats.total_locked += net_amount;
-        stats.deposit_count += 1;
-        stats.active_deposits += 1;
+        stats.total_locked = stats
+            .total_locked
+            .checked_add(net_amount)
+            .ok_or(Error::ArithmeticOverflow)?;
+        stats.deposit_count = stats
+            .deposit_count
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+        stats.active_deposits = stats
+            .active_deposits
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
         set_stats(&env, &stats);
 
         env.events().publish(
@@ -202,7 +234,10 @@ impl BridgeContract {
         set_deposit(&env, deposit_id, &deposit);
 
         let mut stats = get_stats(&env);
-        stats.total_minted += deposit.amount;
+        stats.total_minted = stats
+            .total_minted
+            .checked_add(deposit.amount)
+            .ok_or(Error::ArithmeticOverflow)?;
         stats.active_deposits = stats.active_deposits.saturating_sub(1);
         set_stats(&env, &stats);
 
@@ -239,7 +274,10 @@ impl BridgeContract {
         let refund_amount = deposit.amount; // fee is not refunded
 
         let mut stats = get_stats(&env);
-        stats.total_refunded += refund_amount;
+        stats.total_refunded = stats
+            .total_refunded
+            .checked_add(refund_amount)
+            .ok_or(Error::ArithmeticOverflow)?;
         stats.active_deposits = stats.active_deposits.saturating_sub(1);
         set_stats(&env, &stats);
 
@@ -291,6 +329,140 @@ impl BridgeContract {
 
     pub fn is_initialized(env: Env) -> bool {
         is_initialized(&env)
+    }
+
+    // ── Validator management ──────────────────────────────────────────────────
+
+    /// Register or deregister a validator.
+    pub fn set_validator(
+        env: Env,
+        admin: Address,
+        validator: Address,
+        active: bool,
+    ) -> Result<(), Error> {
+        Self::assert_admin(&env, &admin)?;
+        set_validator(&env, &validator, active);
+        env.events()
+            .publish((symbol_short!("val_set"),), (validator, active));
+        Ok(())
+    }
+
+    /// Update the number of validator votes required to finalise a proof.
+    pub fn set_validator_quorum(env: Env, admin: Address, quorum: u32) -> Result<(), Error> {
+        Self::assert_admin(&env, &admin)?;
+        if quorum == 0 {
+            return Err(Error::InvalidQuorum);
+        }
+        set_validator_quorum(&env, quorum);
+        Ok(())
+    }
+
+    pub fn is_validator(env: Env, validator: Address) -> bool {
+        is_validator(&env, &validator)
+    }
+
+    pub fn get_validator_quorum(env: Env) -> u32 {
+        get_validator_quorum(&env)
+    }
+
+    // ── Validator proof submission ────────────────────────────────────────────
+
+    /// A registered validator submits a proof hash for a pending deposit.
+    ///
+    /// The first submission for a deposit establishes the canonical hash.
+    /// Subsequent submissions must provide the same hash. Once the quorum
+    /// is met the proof is marked `Verified` and `confirm_mint_with_proof`
+    /// can be called to finalise the bridge operation.
+    pub fn submit_proof(
+        env: Env,
+        validator: Address,
+        deposit_id: u32,
+        proof_hash: Bytes,
+    ) -> Result<ValidatorProof, Error> {
+        Self::assert_initialized(&env)?;
+        if is_paused(&env) {
+            return Err(Error::BridgePaused);
+        }
+        validator.require_auth();
+        if !is_validator(&env, &validator) {
+            return Err(Error::UnknownValidator);
+        }
+        if proof_hash.len() == 0 {
+            return Err(Error::EmptyProofHash);
+        }
+        // Ensure the deposit exists.
+        let _ = get_deposit(&env, deposit_id)?;
+
+        let proof = submit_validator_vote(&env, deposit_id, &validator, &proof_hash)?;
+
+        env.events().publish(
+            (symbol_short!("proof_sub"), deposit_id),
+            (
+                validator,
+                proof.vote_count,
+                proof.status == ProofStatus::Verified,
+            ),
+        );
+
+        Ok(proof)
+    }
+
+    /// Finalise a bridge deposit using the decentralised validator quorum path.
+    ///
+    /// Requires that `submit_proof` has been called by enough validators
+    /// (≥ quorum) for this deposit before calling this function.
+    pub fn confirm_mint_with_proof(
+        env: Env,
+        relayer: Address,
+        deposit_id: u32,
+        eth_tx_hash: Bytes,
+    ) -> Result<(), Error> {
+        Self::assert_initialized(&env)?;
+        relayer.require_auth();
+
+        if !is_relayer(&env, &relayer) {
+            return Err(Error::UnknownRelayer);
+        }
+        if eth_tx_hash.len() == 0 {
+            return Err(Error::EmptyTxHash);
+        }
+
+        let proof = get_proof(&env, deposit_id).ok_or(Error::ProofNotVerified)?;
+        if proof.status != ProofStatus::Verified {
+            return Err(Error::ProofNotVerified);
+        }
+
+        let mut deposit = get_deposit(&env, deposit_id)?;
+        if deposit.status != DepositStatus::Pending {
+            return Err(Error::AlreadyProcessed);
+        }
+        if env.ledger().timestamp() > deposit.expires_at {
+            return Err(Error::DepositExpired);
+        }
+
+        deposit.status = DepositStatus::Minted;
+        deposit.eth_tx_hash = Some(eth_tx_hash.clone());
+        set_deposit(&env, deposit_id, &deposit);
+
+        let mut stats = get_stats(&env);
+        stats.total_minted = stats
+            .total_minted
+            .checked_add(deposit.amount)
+            .ok_or(Error::ArithmeticOverflow)?;
+        stats.active_deposits = stats.active_deposits.saturating_sub(1);
+        set_stats(&env, &stats);
+
+        env.events().publish(
+            (symbol_short!("minted_v"), deposit_id),
+            (relayer, eth_tx_hash, proof.proof_hash),
+        );
+
+        Ok(())
+    }
+
+    /// Return the current proof state for a deposit (None if no votes yet).
+    pub fn get_proof(env: Env, deposit_id: u32) -> Option<ValidatorProof> {
+        get_proof(&env, deposit_id)
     }
 
     // ── Internal helpers ──────────────────────────────────────────────────────

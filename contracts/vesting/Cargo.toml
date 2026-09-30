@@ -1,0 +1,14 @@
+[package]
+name = "soroban-vesting"
+version = "0.1.0"
+edition = "2021"
+description = "Linear vesting contract with cliff period and milestone-based unlocks"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+soroban-sdk = "21.0.6"
+
+[dev-dependencies]
+soroban-sdk = { version = "21.0.6", features = ["testutils"] }

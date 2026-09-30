@@ -3,10 +3,10 @@
  * Allows users to manage collateral positions and mint/burn synthetic assets
  */
 
-'use client';
+"use client";
 
-import React, { useState } from 'react';
-import { useSyntheticAssetsAPI } from '@/hooks/useSyntheticAssetsAPI';
+import React, { useState } from "react";
+import { useSyntheticAssetsAPI } from "@/hooks/useSyntheticAssetsAPI";
 
 interface Position {
   positionId: number;
@@ -17,7 +17,7 @@ interface Position {
   createdAt: string;
   healthFactor: number;
   ratio: number;
-  status: 'OPEN' | 'CLOSED' | 'LIQUIDATED';
+  status: "OPEN" | "CLOSED" | "LIQUIDATED";
 }
 
 interface ProtocolParams {
@@ -42,26 +42,30 @@ const PositionManager: React.FC<PositionManagerProps> = ({
   protocolParams,
   onPositionUpdate,
 }) => {
-  const [activeTab, setActiveTab] = useState<'mint' | 'burn' | 'collateral'>('mint');
+  const [activeTab, setActiveTab] = useState<"mint" | "burn" | "collateral">(
+    "mint",
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
   // Form state for mint
-  const [mintCollateral, setMintCollateral] = useState('');
-  const [mintAmount, setMintAmount] = useState('');
+  const [mintCollateral, setMintCollateral] = useState("");
+  const [mintAmount, setMintAmount] = useState("");
 
   // Form state for burn
   const [selectedPosition, setSelectedPosition] = useState<number | null>(null);
-  const [burnAmount, setBurnAmount] = useState('');
+  const [burnAmount, setBurnAmount] = useState("");
 
   // Form state for collateral
-  const [additionalCollateral, setAdditionalCollateral] = useState('');
+  const [additionalCollateral, setAdditionalCollateral] = useState("");
 
   const { mintSynthetic, burnSynthetic, addCollateral, getMaxMintable } =
     useSyntheticAssetsAPI();
 
-  const assetPositions = positions.filter(p => p.assetSymbol === selectedAsset && p.status === 'OPEN');
+  const assetPositions = positions.filter(
+    (p) => p.assetSymbol === selectedAsset && p.status === "OPEN",
+  );
   const price = prices[selectedAsset];
 
   const handleMint = async () => {
@@ -72,7 +76,7 @@ const PositionManager: React.FC<PositionManagerProps> = ({
       const amount = parseInt(mintAmount);
 
       if (!collateral || !amount) {
-        setError('Please enter valid amounts');
+        setError("Please enter valid amounts");
         return;
       }
 
@@ -82,12 +86,12 @@ const PositionManager: React.FC<PositionManagerProps> = ({
         mintAmount: amount,
       });
 
-      setSuccess('Position minted successfully');
-      setMintCollateral('');
-      setMintAmount('');
+      setSuccess("Position minted successfully");
+      setMintCollateral("");
+      setMintAmount("");
       onPositionUpdate();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to mint');
+      setError(err instanceof Error ? err.message : "Failed to mint");
     } finally {
       setIsSubmitting(false);
     }
@@ -99,7 +103,7 @@ const PositionManager: React.FC<PositionManagerProps> = ({
       setError(null);
 
       if (!selectedPosition || !burnAmount) {
-        setError('Please select a position and amount');
+        setError("Please select a position and amount");
         return;
       }
 
@@ -108,12 +112,12 @@ const PositionManager: React.FC<PositionManagerProps> = ({
         burnAmount: parseInt(burnAmount),
       });
 
-      setSuccess('Synthetic assets burned successfully');
-      setBurnAmount('');
+      setSuccess("Synthetic assets burned successfully");
+      setBurnAmount("");
       setSelectedPosition(null);
       onPositionUpdate();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to burn');
+      setError(err instanceof Error ? err.message : "Failed to burn");
     } finally {
       setIsSubmitting(false);
     }
@@ -125,7 +129,7 @@ const PositionManager: React.FC<PositionManagerProps> = ({
       setError(null);
 
       if (!selectedPosition || !additionalCollateral) {
-        setError('Please select a position and amount');
+        setError("Please select a position and amount");
         return;
       }
 
@@ -134,11 +138,11 @@ const PositionManager: React.FC<PositionManagerProps> = ({
         additionalCollateral: parseInt(additionalCollateral),
       });
 
-      setSuccess('Collateral added successfully');
-      setAdditionalCollateral('');
+      setSuccess("Collateral added successfully");
+      setAdditionalCollateral("");
       onPositionUpdate();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add collateral');
+      setError(err instanceof Error ? err.message : "Failed to add collateral");
     } finally {
       setIsSubmitting(false);
     }
@@ -155,21 +159,21 @@ const PositionManager: React.FC<PositionManagerProps> = ({
     <div className="position-manager">
       <div className="manager-tabs">
         <button
-          className={`tab ${activeTab === 'mint' ? 'active' : ''}`}
-          onClick={() => setActiveTab('mint')}
+          className={`tab ${activeTab === "mint" ? "active" : ""}`}
+          onClick={() => setActiveTab("mint")}
         >
           Mint
         </button>
         <button
-          className={`tab ${activeTab === 'burn' ? 'active' : ''}`}
-          onClick={() => setActiveTab('burn')}
+          className={`tab ${activeTab === "burn" ? "active" : ""}`}
+          onClick={() => setActiveTab("burn")}
           disabled={assetPositions.length === 0}
         >
           Burn
         </button>
         <button
-          className={`tab ${activeTab === 'collateral' ? 'active' : ''}`}
-          onClick={() => setActiveTab('collateral')}
+          className={`tab ${activeTab === "collateral" ? "active" : ""}`}
+          onClick={() => setActiveTab("collateral")}
           disabled={assetPositions.length === 0}
         >
           Add Collateral
@@ -180,7 +184,7 @@ const PositionManager: React.FC<PositionManagerProps> = ({
       {success && <div className="alert alert-success">{success}</div>}
 
       {/* Mint Tab */}
-      {activeTab === 'mint' && (
+      {activeTab === "mint" && (
         <div className="form-section">
           <h3>Mint Synthetic Assets</h3>
           <div className="form-group">
@@ -188,7 +192,7 @@ const PositionManager: React.FC<PositionManagerProps> = ({
             <input
               type="number"
               value={mintCollateral}
-              onChange={e => setMintCollateral(e.target.value)}
+              onChange={(e) => setMintCollateral(e.target.value)}
               placeholder="0.00"
             />
           </div>
@@ -198,7 +202,7 @@ const PositionManager: React.FC<PositionManagerProps> = ({
             <input
               type="number"
               value={mintAmount}
-              onChange={e => setMintAmount(e.target.value)}
+              onChange={(e) => setMintAmount(e.target.value)}
               placeholder="0.00"
             />
             <small>Max: {calculateMaxMint().toFixed(2)}</small>
@@ -206,11 +210,15 @@ const PositionManager: React.FC<PositionManagerProps> = ({
 
           <div className="form-info">
             <p>
-              Collateral Ratio:{' '}
+              Collateral Ratio:{" "}
               <strong>
                 {mintCollateral && mintAmount && price
-                  ? ((parseInt(mintCollateral) / (parseInt(mintAmount) * price / 100000000)) * 100).toFixed(1)
-                  : '—'}
+                  ? (
+                      (parseInt(mintCollateral) /
+                        ((parseInt(mintAmount) * price) / 100000000)) *
+                      100
+                    ).toFixed(1)
+                  : "—"}
                 %
               </strong>
             </p>
@@ -221,26 +229,31 @@ const PositionManager: React.FC<PositionManagerProps> = ({
             onClick={handleMint}
             disabled={isSubmitting || !mintCollateral || !mintAmount}
           >
-            {isSubmitting ? 'Submitting...' : 'Mint'}
+            {isSubmitting ? "Submitting..." : "Mint"}
           </button>
         </div>
       )}
 
       {/* Burn Tab */}
-      {activeTab === 'burn' && (
+      {activeTab === "burn" && (
         <div className="form-section">
           <h3>Burn Synthetic Assets</h3>
 
           <div className="form-group">
             <label>Position</label>
             <select
-              value={selectedPosition || ''}
-              onChange={e => setSelectedPosition(e.target.value ? parseInt(e.target.value) : null)}
+              value={selectedPosition || ""}
+              onChange={(e) =>
+                setSelectedPosition(
+                  e.target.value ? parseInt(e.target.value) : null,
+                )
+              }
             >
               <option value="">Select a position...</option>
-              {assetPositions.map(position => (
+              {assetPositions.map((position) => (
                 <option key={position.positionId} value={position.positionId}>
-                  Position {position.positionId} - {position.mintedAmount / 10 ** 8} {selectedAsset}
+                  Position {position.positionId} -{" "}
+                  {position.mintedAmount / 10 ** 8} {selectedAsset}
                 </option>
               ))}
             </select>
@@ -252,13 +265,13 @@ const PositionManager: React.FC<PositionManagerProps> = ({
               <input
                 type="number"
                 value={burnAmount}
-                onChange={e => setBurnAmount(e.target.value)}
+                onChange={(e) => setBurnAmount(e.target.value)}
                 placeholder="0.00"
               />
               <small>
-                Available:{' '}
+                Available:{" "}
                 {assetPositions
-                  .find(p => p.positionId === selectedPosition)
+                  .find((p) => p.positionId === selectedPosition)
                   ?.mintedAmount.toFixed(2)}
               </small>
             </div>
@@ -269,26 +282,31 @@ const PositionManager: React.FC<PositionManagerProps> = ({
             onClick={handleBurn}
             disabled={isSubmitting || !selectedPosition || !burnAmount}
           >
-            {isSubmitting ? 'Submitting...' : 'Burn'}
+            {isSubmitting ? "Submitting..." : "Burn"}
           </button>
         </div>
       )}
 
       {/* Collateral Tab */}
-      {activeTab === 'collateral' && (
+      {activeTab === "collateral" && (
         <div className="form-section">
           <h3>Add Collateral</h3>
 
           <div className="form-group">
             <label>Position</label>
             <select
-              value={selectedPosition || ''}
-              onChange={e => setSelectedPosition(e.target.value ? parseInt(e.target.value) : null)}
+              value={selectedPosition || ""}
+              onChange={(e) =>
+                setSelectedPosition(
+                  e.target.value ? parseInt(e.target.value) : null,
+                )
+              }
             >
               <option value="">Select a position...</option>
-              {assetPositions.map(position => (
+              {assetPositions.map((position) => (
                 <option key={position.positionId} value={position.positionId}>
-                  Position {position.positionId} - Ratio: {(position.ratio / 100).toFixed(1)}%
+                  Position {position.positionId} - Ratio:{" "}
+                  {(position.ratio / 100).toFixed(1)}%
                 </option>
               ))}
             </select>
@@ -300,7 +318,7 @@ const PositionManager: React.FC<PositionManagerProps> = ({
               <input
                 type="number"
                 value={additionalCollateral}
-                onChange={e => setAdditionalCollateral(e.target.value)}
+                onChange={(e) => setAdditionalCollateral(e.target.value)}
                 placeholder="0.00"
               />
             </div>
@@ -309,9 +327,11 @@ const PositionManager: React.FC<PositionManagerProps> = ({
           <button
             className="btn btn-primary"
             onClick={handleAddCollateral}
-            disabled={isSubmitting || !selectedPosition || !additionalCollateral}
+            disabled={
+              isSubmitting || !selectedPosition || !additionalCollateral
+            }
           >
-            {isSubmitting ? 'Submitting...' : 'Add Collateral'}
+            {isSubmitting ? "Submitting..." : "Add Collateral"}
           </button>
         </div>
       )}
@@ -335,19 +355,26 @@ const PositionManager: React.FC<PositionManagerProps> = ({
                 </tr>
               </thead>
               <tbody>
-                {assetPositions.map(position => (
+                {assetPositions.map((position) => (
                   <tr key={position.positionId}>
                     <td>#{position.positionId}</td>
                     <td>{(position.collateralAmount / 10 ** 8).toFixed(2)}</td>
-                    <td>{(position.mintedAmount / 10 ** 8).toFixed(2)} {selectedAsset}</td>
                     <td>
-                      <span className={`ratio ${position.ratio < 12000 ? 'danger' : 'safe'}`}>
+                      {(position.mintedAmount / 10 ** 8).toFixed(2)}{" "}
+                      {selectedAsset}
+                    </td>
+                    <td>
+                      <span
+                        className={`ratio ${position.ratio < 12000 ? "danger" : "safe"}`}
+                      >
                         {(position.ratio / 100).toFixed(1)}%
                       </span>
                     </td>
                     <td>{position.healthFactor.toFixed(2)}</td>
                     <td>
-                      <span className={`status ${position.status.toLowerCase()}`}>
+                      <span
+                        className={`status ${position.status.toLowerCase()}`}
+                      >
                         {position.status}
                       </span>
                     </td>

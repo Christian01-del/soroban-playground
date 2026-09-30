@@ -20,30 +20,30 @@ frontend/src/
 
 ### Functions
 
-| Function | Auth | Description |
-|---|---|---|
-| `initialize(admin)` | admin | One-time setup |
-| `file_patent(inventor, title, description, expiry_date)` | inventor | File a new patent (status: Pending) |
-| `activate_patent(admin, patent_id)` | admin | Approve a pending patent |
-| `revoke_patent(admin, patent_id)` | admin | Revoke an active patent |
-| `transfer_patent(owner, patent_id, new_owner)` | owner | Transfer ownership |
-| `grant_license(owner, patent_id, licensee, license_type, fee, expiry_date)` | owner | Grant Exclusive or NonExclusive license |
-| `file_dispute(claimant, patent_id, reason)` | claimant | Open a dispute |
-| `resolve_dispute(admin, dispute_id, resolution)` | admin | Close a dispute |
-| `pause(admin)` / `unpause(admin)` | admin | Emergency circuit breaker |
+| Function                                                                    | Auth     | Description                             |
+| --------------------------------------------------------------------------- | -------- | --------------------------------------- |
+| `initialize(admin)`                                                         | admin    | One-time setup                          |
+| `file_patent(inventor, title, description, expiry_date)`                    | inventor | File a new patent (status: Pending)     |
+| `activate_patent(admin, patent_id)`                                         | admin    | Approve a pending patent                |
+| `revoke_patent(admin, patent_id)`                                           | admin    | Revoke an active patent                 |
+| `transfer_patent(owner, patent_id, new_owner)`                              | owner    | Transfer ownership                      |
+| `grant_license(owner, patent_id, licensee, license_type, fee, expiry_date)` | owner    | Grant Exclusive or NonExclusive license |
+| `file_dispute(claimant, patent_id, reason)`                                 | claimant | Open a dispute                          |
+| `resolve_dispute(admin, dispute_id, resolution)`                            | admin    | Close a dispute                         |
+| `pause(admin)` / `unpause(admin)`                                           | admin    | Emergency circuit breaker               |
 
 ### Events
 
-| Topic | Data | Trigger |
-|---|---|---|
-| `filed` + inventor | patent_id | Patent filed |
-| `activated` | patent_id | Patent activated |
-| `revoked` | patent_id | Patent revoked |
-| `transfer` + patent_id | new_owner | Ownership transferred |
-| `licensed` + patent_id | license_id | License granted |
-| `dispute` + patent_id | dispute_id | Dispute filed |
-| `resolved` | dispute_id | Dispute resolved |
-| `paused` | bool | Pause toggled |
+| Topic                  | Data       | Trigger               |
+| ---------------------- | ---------- | --------------------- |
+| `filed` + inventor     | patent_id  | Patent filed          |
+| `activated`            | patent_id  | Patent activated      |
+| `revoked`              | patent_id  | Patent revoked        |
+| `transfer` + patent_id | new_owner  | Ownership transferred |
+| `licensed` + patent_id | license_id | License granted       |
+| `dispute` + patent_id  | dispute_id | Dispute filed         |
+| `resolved`             | dispute_id | Dispute resolved      |
+| `paused`               | bool       | Pause toggled         |
 
 ### Build & Test
 
@@ -59,21 +59,21 @@ Base path: `/api/patents`
 
 ### Endpoints
 
-| Method | Path | Body | Description |
-|---|---|---|---|
-| `POST` | `/file` | `inventor, title, description, expiryDate` | File patent |
-| `POST` | `/:id/activate` | `admin` | Activate patent |
-| `POST` | `/:id/revoke` | `admin` | Revoke patent |
-| `POST` | `/:id/transfer` | `owner, newOwner` | Transfer patent |
-| `POST` | `/:id/license` | `owner, licensee, licenseType, fee, expiryDate` | Grant license |
-| `POST` | `/disputes` | `claimant, patentId, reason` | File dispute |
-| `POST` | `/disputes/:id/resolve` | `admin, resolution` | Resolve dispute |
-| `POST` | `/pause` | `admin` | Pause contract |
-| `POST` | `/unpause` | `admin` | Unpause contract |
-| `GET` | `/stats` | — | Counts + paused flag |
-| `GET` | `/:id` | — | Get patent |
-| `GET` | `/licenses/:id` | — | Get license |
-| `GET` | `/disputes/:id` | — | Get dispute |
+| Method | Path                    | Body                                            | Description          |
+| ------ | ----------------------- | ----------------------------------------------- | -------------------- |
+| `POST` | `/file`                 | `inventor, title, description, expiryDate`      | File patent          |
+| `POST` | `/:id/activate`         | `admin`                                         | Activate patent      |
+| `POST` | `/:id/revoke`           | `admin`                                         | Revoke patent        |
+| `POST` | `/:id/transfer`         | `owner, newOwner`                               | Transfer patent      |
+| `POST` | `/:id/license`          | `owner, licensee, licenseType, fee, expiryDate` | Grant license        |
+| `POST` | `/disputes`             | `claimant, patentId, reason`                    | File dispute         |
+| `POST` | `/disputes/:id/resolve` | `admin, resolution`                             | Resolve dispute      |
+| `POST` | `/pause`                | `admin`                                         | Pause contract       |
+| `POST` | `/unpause`              | `admin`                                         | Unpause contract     |
+| `GET`  | `/stats`                | —                                               | Counts + paused flag |
+| `GET`  | `/:id`                  | —                                               | Get patent           |
+| `GET`  | `/licenses/:id`         | —                                               | Get license          |
+| `GET`  | `/disputes/:id`         | —                                               | Get dispute          |
 
 All responses: `{ success: true, data: ... }` or `{ message, statusCode, details? }`.
 
@@ -98,6 +98,7 @@ npx jest tests/patent.test.js
 Navigate to `/patents` in the running app.
 
 Features:
+
 - **Stats bar** — live patent/license/dispute counts and pause status
 - **File Patent** — submit a new patent application
 - **Patent Lookup** — fetch any patent by ID
@@ -108,6 +109,7 @@ Features:
 ## Deployment
 
 1. Deploy the contract:
+
    ```bash
    stellar contract deploy \
      --wasm contracts/patent-registry/target/wasm32-unknown-unknown/release/soroban_patent_registry.wasm \
@@ -115,6 +117,7 @@ Features:
    ```
 
 2. Initialize:
+
    ```bash
    stellar contract invoke --id <CONTRACT_ID> --source <ACCOUNT> --network testnet \
      -- initialize --admin <ADMIN_ADDRESS>

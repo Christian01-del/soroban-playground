@@ -1,15 +1,26 @@
-use crate::db::trait_::{Database, Event, Quorum, Vote, Oracle, AuditEntry};
+use crate::db::trait_::{AuditEntry, Database, Event, Ledger, Oracle, Quorum, RollbackStats, Vote};
+use anyhow::Result;
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use sqlx::sqlite::SqlitePool;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
+use std::str::FromStr;
 
 pub struct SqliteDatabase {
     pool: SqlitePool,
 }
 
 impl SqliteDatabase {
+    /// Connect (creating the database file if needed) and apply the embedded
+    /// schema in `migrations/sqlite`.
     pub async fn new(url: &str) -> Result<Self> {
-        let pool = SqlitePool::connect(url).await?;
+        let options = SqliteConnectOptions::from_str(url)?.create_if_missing(true);
+        // Every connection to `:memory:` opens a separate database, so pin
+        // in-memory pools to a single connection.
+        let max_connections = if url.contains(":memory:") { 1 } else { 10 };
+        let pool = SqlitePoolOptions::new()
+            .max_connections(max_connections)
+            .connect_with(options)
+            .await?;
+        sqlx::migrate!("./migrations/sqlite").run(&pool).await?;
         Ok(Self { pool })
     }
 }
@@ -21,7 +32,7 @@ impl Database for SqliteDatabase {
     async fn save_event(&self, event: &Event) -> Result<()> {
         sqlx::query(
             "INSERT INTO events (id, contract_id, ledger, ledger_closed_at, event_type, data) 
-             VALUES (?, ?, ?, ?, ?, ?)"
+             VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(&event.id)
         .bind(&event.contract_id)
@@ -39,7 +50,7 @@ impl Database for SqliteDatabase {
         for event in events {
             sqlx::query(
                 "INSERT INTO events (id, contract_id, ledger, ledger_closed_at, event_type, data) 
-                 VALUES (?, ?, ?, ?, ?, ?)"
+                 VALUES (?, ?, ?, ?, ?, ?)",
             )
             .bind(&event.id)
             .bind(&event.contract_id)
@@ -68,7 +79,7 @@ impl Database for SqliteDatabase {
         let limit = limit as i64;
         let res = sqlx::query_as::<_, Event>(
             "SELECT id, contract_id, ledger, ledger_closed_at, event_type, data FROM events 
-             WHERE contract_id = ? ORDER BY ledger DESC LIMIT ?"
+             WHERE contract_id = ? ORDER BY ledger DESC LIMIT ?",
         )
         .bind(contract_id)
         .bind(limit)
@@ -86,7 +97,7 @@ impl Database for SqliteDatabase {
         let limit = limit as i64;
         let res = sqlx::query_as::<_, Event>(
             "SELECT id, contract_id, ledger, ledger_closed_at, event_type, data \
-             FROM events ORDER BY ledger DESC LIMIT ?"
+             FROM events ORDER BY ledger DESC LIMIT ?",
         )
         .bind(limit)
         .fetch_all(&self.pool)
@@ -136,7 +147,7 @@ impl Database for SqliteDatabase {
     async fn get_active_quorums(&self) -> Result<Vec<Quorum>> {
         let res = sqlx::query_as::<_, Quorum>(
             "SELECT id, quorum_type, state, strategy, threshold, target_id, created_at, expires_at 
-             FROM quorums WHERE state IN ('collecting', 'threshold_reached')"
+             FROM quorums WHERE state IN ('collecting', 'threshold_reached')",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -148,7 +159,7 @@ impl Database for SqliteDatabase {
     async fn save_vote(&self, vote: &Vote) -> Result<()> {
         sqlx::query(
             "INSERT INTO votes (id, quorum_id, oracle_id, choice, data, timestamp) 
-             VALUES (?, ?, ?, ?, ?, ?)"
+             VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(&vote.id)
         .bind(&vote.quorum_id)
@@ -175,7 +186,7 @@ impl Database for SqliteDatabase {
 
     async fn get_oracle(&self, id: &str) -> Result<Option<Oracle>> {
         let res = sqlx::query_as::<_, Oracle>(
-            "SELECT id, name, reputation, active FROM oracles WHERE id = ?"
+            "SELECT id, name, reputation, active FROM oracles WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -193,11 +204,9 @@ impl Database for SqliteDatabase {
     }
 
     async fn get_all_oracles(&self) -> Result<Vec<Oracle>> {
-        let res = sqlx::query_as::<_, Oracle>(
-            "SELECT id, name, reputation, active FROM oracles"
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let res = sqlx::query_as::<_, Oracle>("SELECT id, name, reputation, active FROM oracles")
+            .fetch_all(&self.pool)
+            .await?;
         Ok(res)
     }
 
@@ -226,7 +235,7 @@ impl Database for SqliteDatabase {
         let offset = offset as i64;
         let res = sqlx::query_as::<_, AuditEntry>(
             "SELECT id, event_type, actor, payload, prev_hash, entry_hash, merkle_root, timestamp 
-             FROM audit_trail ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+             FROM audit_trail ORDER BY timestamp DESC LIMIT ? OFFSET ?",
         )
         .bind(limit)
         .bind(offset)
@@ -238,7 +247,7 @@ impl Database for SqliteDatabase {
     async fn get_last_audit_entry(&self) -> Result<Option<AuditEntry>> {
         let res = sqlx::query_as::<_, AuditEntry>(
             "SELECT id, event_type, actor, payload, prev_hash, entry_hash, merkle_root, timestamp 
-             FROM audit_trail ORDER BY timestamp DESC LIMIT 1"
+             FROM audit_trail ORDER BY timestamp DESC LIMIT 1",
         )
         .fetch_optional(&self.pool)
         .await?;
@@ -248,13 +257,116 @@ impl Database for SqliteDatabase {
     async fn get_audit_entry(&self, id: &str) -> Result<Option<AuditEntry>> {
         let res = sqlx::query_as::<_, AuditEntry>(
             "SELECT id, event_type, actor, payload, prev_hash, entry_hash, merkle_root, timestamp 
-             FROM audit_trail WHERE id = ?"
+             FROM audit_trail WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(&self.pool)
         .await?;
         Ok(res)
     }
+
+    // ── Ledger continuity & reorg methods ────────────────────────────────────
+
+    async fn get_ledger_tip(&self) -> Result<Option<Ledger>> {
+        let row: Option<LedgerRow> = sqlx::query_as(
+            "SELECT sequence, ledger_hash, parent_ledger_hash
+             FROM ledgers ORDER BY sequence DESC LIMIT 1",
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(ledger_from_row))
+    }
+
+    async fn get_ledger(&self, sequence: u32) -> Result<Option<Ledger>> {
+        let row: Option<LedgerRow> = sqlx::query_as(
+            "SELECT sequence, ledger_hash, parent_ledger_hash
+             FROM ledgers WHERE sequence = ?",
+        )
+        .bind(i64::from(sequence))
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(ledger_from_row))
+    }
+
+    async fn get_ledger_below(&self, sequence: u32) -> Result<Option<Ledger>> {
+        let row: Option<LedgerRow> = sqlx::query_as(
+            "SELECT sequence, ledger_hash, parent_ledger_hash
+             FROM ledgers WHERE sequence < ? ORDER BY sequence DESC LIMIT 1",
+        )
+        .bind(i64::from(sequence))
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(ledger_from_row))
+    }
+
+    async fn insert_ledger(&self, ledger: &Ledger) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO ledgers (sequence, ledger_hash, parent_ledger_hash)
+             VALUES (?, ?, ?)",
+        )
+        .bind(i64::from(ledger.sequence))
+        .bind(&ledger.ledger_hash)
+        .bind(&ledger.parent_ledger_hash)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn rollback_from_ledger(&self, sequence: u32, detected_at: u32) -> Result<RollbackStats> {
+        let mut tx = self.pool.begin().await?;
+        let ledgers_removed = sqlx::query("DELETE FROM ledgers WHERE sequence >= ?")
+            .bind(i64::from(sequence))
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+        let events_removed = sqlx::query("DELETE FROM events WHERE ledger >= ?")
+            .bind(i64::from(sequence))
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+        sqlx::query(
+            "INSERT INTO ledger_reorgs
+               (rolled_back_from, detected_at_sequence, ledgers_removed, events_removed)
+             VALUES (?, ?, ?, ?)",
+        )
+        .bind(i64::from(sequence))
+        .bind(i64::from(detected_at))
+        .bind(ledgers_removed as i64)
+        .bind(events_removed as i64)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(RollbackStats {
+            ledgers_removed,
+            events_removed,
+        })
+    }
+
+    async fn find_ledger_gaps(&self) -> Result<Vec<(u32, u32)>> {
+        let rows: Vec<(i64, i64)> = sqlx::query_as(
+            "SELECT sequence + 1, next_seq - 1
+             FROM (
+               SELECT sequence,
+                      LEAD(sequence) OVER (ORDER BY sequence) AS next_seq
+               FROM ledgers
+             ) gaps
+             WHERE next_seq IS NOT NULL AND next_seq - sequence > 1",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(start, end)| (start as u32, end as u32))
+            .collect())
+    }
 }
 
+type LedgerRow = (i64, String, String);
 
+fn ledger_from_row((sequence, ledger_hash, parent_ledger_hash): LedgerRow) -> Ledger {
+    Ledger {
+        sequence: sequence as u32,
+        ledger_hash,
+        parent_ledger_hash,
+    }
+}

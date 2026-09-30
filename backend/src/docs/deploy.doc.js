@@ -1,3 +1,6 @@
+// Copyright (c) 2026 StellarDevTools
+// SPDX-License-Identifier: MIT
+
 /**
  * @openapi
  * /api/deploy:

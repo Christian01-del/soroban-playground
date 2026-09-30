@@ -60,9 +60,7 @@ pub fn get_product(env: &Env, id: u32) -> Result<CoverageProduct, Error> {
 // ── Policies ──────────────────────────────────────────────────────────────────
 
 pub fn set_policy(env: &Env, id: u32, policy: &Policy) {
-    env.storage()
-        .persistent()
-        .set(&DataKey::Policy(id), policy);
+    env.storage().persistent().set(&DataKey::Policy(id), policy);
 }
 
 pub fn get_policy(env: &Env, id: u32) -> Result<Policy, Error> {
@@ -75,9 +73,7 @@ pub fn get_policy(env: &Env, id: u32) -> Result<Policy, Error> {
 // ── Claims ────────────────────────────────────────────────────────────────────
 
 pub fn set_claim(env: &Env, id: u32, claim: &Claim) {
-    env.storage()
-        .persistent()
-        .set(&DataKey::Claim(id), claim);
+    env.storage().persistent().set(&DataKey::Claim(id), claim);
 }
 
 pub fn get_claim(env: &Env, id: u32) -> Result<Claim, Error> {

@@ -1,6 +1,9 @@
+// Copyright (c) 2026 StellarDevTools
+// SPDX-License-Identifier: MIT
+
 use soroban_sdk::{Address, Env};
 
-use crate::types::{DataKey, Error, InstanceKey, Position, Strategy};
+use crate::types::{AdvancedStrategy, DataKey, Error, InstanceKey, Position, Strategy};
 
 pub fn is_initialized(env: &Env) -> bool {
     env.storage().instance().has(&InstanceKey::Admin)
@@ -17,23 +20,15 @@ pub fn get_admin(env: &Env) -> Result<Address, Error> {
         .ok_or(Error::NotInitialized)
 }
 
-pub fn set_executor(env: &Env, executor: &Address) {
-    env.storage().instance().set(&InstanceKey::Executor, executor);
-}
-
-pub fn get_executor(env: &Env) -> Result<Address, Error> {
+pub fn is_paused(env: &Env) -> bool {
     env.storage()
         .instance()
-        .get(&InstanceKey::Executor)
-        .ok_or(Error::NotInitialized)
+        .get(&InstanceKey::Paused)
+        .unwrap_or(false)
 }
 
-pub fn set_paused(env: &Env, paused: bool) {
-    env.storage().instance().set(&InstanceKey::Paused, &paused);
-}
-
-pub fn is_paused(env: &Env) -> bool {
-    env.storage().instance().get(&InstanceKey::Paused).unwrap_or(false)
+pub fn set_paused(env: &Env, v: bool) {
+    env.storage().instance().set(&InstanceKey::Paused, &v);
 }
 
 pub fn get_strategy_count(env: &Env) -> u32 {
@@ -43,12 +38,14 @@ pub fn get_strategy_count(env: &Env) -> u32 {
         .unwrap_or(0)
 }
 
-pub fn set_strategy_count(env: &Env, count: u32) {
-    env.storage().instance().set(&InstanceKey::StrategyCount, &count);
+pub fn set_strategy_count(env: &Env, v: u32) {
+    env.storage()
+        .instance()
+        .set(&InstanceKey::StrategyCount, &v);
 }
 
-pub fn set_strategy(env: &Env, id: u32, strategy: &Strategy) {
-    env.storage().persistent().set(&DataKey::Strategy(id), strategy);
+pub fn set_strategy(env: &Env, id: u32, s: &Strategy) {
+    env.storage().persistent().set(&DataKey::Strategy(id), s);
 }
 
 pub fn get_strategy(env: &Env, id: u32) -> Result<Strategy, Error> {
@@ -62,27 +59,46 @@ pub fn has_strategy(env: &Env, id: u32) -> bool {
     env.storage().persistent().has(&DataKey::Strategy(id))
 }
 
-pub fn set_position(env: &Env, strategy_id: u32, user: &Address, position: &Position) {
+pub fn set_advanced_strategy(env: &Env, id: u32, s: &AdvancedStrategy) {
     env.storage()
         .persistent()
-        .set(&DataKey::Position(strategy_id, user.clone()), position);
+        .set(&DataKey::AdvancedStrategy(id), s);
 }
 
-pub fn get_position(env: &Env, strategy_id: u32, user: &Address) -> Result<Position, Error> {
+pub fn get_advanced_strategy(env: &Env, id: u32) -> Result<AdvancedStrategy, Error> {
     env.storage()
         .persistent()
-        .get(&DataKey::Position(strategy_id, user.clone()))
+        .get(&DataKey::AdvancedStrategy(id))
+        .ok_or(Error::StrategyNotFound)
+}
+
+pub fn has_advanced_strategy(env: &Env, id: u32) -> bool {
+    env.storage()
+        .persistent()
+        .has(&DataKey::AdvancedStrategy(id))
+}
+
+pub fn set_position(env: &Env, sid: u32, user: &Address, p: &Position) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::Position(sid, user.clone()), p);
+}
+
+pub fn get_position(env: &Env, sid: u32, user: &Address) -> Result<Position, Error> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Position(sid, user.clone()))
         .ok_or(Error::NoPosition)
 }
 
-pub fn has_position(env: &Env, strategy_id: u32, user: &Address) -> bool {
+pub fn has_position(env: &Env, sid: u32, user: &Address) -> bool {
     env.storage()
         .persistent()
-        .has(&DataKey::Position(strategy_id, user.clone()))
+        .has(&DataKey::Position(sid, user.clone()))
 }
 
-pub fn remove_position(env: &Env, strategy_id: u32, user: &Address) {
+pub fn remove_position(env: &Env, sid: u32, user: &Address) {
     env.storage()
         .persistent()
-        .remove(&DataKey::Position(strategy_id, user.clone()));
+        .remove(&DataKey::Position(sid, user.clone()));
 }

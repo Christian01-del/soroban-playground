@@ -21,9 +21,12 @@ type PlatformAnalytics = {
 };
 
 const API_BASE =
-  process.env.NEXT_PUBLIC_BACKEND_URL?.replace(/\/$/, "") ?? "http://localhost:5000";
+  process.env.NEXT_PUBLIC_BACKEND_URL?.replace(/\/$/, "") ??
+  (process.env.NEXT_PUBLIC_BACKEND_URL ||
+    "https://soroban-playground.onrender.com");
 const API = `${API_BASE}/api/marketplace`;
-const FALLBACK_ADDRESS = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const FALLBACK_ADDRESS =
+  "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
 async function jsonOrThrow<T>(res: Response): Promise<T> {
   const body = await res.json().catch(() => ({}));
@@ -36,7 +39,11 @@ async function jsonOrThrow<T>(res: Response): Promise<T> {
 /// Compute SHA-256 of `query || nonce || buyer` entirely in the browser. The
 /// raw query never leaves the device — only its 32-byte commitment is sent to
 /// the marketplace.
-async function commitQuery(query: string, nonce: string, buyer: string): Promise<string> {
+async function commitQuery(
+  query: string,
+  nonce: string,
+  buyer: string,
+): Promise<string> {
   const enc = new TextEncoder();
   const payload = enc.encode(`${query}|${nonce}|${buyer}`);
   const digest = await crypto.subtle.digest("SHA-256", payload);
@@ -52,7 +59,9 @@ export default function DataMarketplacePage() {
   const [myDatasets, setMyDatasets] = useState<Dataset[]>([]);
   const [myLicenses, setMyLicenses] = useState<License[]>([]);
   const [selectedDataset, setSelectedDataset] = useState<Dataset | undefined>();
-  const [selectedStats, setSelectedStats] = useState<DatasetStats | undefined>();
+  const [selectedStats, setSelectedStats] = useState<
+    DatasetStats | undefined
+  >();
   const [recentReceipts, setRecentReceipts] = useState<QueryReceipt[]>([]);
   const [platform, setPlatform] = useState<PlatformAnalytics | undefined>();
   const [error, setError] = useState<string | undefined>();
@@ -60,7 +69,9 @@ export default function DataMarketplacePage() {
 
   const refreshDatasets = useCallback(async () => {
     try {
-      const data = await jsonOrThrow<Dataset[]>(await fetch(`${API}/datasets?limit=50`));
+      const data = await jsonOrThrow<Dataset[]>(
+        await fetch(`${API}/datasets?limit=50`),
+      );
       setDatasets(data);
     } catch (err) {
       console.warn("dataset feed unavailable", err);
@@ -70,9 +81,13 @@ export default function DataMarketplacePage() {
   const refreshProvider = useCallback(async (addr: string) => {
     if (!addr) return;
     try {
-      const profile = await jsonOrThrow<ProviderProfile>(await fetch(`${API}/providers/${addr}`));
+      const profile = await jsonOrThrow<ProviderProfile>(
+        await fetch(`${API}/providers/${addr}`),
+      );
       setProvider(profile);
-      const own = await jsonOrThrow<Dataset[]>(await fetch(`${API}/providers/${addr}/datasets`));
+      const own = await jsonOrThrow<Dataset[]>(
+        await fetch(`${API}/providers/${addr}/datasets`),
+      );
       setMyDatasets(own);
     } catch (err) {
       if (err instanceof Error && /not found/i.test(err.message)) {
@@ -94,15 +109,15 @@ export default function DataMarketplacePage() {
         available.map((d) =>
           fetch(`${API}/licenses/${d.id}/${addr}`)
             .then((r) => (r.ok ? jsonOrThrow<License>(r) : null))
-            .catch(() => null)
-        )
+            .catch(() => null),
+        ),
       );
       const licenses = settled
         .map((s) => (s.status === "fulfilled" ? s.value : null))
         .filter((l): l is License => l !== null);
       setMyLicenses(licenses);
     },
-    []
+    [],
   );
 
   const refreshSelected = useCallback(async (id?: number) => {
@@ -112,7 +127,9 @@ export default function DataMarketplacePage() {
       return;
     }
     try {
-      const stats = await jsonOrThrow<DatasetStats>(await fetch(`${API}/datasets/${id}/analytics`));
+      const stats = await jsonOrThrow<DatasetStats>(
+        await fetch(`${API}/datasets/${id}/analytics`),
+      );
       setSelectedStats(stats);
     } catch {
       setSelectedStats(undefined);
@@ -121,7 +138,9 @@ export default function DataMarketplacePage() {
 
   const refreshPlatform = useCallback(async () => {
     try {
-      const data = await jsonOrThrow<PlatformAnalytics>(await fetch(`${API}/analytics/platform`));
+      const data = await jsonOrThrow<PlatformAnalytics>(
+        await fetch(`${API}/analytics/platform`),
+      );
       setPlatform(data);
     } catch (err) {
       console.warn("platform analytics unavailable", err);
@@ -142,12 +161,16 @@ export default function DataMarketplacePage() {
   }, [acting, datasets, refreshLicenses]);
 
   const handleSelectDataset = (id: number) => {
-    const ds = datasets.find((d) => d.id === id) ?? myDatasets.find((d) => d.id === id);
+    const ds =
+      datasets.find((d) => d.id === id) ?? myDatasets.find((d) => d.id === id);
     setSelectedDataset(ds);
     refreshSelected(id);
   };
 
-  const wrap = async <T,>(label: string, fn: () => Promise<T>): Promise<T | undefined> => {
+  const wrap = async <T,>(
+    label: string,
+    fn: () => Promise<T>,
+  ): Promise<T | undefined> => {
     setError(undefined);
     setIsLoading(true);
     try {
@@ -160,55 +183,62 @@ export default function DataMarketplacePage() {
     }
   };
 
-  const handleRegisterProvider: React.ComponentProps<typeof DataMarketplacePanel>["onRegisterProvider"] = async (
-    input
-  ) => {
+  const handleRegisterProvider: React.ComponentProps<
+    typeof DataMarketplacePanel
+  >["onRegisterProvider"] = async (input) => {
     await wrap("Provider registration", async () => {
       await jsonOrThrow(
         await fetch(`${API}/providers`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ address: acting, ...input }),
-        })
+        }),
       );
       await refreshProvider(acting);
     });
   };
 
-  const handleListDataset: React.ComponentProps<typeof DataMarketplacePanel>["onListDataset"] = async (input) => {
+  const handleListDataset: React.ComponentProps<
+    typeof DataMarketplacePanel
+  >["onListDataset"] = async (input) => {
     await wrap("Listing dataset", async () => {
       await jsonOrThrow(
         await fetch(`${API}/datasets`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ provider: acting, ...input }),
-        })
+        }),
       );
-      await Promise.all([refreshDatasets(), refreshProvider(acting), refreshPlatform()]);
+      await Promise.all([
+        refreshDatasets(),
+        refreshProvider(acting),
+        refreshPlatform(),
+      ]);
     });
   };
 
-  const handlePurchase: React.ComponentProps<typeof DataMarketplacePanel>["onPurchase"] = async (
-    datasetId,
-    maxQueries
-  ) => {
+  const handlePurchase: React.ComponentProps<
+    typeof DataMarketplacePanel
+  >["onPurchase"] = async (datasetId, maxQueries) => {
     await wrap("Purchase", async () => {
       await jsonOrThrow(
         await fetch(`${API}/licenses`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ buyer: acting, datasetId, maxQueries }),
-        })
+        }),
       );
-      await Promise.all([refreshLicenses(acting, datasets), refreshSelected(datasetId), refreshPlatform()]);
+      await Promise.all([
+        refreshLicenses(acting, datasets),
+        refreshSelected(datasetId),
+        refreshPlatform(),
+      ]);
     });
   };
 
-  const handleSubmitQuery: React.ComponentProps<typeof DataMarketplacePanel>["onSubmitQuery"] = async (
-    datasetId,
-    query,
-    nonce
-  ) => {
+  const handleSubmitQuery: React.ComponentProps<
+    typeof DataMarketplacePanel
+  >["onSubmitQuery"] = async (datasetId, query, nonce) => {
     const commitment = await commitQuery(query, nonce, acting);
     const receipt = await wrap("Query", async () => {
       const data = await jsonOrThrow<QueryReceipt>(
@@ -216,33 +246,47 @@ export default function DataMarketplacePage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ buyer: acting, datasetId, commitment }),
-        })
+        }),
       );
       setRecentReceipts((prev) => [data, ...prev].slice(0, 20));
-      await Promise.all([refreshLicenses(acting, datasets), refreshSelected(datasetId)]);
+      await Promise.all([
+        refreshLicenses(acting, datasets),
+        refreshSelected(datasetId),
+      ]);
       return data;
     });
     return { commitment: receipt?.commitment ?? commitment };
   };
 
-  const handleDelist: React.ComponentProps<typeof DataMarketplacePanel>["onDelist"] = async (datasetId) => {
+  const handleDelist: React.ComponentProps<
+    typeof DataMarketplacePanel
+  >["onDelist"] = async (datasetId) => {
     await wrap("Delist", async () => {
       await jsonOrThrow(
         await fetch(`${API}/datasets/${datasetId}/delist`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ provider: acting }),
-        })
+        }),
       );
-      await Promise.all([refreshDatasets(), refreshProvider(acting), refreshPlatform()]);
+      await Promise.all([
+        refreshDatasets(),
+        refreshProvider(acting),
+        refreshPlatform(),
+      ]);
     });
   };
 
   return (
     <div className="min-h-screen bg-slate-950 p-8 text-slate-100">
       <div className="mx-auto max-w-7xl space-y-8">
-        <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs text-slate-500">
-          <Link href="/" className="hover:text-slate-300">Dashboard</Link>
+        <nav
+          aria-label="Breadcrumb"
+          className="flex items-center gap-2 text-xs text-slate-500"
+        >
+          <Link href="/" className="hover:text-slate-300">
+            Dashboard
+          </Link>
           <ChevronRight size={10} aria-hidden />
           <span className="text-slate-400">Apps</span>
           <ChevronRight size={10} aria-hidden />
@@ -258,12 +302,18 @@ export default function DataMarketplacePage() {
               Decentralized Data Marketplace
             </h1>
             <p className="mt-2 max-w-2xl text-sm text-slate-400">
-              Providers list datasets; buyers purchase quota-limited licenses. Queries stay private:
-              only a SHA-256 commitment of <code className="font-mono text-slate-300">(query || nonce || buyer)</code> is recorded on-chain.
+              Providers list datasets; buyers purchase quota-limited licenses.
+              Queries stay private: only a SHA-256 commitment of{" "}
+              <code className="font-mono text-slate-300">
+                (query || nonce || buyer)
+              </code>{" "}
+              is recorded on-chain.
             </p>
           </div>
           <label className="text-xs text-slate-400">
-            <span className="block font-semibold uppercase tracking-widest">Acting as</span>
+            <span className="block font-semibold uppercase tracking-widest">
+              Acting as
+            </span>
             <input
               value={acting}
               onChange={(e) => setActing(e.target.value.trim())}
@@ -281,10 +331,19 @@ export default function DataMarketplacePage() {
           >
             <PlatformStat label="Providers" value={platform.providers} />
             <PlatformStat label="Datasets" value={platform.datasets} />
-            <PlatformStat label="Active listings" value={platform.activeListings} />
+            <PlatformStat
+              label="Active listings"
+              value={platform.activeListings}
+            />
             <PlatformStat label="Buyers" value={platform.buyers} />
-            <PlatformStat label="Lifetime revenue" value={platform.totalRevenue} />
-            <PlatformStat label="Queries served" value={platform.totalQueries} />
+            <PlatformStat
+              label="Lifetime revenue"
+              value={platform.totalRevenue}
+            />
+            <PlatformStat
+              label="Queries served"
+              value={platform.totalQueries}
+            />
           </section>
         )}
 
@@ -311,9 +370,14 @@ export default function DataMarketplacePage() {
   );
 }
 
-const PlatformStat: React.FC<{ label: string; value: number }> = ({ label, value }) => (
+const PlatformStat: React.FC<{ label: string; value: number }> = ({
+  label,
+  value,
+}) => (
   <div>
-    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</p>
+    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+      {label}
+    </p>
     <p className="text-lg font-bold text-white">{value.toLocaleString()}</p>
   </div>
 );

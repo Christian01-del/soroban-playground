@@ -1,11 +1,20 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { Vote, Plus, Clock, CheckCircle, XCircle, MinusCircle, Users } from "lucide-react";
+import {
+  Vote,
+  Plus,
+  Clock,
+  CheckCircle,
+  XCircle,
+  MinusCircle,
+  Users,
+} from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type ProposalStatus = "Active" | "Passed" | "Defeated" | "Executed" | "Cancelled";
+export type ProposalStatus =
+  "Active" | "Passed" | "Defeated" | "Executed" | "Cancelled";
 export type VoteChoice = "For" | "Against" | "Abstain";
 
 export interface GovernanceProposal {
@@ -90,7 +99,9 @@ export default function GovernancePortal({
   onExecute,
   onDelegate,
 }: Props) {
-  const [tab, setTab] = useState<"proposals" | "create" | "delegate">("proposals");
+  const [tab, setTab] = useState<"proposals" | "create" | "delegate">(
+    "proposals",
+  );
   const [filter, setFilter] = useState<"all" | "active" | "closed">("all");
 
   // Create form
@@ -101,15 +112,24 @@ export default function GovernancePortal({
   const [delegateTo, setDelegateTo] = useState("");
 
   const filtered = useMemo(() => {
-    if (filter === "active") return proposals.filter((p) => p.status === "Active");
-    if (filter === "closed") return proposals.filter((p) => p.status !== "Active");
+    if (filter === "active")
+      return proposals.filter((p) => p.status === "Active");
+    if (filter === "closed")
+      return proposals.filter((p) => p.status !== "Active");
     return proposals;
   }, [proposals, filter]);
 
   const activeCount = proposals.filter((p) => p.status === "Active").length;
-  const passRate = proposals.length > 0
-    ? Math.round((proposals.filter((p) => p.status === "Passed" || p.status === "Executed").length / proposals.length) * 100)
-    : 0;
+  const passRate =
+    proposals.length > 0
+      ? Math.round(
+          (proposals.filter(
+            (p) => p.status === "Passed" || p.status === "Executed",
+          ).length /
+            proposals.length) *
+            100,
+        )
+      : 0;
 
   return (
     <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
@@ -124,7 +144,9 @@ export default function GovernancePortal({
         <div className="flex items-center gap-3 text-xs text-slate-500">
           <span>{activeCount} active</span>
           <span>{passRate}% pass rate</span>
-          <span className="text-violet-300">Power: {votingPower.toLocaleString()}</span>
+          <span className="text-violet-300">
+            Power: {votingPower.toLocaleString()}
+          </span>
         </div>
       </div>
 
@@ -155,7 +177,9 @@ export default function GovernancePortal({
                 key={f}
                 onClick={() => setFilter(f)}
                 className={`rounded-full px-2 py-0.5 text-[10px] font-medium capitalize transition ${
-                  filter === f ? "text-slate-200 bg-slate-700" : "text-slate-500 hover:text-slate-300"
+                  filter === f
+                    ? "text-slate-200 bg-slate-700"
+                    : "text-slate-500 hover:text-slate-300"
                 }`}
               >
                 {f}
@@ -164,7 +188,9 @@ export default function GovernancePortal({
           </div>
 
           {filtered.length === 0 && (
-            <p className="text-center text-xs text-slate-600 py-4">No proposals yet.</p>
+            <p className="text-center text-xs text-slate-600 py-4">
+              No proposals yet.
+            </p>
           )}
 
           {filtered.map((p) => (
@@ -199,7 +225,11 @@ export default function GovernancePortal({
           />
           <button
             disabled={isLoading || !contractId || !title.trim()}
-            onClick={() => { onPropose(title.trim(), desc.trim()); setTitle(""); setDesc(""); }}
+            onClick={() => {
+              onPropose(title.trim(), desc.trim());
+              setTitle("");
+              setDesc("");
+            }}
             className="w-full rounded-full border border-violet-400/30 bg-violet-400/10 py-1.5 text-xs font-medium text-violet-200 transition hover:bg-violet-400/20 disabled:opacity-40"
           >
             <Plus size={12} className="inline mr-1" />
@@ -229,7 +259,10 @@ export default function GovernancePortal({
             <div className="flex gap-2">
               <button
                 disabled={isLoading || !contractId || !delegateTo.trim()}
-                onClick={() => { onDelegate(delegateTo.trim()); setDelegateTo(""); }}
+                onClick={() => {
+                  onDelegate(delegateTo.trim());
+                  setDelegateTo("");
+                }}
                 className="flex-1 rounded-full border border-violet-400/30 bg-violet-400/10 py-1 text-xs font-medium text-violet-200 hover:bg-violet-400/20 disabled:opacity-40"
               >
                 Delegate
@@ -280,10 +313,16 @@ function ProposalCard({
       {/* Title + status */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold text-slate-200 truncate">{p.title}</p>
-          <p className="text-[10px] text-slate-500 font-mono">#{p.id} · {short(p.proposer)}</p>
+          <p className="text-xs font-semibold text-slate-200 truncate">
+            {p.title}
+          </p>
+          <p className="text-[10px] text-slate-500 font-mono">
+            #{p.id} · {short(p.proposer)}
+          </p>
         </div>
-        <span className={`flex items-center gap-1 text-[10px] font-semibold ${STATUS_COLOR[p.status]}`}>
+        <span
+          className={`flex items-center gap-1 text-[10px] font-semibold ${STATUS_COLOR[p.status]}`}
+        >
           {STATUS_ICON[p.status]} {p.status}
         </span>
       </div>
@@ -293,16 +332,26 @@ function ProposalCard({
         <div className="flex items-center gap-2 text-[10px]">
           <span className="w-12 text-emerald-400">For</span>
           <div className="flex-1 h-1.5 rounded-full bg-slate-800">
-            <div className="h-1.5 rounded-full bg-emerald-400" style={{ width: `${forPct}%` }} />
+            <div
+              className="h-1.5 rounded-full bg-emerald-400"
+              style={{ width: `${forPct}%` }}
+            />
           </div>
-          <span className="w-8 text-right text-slate-400">{forPct.toFixed(0)}%</span>
+          <span className="w-8 text-right text-slate-400">
+            {forPct.toFixed(0)}%
+          </span>
         </div>
         <div className="flex items-center gap-2 text-[10px]">
           <span className="w-12 text-rose-400">Against</span>
           <div className="flex-1 h-1.5 rounded-full bg-slate-800">
-            <div className="h-1.5 rounded-full bg-rose-400" style={{ width: `${againstPct}%` }} />
+            <div
+              className="h-1.5 rounded-full bg-rose-400"
+              style={{ width: `${againstPct}%` }}
+            />
           </div>
-          <span className="w-8 text-right text-slate-400">{againstPct.toFixed(0)}%</span>
+          <span className="w-8 text-right text-slate-400">
+            {againstPct.toFixed(0)}%
+          </span>
         </div>
       </div>
 
@@ -315,7 +364,9 @@ function ProposalCard({
             style={{ width: `${Math.min(100, qPct)}%` }}
           />
         </div>
-        <span className={`text-[10px] ${qPct >= qReq ? "text-violet-300" : "text-slate-500"}`}>
+        <span
+          className={`text-[10px] ${qPct >= qReq ? "text-violet-300" : "text-slate-500"}`}
+        >
           {qPct.toFixed(1)}% / {qReq}%
         </span>
       </div>
@@ -340,8 +391,8 @@ function ProposalCard({
                   c === "For"
                     ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-200 hover:bg-emerald-400/20"
                     : c === "Against"
-                    ? "border-rose-400/30 bg-rose-400/10 text-rose-200 hover:bg-rose-400/20"
-                    : "border-slate-400/30 bg-slate-400/10 text-slate-300 hover:bg-slate-400/20"
+                      ? "border-rose-400/30 bg-rose-400/10 text-rose-200 hover:bg-rose-400/20"
+                      : "border-slate-400/30 bg-slate-400/10 text-slate-300 hover:bg-slate-400/20"
                 }`}
               >
                 {c}

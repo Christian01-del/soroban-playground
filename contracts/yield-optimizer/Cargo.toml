@@ -2,10 +2,10 @@
 name = "soroban-yield-optimizer"
 version = "0.1.0"
 edition = "2021"
-description = "Cross-protocol yield optimizer with auto-compounding and strategy controls"
+description = "Cross-protocol yield optimizer with auto-compounding and strategy backtesting"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 soroban-sdk = "21.0.6"

@@ -40,6 +40,7 @@ A comprehensive decentralised bug bounty system built for the Soroban Playground
 ### Features
 
 ✅ **Core Business Logic**
+
 - Report submission with severity classification (Low, Medium, High, Critical)
 - Admin triage workflow (Pending → UnderReview → Accepted/Rejected)
 - Pull-over-push reward distribution
@@ -47,6 +48,7 @@ A comprehensive decentralised bug bounty system built for the Soroban Playground
 - Emergency pause mechanism
 
 ✅ **Security Patterns**
+
 - Checks-Effects-Interactions (CEI) pattern
 - Pull-over-push for reward claims
 - Access control with `require_auth()`
@@ -55,6 +57,7 @@ A comprehensive decentralised bug bounty system built for the Soroban Playground
 - Replay protection
 
 ✅ **Event Emissions**
+
 - `init` - Contract initialised
 - `funded` - Pool funded
 - `reported` - New report submitted
@@ -71,6 +74,7 @@ A comprehensive decentralised bug bounty system built for the Soroban Playground
 ### Contract Functions
 
 #### Initialisation
+
 ```rust
 fn initialize(
     env: Env,
@@ -83,6 +87,7 @@ fn initialize(
 ```
 
 #### Pool Management
+
 ```rust
 fn fund_pool(env: Env, funder: Address, token_address: Address, amount: i128) -> Result<(), Error>
 fn pool_balance(env: Env) -> i128
@@ -90,6 +95,7 @@ fn emergency_withdraw(env: Env, admin: Address, token_address: Address, amount: 
 ```
 
 #### Report Lifecycle
+
 ```rust
 fn submit_report(env: Env, reporter: Address, title: String, description_hash: String, severity: Severity) -> Result<u32, Error>
 fn start_review(env: Env, admin: Address, report_id: u32) -> Result<(), Error>
@@ -100,6 +106,7 @@ fn claim_reward(env: Env, reporter: Address, report_id: u32, token_address: Addr
 ```
 
 #### Admin Controls
+
 ```rust
 fn set_paused(env: Env, admin: Address, paused: bool) -> Result<(), Error>
 fn transfer_admin(env: Env, admin: Address, new_admin: Address) -> Result<(), Error>
@@ -108,12 +115,12 @@ fn set_reward_tier(env: Env, admin: Address, severity: Severity, amount: i128) -
 
 ### Default Reward Tiers
 
-| Severity | Default Reward | Stroops |
-|----------|----------------|---------|
-| Low | 1 XLM | 10,000,000 |
-| Medium | 5 XLM | 50,000,000 |
-| High | 20 XLM | 200,000,000 |
-| Critical | 100 XLM | 1,000,000,000 |
+| Severity | Default Reward | Stroops       |
+| -------- | -------------- | ------------- |
+| Low      | 1 XLM          | 10,000,000    |
+| Medium   | 5 XLM          | 50,000,000    |
+| High     | 20 XLM         | 200,000,000   |
+| Critical | 100 XLM        | 1,000,000,000 |
 
 ### Building & Testing
 
@@ -135,39 +142,48 @@ soroban contract deploy \
 ### Test Coverage
 
 ✅ **Initialisation** (2 tests)
+
 - Successful initialisation
 - Duplicate initialisation fails
 
 ✅ **Pool Funding** (1 test)
+
 - Fund pool with XLM tokens
 
 ✅ **Report Submission** (3 tests)
+
 - Successful submission
 - Empty title validation
 - Duplicate open report prevention
 
 ✅ **Triage Workflow** (3 tests)
+
 - Full lifecycle (submit → review → accept → claim)
 - Report rejection
 - Insufficient pool balance handling
 
 ✅ **Pause/Emergency** (3 tests)
+
 - Pause blocks submissions
 - Unpause allows submissions
 - Emergency withdrawal
 
 ✅ **Reward Tiers** (2 tests)
+
 - Custom tier configuration
 - Runtime tier updates
 
 ✅ **Access Control** (2 tests)
+
 - Non-admin cannot accept reports
 - Admin transfer
 
 ✅ **Withdrawal** (1 test)
+
 - Reporter can withdraw own pending report
 
 ✅ **Custom Rewards** (1 test)
+
 - Admin can override default reward
 
 **Total: 18 comprehensive tests with >90% code coverage**
@@ -179,6 +195,7 @@ soroban contract deploy \
 ### Features
 
 ✅ **RESTful API Design**
+
 - Comprehensive CRUD operations
 - Input validation and sanitisation
 - Error handling with proper HTTP status codes
@@ -186,12 +203,14 @@ soroban contract deploy \
 - Filtering by status, severity, and reporter
 
 ✅ **Security**
+
 - Input validation (address format, string length, numeric ranges)
 - Rate limiting (via existing middleware)
 - Stellar address validation
 - XSS prevention via sanitisation
 
 ✅ **Caching & Performance**
+
 - In-memory store for demo (replace with DB in production)
 - Efficient filtering and pagination
 - Minimal response payloads
@@ -199,12 +218,14 @@ soroban contract deploy \
 ### API Endpoints
 
 #### Health & Stats
+
 ```
 GET  /api/bug-bounty/health
 GET  /api/bug-bounty/stats
 ```
 
 #### Reports
+
 ```
 GET    /api/bug-bounty/reports?status=&severity=&reporter=&page=&limit=
 POST   /api/bug-bounty/reports
@@ -217,12 +238,14 @@ POST   /api/bug-bounty/reports/:id/claim
 ```
 
 #### Pool Management
+
 ```
 GET   /api/bug-bounty/pool
 POST  /api/bug-bounty/pool/fund
 ```
 
 #### Configuration
+
 ```
 GET  /api/bug-bounty/rewards
 PUT  /api/bug-bounty/rewards
@@ -232,6 +255,7 @@ POST /api/bug-bounty/pause
 ### Request/Response Examples
 
 #### Submit Report
+
 ```json
 POST /api/bug-bounty/reports
 {
@@ -261,6 +285,7 @@ Response 201:
 ```
 
 #### Accept Report
+
 ```json
 PATCH /api/bug-bounty/reports/1/accept
 {
@@ -282,6 +307,7 @@ Response 200:
 ```
 
 #### Claim Reward
+
 ```json
 POST /api/bug-bounty/reports/1/claim
 {
@@ -317,8 +343,8 @@ Response 200:
 The route is registered in `backend/src/routes/api.js`:
 
 ```javascript
-import bugBountyRouter from './bugBounty.js';
-router.use('/bug-bounty', rateLimitMiddleware('invoke'), bugBountyRouter);
+import bugBountyRouter from "./bugBounty.js";
+router.use("/bug-bounty", rateLimitMiddleware("invoke"), bugBountyRouter);
 ```
 
 ---
@@ -328,30 +354,35 @@ router.use('/bug-bounty', rateLimitMiddleware('invoke'), bugBountyRouter);
 ### Features
 
 ✅ **Responsive UI**
+
 - Mobile-first design with Tailwind CSS
 - Dark theme matching playground aesthetic
 - Accessible components (WCAG 2.1 AA compliant)
 - Real-time updates (15-second polling)
 
 ✅ **Interactive Dashboards**
+
 - Programme statistics (total reports, pool balance, rewards paid)
 - Reward tier visualisation
 - Severity distribution chart
 - Report status breakdown
 
 ✅ **Data Visualisation**
+
 - Severity badges with colour coding
 - Status badges with lifecycle indicators
 - Progress bars for severity distribution
 - Stat cards with icons
 
 ✅ **Form Validation**
+
 - Client-side validation with error messages
 - Stellar address format validation
 - Required field indicators
 - Input length limits
 
 ✅ **Accessibility**
+
 - ARIA labels and roles
 - Keyboard navigation support
 - Screen reader friendly
@@ -361,6 +392,7 @@ router.use('/bug-bounty', rateLimitMiddleware('invoke'), bugBountyRouter);
 ### Components
 
 #### Main Dashboard
+
 - **Header** - Title, pause toggle, fund pool, submit report buttons
 - **Stats Grid** - 4 stat cards (total reports, pool balance, total rewarded, open reports)
 - **Reward Tiers** - Visual display of configured rewards per severity
@@ -371,10 +403,12 @@ router.use('/bug-bounty', rateLimitMiddleware('invoke'), bugBountyRouter);
 - **Pagination** - Previous/Next navigation
 
 #### Modals
+
 - **Submit Report Modal** - Form for submitting new vulnerability reports
 - **Fund Pool Modal** - Form for depositing XLM into the bounty pool
 
 #### Report Card
+
 - **Collapsed View** - ID, title, severity badge, status badge
 - **Expanded View** - Full details (reporter, description hash, timestamps, rewards)
 - **Action Buttons** - Context-aware buttons based on user role and report status
@@ -382,6 +416,7 @@ router.use('/bug-bounty', rateLimitMiddleware('invoke'), bugBountyRouter);
 ### User Flows
 
 #### Researcher Flow
+
 1. Click "Submit Report"
 2. Fill in reporter address, title, description hash, severity
 3. Submit → Report appears in list with "Pending" status
@@ -390,6 +425,7 @@ router.use('/bug-bounty', rateLimitMiddleware('invoke'), bugBountyRouter);
 6. Reward transferred to reporter address
 
 #### Admin Flow
+
 1. View pending reports in dashboard
 2. Click report to expand details
 3. Click "Start Review" → Status changes to "UnderReview"
@@ -399,6 +435,7 @@ router.use('/bug-bounty', rateLimitMiddleware('invoke'), bugBountyRouter);
 7. Reporter can now claim
 
 #### Sponsor Flow
+
 1. Click "Fund Pool"
 2. Enter funder address, token address, amount
 3. Submit → Pool balance increases
@@ -441,11 +478,13 @@ async function apiFetch<T>(path: string, options?: RequestInit) {
 ### Accessibility Features
 
 ✅ **Semantic HTML**
+
 - `<main>`, `<section>`, `<article>` for structure
 - `<button>` for interactive elements
 - `<label>` for form inputs
 
 ✅ **ARIA Attributes**
+
 - `role="dialog"` for modals
 - `aria-modal="true"` for modal overlays
 - `aria-label` for icon-only buttons
@@ -454,12 +493,14 @@ async function apiFetch<T>(path: string, options?: RequestInit) {
 - `aria-required` for required form fields
 
 ✅ **Keyboard Navigation**
+
 - Tab order follows visual flow
 - Enter/Space activate buttons
 - Escape closes modals
 - Focus trap in modals
 
 ✅ **Visual Indicators**
+
 - Focus rings on interactive elements
 - Loading spinners for async operations
 - Error messages with icons
@@ -470,6 +511,7 @@ async function apiFetch<T>(path: string, options?: RequestInit) {
 ## Security Considerations
 
 ### Smart Contract
+
 - ✅ Checks-Effects-Interactions pattern prevents reentrancy
 - ✅ Pull-over-push prevents DoS via failed transfers
 - ✅ Access control on all admin functions
@@ -478,6 +520,7 @@ async function apiFetch<T>(path: string, options?: RequestInit) {
 - ✅ No unchecked arithmetic (Rust overflow checks enabled)
 
 ### Backend
+
 - ✅ Input validation (address format, string length, numeric ranges)
 - ✅ Rate limiting via existing middleware
 - ✅ XSS prevention via sanitisation
@@ -486,6 +529,7 @@ async function apiFetch<T>(path: string, options?: RequestInit) {
 - ✅ Error messages don't leak implementation details
 
 ### Frontend
+
 - ✅ Client-side validation (defence in depth)
 - ✅ XSS prevention via React's automatic escaping
 - ✅ CSRF protection via SameSite cookies (when using auth)
@@ -497,6 +541,7 @@ async function apiFetch<T>(path: string, options?: RequestInit) {
 ## Performance Benchmarks
 
 ### Backend API
+
 - ✅ Health check: <50ms
 - ✅ List reports (20 items): <100ms
 - ✅ Submit report: <150ms
@@ -504,6 +549,7 @@ async function apiFetch<T>(path: string, options?: RequestInit) {
 - ✅ Claim reward: <200ms (includes simulated tx)
 
 ### Frontend
+
 - ✅ Initial page load: <2s (target met)
 - ✅ Report list render (100 items): <500ms
 - ✅ Filter/search: <100ms
@@ -511,6 +557,7 @@ async function apiFetch<T>(path: string, options?: RequestInit) {
 - ✅ Real-time updates: 15s polling interval
 
 ### Smart Contract
+
 - ✅ Gas-optimised with `opt-level = "z"`
 - ✅ Minimal storage reads/writes
 - ✅ Efficient data structures (no unnecessary clones)
@@ -520,6 +567,7 @@ async function apiFetch<T>(path: string, options?: RequestInit) {
 ## Testing Strategy
 
 ### Smart Contract
+
 - ✅ Unit tests for all public functions
 - ✅ Integration tests for full workflows
 - ✅ Edge case testing (empty inputs, overflow, unauthorised access)
@@ -527,12 +575,14 @@ async function apiFetch<T>(path: string, options?: RequestInit) {
 - ✅ **Coverage: >90%**
 
 ### Backend
+
 - ⚠️ Manual testing via Postman/curl (add automated tests in production)
 - ✅ Input validation tested
 - ✅ Error handling tested
 - ✅ Edge cases covered
 
 ### Frontend
+
 - ⚠️ Manual testing in browser (add Playwright/Cypress in production)
 - ✅ Responsive design tested (mobile, tablet, desktop)
 - ✅ Accessibility tested with screen reader
@@ -545,12 +595,14 @@ async function apiFetch<T>(path: string, options?: RequestInit) {
 ### Smart Contract
 
 1. **Build**
+
    ```bash
    cd contracts/bug-bounty
    cargo build --target wasm32-unknown-unknown --release
    ```
 
 2. **Deploy to Testnet**
+
    ```bash
    soroban contract deploy \
      --wasm target/wasm32-unknown-unknown/release/soroban_bug_bounty.wasm \
@@ -571,12 +623,14 @@ async function apiFetch<T>(path: string, options?: RequestInit) {
 ### Backend
 
 1. **Install Dependencies**
+
    ```bash
    cd backend
    npm install
    ```
 
 2. **Start Server**
+
    ```bash
    npm start
    # or for development:
@@ -591,23 +645,27 @@ async function apiFetch<T>(path: string, options?: RequestInit) {
 ### Frontend
 
 1. **Install Dependencies**
+
    ```bash
    cd frontend
    npm install
    ```
 
 2. **Configure API URL**
+
    ```bash
    # .env.local
    NEXT_PUBLIC_API_BASE_URL=http://localhost:5000
    ```
 
 3. **Start Dev Server**
+
    ```bash
    npm run dev
    ```
 
 4. **Build for Production**
+
    ```bash
    npm run build
    npm start
@@ -623,6 +681,7 @@ async function apiFetch<T>(path: string, options?: RequestInit) {
 ## Future Enhancements
 
 ### Smart Contract
+
 - [ ] Multi-token support (not just XLM)
 - [ ] Tiered admin roles (reviewer, approver, payer)
 - [ ] Automatic reward calculation based on CVSS score
@@ -630,6 +689,7 @@ async function apiFetch<T>(path: string, options?: RequestInit) {
 - [ ] Partial reward claims
 
 ### Backend
+
 - [ ] PostgreSQL/MongoDB for persistent storage
 - [ ] WebSocket for real-time updates
 - [ ] Email notifications
@@ -638,6 +698,7 @@ async function apiFetch<T>(path: string, options?: RequestInit) {
 - [ ] API documentation (Swagger/OpenAPI)
 
 ### Frontend
+
 - [ ] Wallet integration (Freighter)
 - [ ] IPFS upload for vulnerability disclosures
 - [ ] Advanced filtering (date ranges, reward amounts)
@@ -651,6 +712,7 @@ async function apiFetch<T>(path: string, options?: RequestInit) {
 ## Troubleshooting
 
 ### Contract Build Fails
+
 ```bash
 # Ensure Rust and wasm32 target are installed
 rustup target add wasm32-unknown-unknown
@@ -660,12 +722,14 @@ cargo update -p soroban-sdk
 ```
 
 ### Backend Port Conflict
+
 ```bash
 # Change port in backend/src/server.js
 const PORT = process.env.PORT || 5001;
 ```
 
 ### Frontend API Connection Error
+
 ```bash
 # Check NEXT_PUBLIC_API_BASE_URL in .env.local
 # Ensure backend is running
@@ -673,6 +737,7 @@ curl http://localhost:5000/api/bug-bounty/health
 ```
 
 ### CORS Issues
+
 ```bash
 # Backend already has CORS enabled
 # If issues persist, check browser console for specific error

@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { PauseCircle, PlayCircle, Terminal, TriangleAlert } from "lucide-react";
 
 interface ConsoleProps {
@@ -43,7 +49,10 @@ export default function Console({
     };
   }, [logs.length, scrollTop, viewportHeight]);
 
-  const visibleRows = useMemo(() => logs.slice(startIndex, endIndex), [endIndex, logs, startIndex]);
+  const visibleRows = useMemo(
+    () => logs.slice(startIndex, endIndex),
+    [endIndex, logs, startIndex],
+  );
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -95,7 +104,8 @@ export default function Console({
       const viewport = event.currentTarget;
       setScrollTop(viewport.scrollTop);
 
-      const distanceFromBottom = viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop;
+      const distanceFromBottom =
+        viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop;
       const shouldPause = distanceFromBottom > BOTTOM_ANCHOR_THRESHOLD;
 
       if (shouldPause !== isIngestionPaused) {
@@ -145,7 +155,9 @@ export default function Console({
         className="flex-1 overflow-y-auto font-mono text-xs leading-6 text-gray-300"
       >
         {logs.length === 0 ? (
-          <p className="px-4 py-3 text-gray-600 italic">No output yet. Compile or deploy to see logs.</p>
+          <p className="px-4 py-3 text-gray-600 italic">
+            No output yet. Compile or deploy to see logs.
+          </p>
         ) : (
           <div style={{ height: totalHeight, position: "relative" }}>
             {visibleRows.map((line, index) => {
@@ -156,10 +168,17 @@ export default function Console({
                 <div
                   key={`${lineNumber}-${absoluteIndex}`}
                   className="absolute left-0 right-0 px-4 flex items-center gap-3"
-                  style={{ top: absoluteIndex * ROW_HEIGHT, height: ROW_HEIGHT }}
+                  style={{
+                    top: absoluteIndex * ROW_HEIGHT,
+                    height: ROW_HEIGHT,
+                  }}
                 >
-                  <span className="text-cyan-500 min-w-[56px] text-right">{String(lineNumber).padStart(6, "0")}</span>
-                  <span className="flex-1 whitespace-nowrap overflow-hidden text-ellipsis">{line}</span>
+                  <span className="text-cyan-500 min-w-[56px] text-right">
+                    {String(lineNumber).padStart(6, "0")}
+                  </span>
+                  <span className="flex-1 whitespace-nowrap overflow-hidden text-ellipsis">
+                    {line}
+                  </span>
                 </div>
               );
             })}

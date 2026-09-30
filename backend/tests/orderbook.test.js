@@ -13,9 +13,9 @@ const {
   getTrades,
   getStats,
   _reset,
-} = await import('../src/services/orderBookService.js');
-const { default: orderBookRoute } = await import('../src/routes/orderbook.js');
-const { errorHandler } = await import('../src/middleware/errorHandler.js');
+} = require('../src/services/orderBookService.js');
+const { default: orderBookRoute } = require('../src/routes/orderbook.js');
+const { errorHandler } = require('../src/middleware/errorHandler.js');
 
 const app = express();
 app.use(express.json());

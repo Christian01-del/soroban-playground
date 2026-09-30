@@ -1,11 +1,13 @@
 # Advanced Circuit Breaker Pattern for RPC Failures Implementation
 
 ## Overview
+
 This branch implements an advanced circuit breaker pattern for RPC failures with half-open state testing, adaptive thresholds, cascading failure prevention, and circuit state metrics.
 
 ## Technical Breakdown
 
 ### Backend Tasks
+
 1. Circuit Breaker State Machine - Implement Closed, Open, HalfOpen states with transitions
 2. Adaptive Failure Thresholds - Configurable parameters, sliding window for failure rate
 3. Enhanced Provider Manager - Attach circuit breaker to each provider, track metrics
@@ -15,6 +17,7 @@ This branch implements an advanced circuit breaker pattern for RPC failures with
 7. Circuit Breaker Dashboard Data - Structured response for frontend visualization
 
 ### Acceptance Criteria
+
 - ✅ Circuit breaker prevents cascading failures to unhealthy providers
 - ✅ Automatic recovery detection works reliably
 - ✅ Adaptive thresholds adjust to traffic patterns
@@ -23,4 +26,5 @@ This branch implements an advanced circuit breaker pattern for RPC failures with
 - ✅ Load test confirms no request loss during state transitions
 
 ## Related Issue
+
 Closes #198

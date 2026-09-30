@@ -1,6 +1,14 @@
 "use client";
 
-import React, { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
+import { useCompileStore } from "@/state/compileStore";
 import {
   Activity,
   BookOpen,
@@ -18,22 +26,33 @@ import { parseCargoDiagnostics } from "@/utils/cargoDiagnostics";
 import type { CargoDiagnostic } from "@/utils/cargoDiagnostics";
 import { useEditorHistory } from "@/hooks/useEditorHistory";
 import Console from "@/components/Console";
+import { ConsoleAndEventsDrawer } from "@/components/ConsoleAndEventsDrawer";
 import DeployPanel from "@/components/DeployPanel";
 import CallPanel from "@/components/CallPanel";
 import StorageViewer from "@/components/StorageViewer";
 import TransactionCallGraph from "@/components/TransactionCallGraph";
 import StorageTimeline from "@/components/StorageTimeline";
-import PredictionMarketPanel, { MarketData } from "@/components/PredictionMarketPanel";
+import PredictionMarketPanel, {
+  MarketData,
+} from "@/components/PredictionMarketPanel";
 import WalletConnect from "@/components/WalletConnect";
 import TransactionStatus from "@/components/TransactionStatus";
-import VestingDashboard, { VestingScheduleData } from "@/components/VestingDashboard";
+import VestingDashboard, {
+  VestingScheduleData,
+} from "@/components/VestingDashboard";
 import IdentityPortal, { IdentityData } from "@/components/IdentityPortal";
 import LendingDashboard from "@/components/LendingDashboard";
 import FlashLoanPanel from "@/components/FlashLoanPanel";
 import CloudStoragePanel from "@/components/CloudStoragePanel";
 import MusicRoyaltyPanel from "@/components/MusicRoyaltyPanel";
-import CarbonCreditDashboard, { type IssuerData, type CarbonAssetData } from "@/components/CarbonCreditDashboard";
-import SocialFeedInterface, { type SocialProfile, type SocialPost } from "@/components/SocialFeedInterface";
+import CarbonCreditDashboard, {
+  type IssuerData,
+  type CarbonAssetData,
+} from "@/components/CarbonCreditDashboard";
+import SocialFeedInterface, {
+  type SocialProfile,
+  type SocialPost,
+} from "@/components/SocialFeedInterface";
 import MultisigWalletDashboard, {
   type SignerData,
   type MultisigTx,
@@ -44,9 +63,14 @@ import GovernancePortal, {
   type GovernanceProposal,
   type VoteChoice as GovVoteChoice,
 } from "@/components/GovernancePortal";
-import SupplyChainPanel, { type ProductData as SupplyChainProduct, type ProductStatus as SupplyChainStatus, type QualityResult as SupplyChainQuality } from "@/components/SupplyChainPanel";
+import SupplyChainPanel, {
+  type ProductData as SupplyChainProduct,
+  type ProductStatus as SupplyChainStatus,
+  type QualityResult as SupplyChainQuality,
+} from "@/components/SupplyChainPanel";
 import LotteryDashboard from "@/components/LotteryDashboard";
-import { useFreighterWallet } from "@/hooks/useFreighterWallet";
+import ShareSnippet from "@/components/ShareSnippet";
+import { useWallet } from "@/components/providers/WalletProvider";
 import { useTransactionTracker } from "@/hooks/useTransactionTracker";
 import {
   parseTransactionInvocationPayload,
@@ -57,6 +81,7 @@ import {
   createInitialStorageTimelineState,
   storageTimelineReducer,
 } from "@/state/storageTimeline";
+import { parseContractAbiFromSource } from "@/utils/contractAbi";
 
 const DEFAULT_CODE = `#![no_std]
 use soroban_sdk::{contract, contractimpl, symbol_short, Env, Symbol};
@@ -78,7 +103,8 @@ impl HelloContract {
 
 const DEFAULT_API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ||
-  "http://localhost:5000";
+  process.env.NEXT_PUBLIC_BACKEND_URL ||
+  "https://soroban-playground.onrender.com";
 
 type HealthState = "checking" | "online" | "offline";
 
@@ -120,12 +146,15 @@ type ApiErrorPayload = {
 };
 
 type InvokeProgressEvent = {
+  estimatedWaitTimeMs?: number;
   type: string;
   requestId?: string;
   contractId?: string;
   functionName?: string;
   status?: string;
   detail?: string;
+  message?: string;
+  progress?: number;
   timestamp?: string;
   queueLength?: number;
   activeWorkers?: number;
@@ -245,6 +274,10 @@ function createMockInvocationPayload(
 }
 
 export default function Home() {
+  useEffect(() => {
+    return preloadMonacoEditor();
+  }, []);
+
   const [code, setCode] = useState(DEFAULT_CODE);
   const [logs, setLogs] = useState<string[]>([
     `Soroban Playground ready.`,
@@ -337,6 +370,9 @@ export default function Home() {
   const [lastArtifactName, setLastArtifactName] =
     useState<string>("contract.wasm");
   const [lastDeployMessage, setLastDeployMessage] = useState<string>();
+  const [contractAbi, setContractAbi] = useState<
+    Array<{ name: string; inputs?: Array<{ name: string; type: string }> }>
+  >([]);
 
   const activeSnapshot = useMemo(
     () =>
@@ -351,7 +387,9 @@ export default function Home() {
   const [isPredictionLoading, setIsPredictionLoading] = useState(false);
 
   // Vesting state
-  const [vestingSchedules, setVestingSchedules] = useState<VestingScheduleData[]>([]);
+  const [vestingSchedules, setVestingSchedules] = useState<
+    VestingScheduleData[]
+  >([]);
   const [isVestingLoading, setIsVestingLoading] = useState(false);
 
   // DID identity state
@@ -360,7 +398,11 @@ export default function Home() {
 
   // Carbon Credit state
   const [carbonIssuer, setCarbonIssuer] = useState<IssuerData>();
-  const [carbonAssets, setCarbonAssets] = useState<CarbonAssetData>({ balance: 0, totalRetired: 0, totalOwned: 0 });
+  const [carbonAssets, setCarbonAssets] = useState<CarbonAssetData>({
+    balance: 0,
+    totalRetired: 0,
+    totalOwned: 0,
+  });
   const [isCarbonLoading, setIsCarbonLoading] = useState(false);
   // Social Media state
   const [socialProfile, setSocialProfile] = useState<SocialProfile>();
@@ -368,11 +410,14 @@ export default function Home() {
   const [isSocialLoading, setIsSocialLoading] = useState(false);
 
   // Supply chain state
-  const [supplyChainProducts, setSupplyChainProducts] = useState<SupplyChainProduct[]>([]);
+  const [supplyChainProducts, setSupplyChainProducts] = useState<
+    SupplyChainProduct[]
+  >([]);
   const [isSupplyChainLoading, setIsSupplyChainLoading] = useState(false);
 
   // Wallet + transaction tracking
-  const wallet = useFreighterWallet();  const { transactions, addTx, updateTx, clearTx } = useTransactionTracker();
+  const wallet = useWallet();
+  const { transactions, addTx, updateTx, clearTx } = useTransactionTracker();
 
   // Multisig wallet state
   const [multisigSigners, setMultisigSigners] = useState<SignerData[]>([]);
@@ -390,43 +435,71 @@ export default function Home() {
   const [govVotingPower, setGovVotingPower] = useState(0);
   const [isGovLoading, setIsGovLoading] = useState(false);
 
-  const appendLog = (msg: string) => {
+  const appendLog = useCallback((msg: string) => {
     setLogs((prev) => [...prev, msg]);
-  };
+  }, []);
+
+  useEffect(() => {
+    setContractAbi(parseContractAbiFromSource(code));
+  }, [code]);
+
+  const checkHealth = useCallback(async () => {
+    setHealthState("checking");
+    try {
+      const response = await fetch(`${DEFAULT_API_BASE_URL}/api/health`, {
+        method: "GET",
+      }).catch(() => null);
+
+      if (response && response.ok) {
+        const payload = await response.json();
+        setHealthState("online");
+        setHealthMessage(
+          `Backend online · ${payload?.data?.runtime?.node ?? "runtime ready"}`,
+        );
+        return true;
+      }
+
+      // If deep health check returned non-200, check liveness probe
+      const liveRes = await fetch(`${DEFAULT_API_BASE_URL}/health/live`, {
+        method: "GET",
+      }).catch(() => null);
+
+      if (liveRes && liveRes.ok) {
+        setHealthState("online");
+        setHealthMessage("Backend online (degraded mode)");
+        return true;
+      }
+
+      throw new Error(
+        `Health check failed with ${response ? response.status : "network error"}`
+      );
+    } catch (error) {
+      setHealthState("offline");
+      setHealthMessage(
+        `Backend unavailable at ${DEFAULT_API_BASE_URL}. Start the backend server to compile and deploy.`,
+      );
+      appendLog(`[warn] ${formatApiError(error)}`);
+      return false;
+    }
+  }, [appendLog]);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function checkHealth() {
-      setHealthState("checking");
-      try {
-        const response = await fetch(`${DEFAULT_API_BASE_URL}/api/health`, {
-          method: "GET",
-        });
-
-        if (!response.ok) {
-          throw new Error(`Health check failed with ${response.status}`);
-        }
-
-        const payload = await response.json();
-        if (!cancelled) {
-          setHealthState("online");
-          setHealthMessage(
-            `Backend online · ${payload?.data?.runtime?.node ?? "runtime unknown"}`,
-          );
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setHealthState("offline");
-          setHealthMessage(
-            `Backend unavailable at ${DEFAULT_API_BASE_URL}. Start the backend server to compile and deploy.`,
-          );
-          appendLog(`[warn] ${formatApiError(error)}`);
-        }
-      }
-    }
-
     checkHealth();
+
+    // If offline, poll every 10s to auto-recover when backend warms up
+    const interval = setInterval(() => {
+      if (!cancelled && healthState !== "online") {
+        checkHealth();
+      }
+    }, 10000);
+
+    const onOnline = () => {
+      if (!cancelled) checkHealth();
+    };
+    window.addEventListener("online", onOnline);
+
     (async () => {
       try {
         const response = await fetch(
@@ -445,8 +518,10 @@ export default function Home() {
 
     return () => {
       cancelled = true;
+      clearInterval(interval);
+      window.removeEventListener("online", onOnline);
     };
-  }, []);
+  }, [checkHealth, healthState]);
 
   useEffect(() => {
     let cancelled = false;
@@ -472,10 +547,23 @@ export default function Home() {
               `[deploy:${payload.status ?? "update"}] ${payload.detail ?? "progress"}`,
             );
           } else if (payload.type === "compile-progress") {
+            // Update Zustand store
+            const { updateProgress } = useCompileStore.getState();
+            updateProgress({
+              status: payload.status,
+              message: payload.message || undefined,
+              progress: payload.progress || undefined,
+              queueLength: payload.queueLength,
+              activeWorkers: payload.activeWorkers,
+              estimatedWaitTimeMs: payload.estimatedWaitTimeMs,
+            });
+
             setCompileStats((prev) => ({
               ...prev,
               queueLength: payload.queueLength ?? prev.queueLength,
               activeWorkers: payload.activeWorkers ?? prev.activeWorkers,
+              estimatedWaitTimeMs:
+                payload.estimatedWaitTimeMs ?? prev.estimatedWaitTimeMs,
             }));
             appendLog(
               `[compile:${payload.status ?? "update"}] queue=${payload.queueLength ?? 0} workers=${payload.activeWorkers ?? 0}`,
@@ -547,6 +635,9 @@ export default function Home() {
     setSelectedGraphNodeId(undefined);
     appendLog("[compile] Sending source to backend...");
 
+    // Start compilation in Zustand store
+    useCompileStore.getState().startCompile();
+
     try {
       const payload = await requestJson<CompileResponse>("/api/compile", {
         code,
@@ -556,15 +647,20 @@ export default function Home() {
 
       setHasCompiled(true);
       setLastArtifactName(payload.artifact?.name ?? "contract.wasm");
-      setCompileSummary(
-        `${payload.message} · ${payload.artifact?.name ?? "artifact"} · ${
-          payload.artifact?.sizeBytes
-            ? `${(payload.artifact.sizeBytes / 1024).toFixed(1)} KB`
-            : "size unavailable"
-        } · ${payload.cached ? "cache hit" : "fresh build"}`,
-      );
+      const summaryMsg = `${payload.message} · ${payload.artifact?.name ?? "artifact"} · ${
+        payload.artifact?.sizeBytes
+          ? `${(payload.artifact.sizeBytes / 1024).toFixed(1)} KB`
+          : "size unavailable"
+      } · ${payload.cached ? "cache hit" : "fresh build"}`;
+      setCompileSummary(summaryMsg);
+
+      // Complete compilation in Zustand store
+      useCompileStore.getState().successCompile(summaryMsg);
+
       try {
-        const statsRes = await fetch(`${DEFAULT_API_BASE_URL}/api/compile/stats`);
+        const statsRes = await fetch(
+          `${DEFAULT_API_BASE_URL}/api/compile/stats`,
+        );
         if (statsRes.ok) {
           const statsPayload = await statsRes.json();
           if (statsPayload.stats) {
@@ -590,6 +686,9 @@ export default function Home() {
       setDiagnostics(parseCargoDiagnostics(failureLogs));
       setCompileError(message);
       appendLog(`[error] Compile failed: ${message}`);
+
+      // Fail compilation in Zustand store
+      useCompileStore.getState().failCompile(message);
     } finally {
       setIsCompiling(false);
     }
@@ -617,6 +716,7 @@ export default function Home() {
       });
 
       setContractId(payload.contractId);
+      setContractAbi([]);
       setLastDeployMessage(payload.message);
       setStorage({
         contractName: payload.contractName,
@@ -711,7 +811,7 @@ export default function Home() {
 
   const handleInvoke = async (
     funcName: string,
-    args: Record<string, string>,
+    args: Record<string, unknown>,
   ) => {
     if (!contractId) {
       appendLog("[warn] Deploy a contract before invoking a function.");
@@ -729,14 +829,14 @@ export default function Home() {
         status: string;
         contractId: string;
         functionName: string;
-        args: Record<string, string>;
+        args: Record<string, unknown>;
         output: string;
         message: string;
         invokedAt: string;
       }>("/api/invoke", {
         contractId,
         functionName: funcName,
-        args,
+        args: args as Record<string, string>,
       });
 
       appendLog(`[invoke] ${payload.message}`);
@@ -744,7 +844,7 @@ export default function Home() {
       const invocationPayload = createMockInvocationPayload(
         contractId,
         funcName,
-        args,
+        args as Record<string, string>,
         storage,
       );
       const parsedGraph = parseTransactionInvocationPayload(invocationPayload);
@@ -787,7 +887,9 @@ export default function Home() {
 
   const handleGraphNodeSelect = (nodeId: string) => {
     setSelectedGraphNodeId(nodeId);
-    const selectedNode = transactionGraph.nodes.find((node) => node.id === nodeId);
+    const selectedNode = transactionGraph.nodes.find(
+      (node) => node.id === nodeId,
+    );
 
     if (!selectedNode) {
       return;
@@ -869,7 +971,11 @@ export default function Home() {
     }
   };
 
-  const handlePlaceBet = async (marketId: number, outcome: number, stake: number) => {
+  const handlePlaceBet = async (
+    marketId: number,
+    outcome: number,
+    stake: number,
+  ) => {
     if (!contractId) return;
     const label = `Bet ${stake} XLM on ${outcome === 1 ? "YES" : "NO"} (market #${marketId})`;
     const txId = addTx(label);
@@ -890,11 +996,13 @@ export default function Home() {
           m.id === marketId
             ? {
                 ...m,
-                totalYesStake: outcome === 1 ? m.totalYesStake + stake : m.totalYesStake,
-                totalNoStake: outcome === 0 ? m.totalNoStake + stake : m.totalNoStake,
+                totalYesStake:
+                  outcome === 1 ? m.totalYesStake + stake : m.totalYesStake,
+                totalNoStake:
+                  outcome === 0 ? m.totalNoStake + stake : m.totalNoStake,
               }
-            : m
-        )
+            : m,
+        ),
       );
       updateTx(txId, { status: "success" });
       appendLog(`[market] Bet placed`);
@@ -908,7 +1016,9 @@ export default function Home() {
 
   const handleResolveMarket = async (marketId: number, outcome: number) => {
     if (!contractId) return;
-    const txId = addTx(`Resolve market #${marketId} → ${outcome === 1 ? "YES" : "NO"}`);
+    const txId = addTx(
+      `Resolve market #${marketId} → ${outcome === 1 ? "YES" : "NO"}`,
+    );
     setIsPredictionLoading(true);
     try {
       await requestJson("/api/invoke", {
@@ -919,9 +1029,13 @@ export default function Home() {
       setMarkets((prev) =>
         prev.map((m) =>
           m.id === marketId
-            ? { ...m, status: "Resolved", winningOutcome: outcome === 1 ? "YES" : "NO" }
-            : m
-        )
+            ? {
+                ...m,
+                status: "Resolved",
+                winningOutcome: outcome === 1 ? "YES" : "NO",
+              }
+            : m,
+        ),
       );
       updateTx(txId, { status: "success" });
       appendLog(`[market] Market #${marketId} resolved`);
@@ -944,7 +1058,9 @@ export default function Home() {
         args: { market_id: String(marketId) },
       });
       setMarkets((prev) =>
-        prev.map((m) => (m.id === marketId ? { ...m, status: "Cancelled" } : m))
+        prev.map((m) =>
+          m.id === marketId ? { ...m, status: "Cancelled" } : m,
+        ),
       );
       updateTx(txId, { status: "success" });
       appendLog(`[market] Market #${marketId} cancelled`);
@@ -973,11 +1089,17 @@ export default function Home() {
   // ── Vesting handlers ───────────────────────────────────────────────────────
 
   const handleCreateLinear = async (params: {
-    beneficiary: string; token: string; amount: number;
-    cliff: number; start: number; end: number;
+    beneficiary: string;
+    token: string;
+    amount: number;
+    cliff: number;
+    start: number;
+    end: number;
   }) => {
     if (!contractId) return;
-    const txId = addTx(`Create linear vesting for ${params.beneficiary.slice(0, 8)}…`);
+    const txId = addTx(
+      `Create linear vesting for ${params.beneficiary.slice(0, 8)}…`,
+    );
     setIsVestingLoading(true);
     try {
       await requestJson("/api/invoke", {
@@ -1020,11 +1142,17 @@ export default function Home() {
   };
 
   const handleCreateMilestone = async (params: {
-    beneficiary: string; token: string; amount: number;
-    cliff: number; hashes: number[]; bps: number[];
+    beneficiary: string;
+    token: string;
+    amount: number;
+    cliff: number;
+    hashes: number[];
+    bps: number[];
   }) => {
     if (!contractId) return;
-    const txId = addTx(`Create milestone vesting for ${params.beneficiary.slice(0, 8)}…`);
+    const txId = addTx(
+      `Create milestone vesting for ${params.beneficiary.slice(0, 8)}…`,
+    );
     setIsVestingLoading(true);
     try {
       await requestJson("/api/invoke", {
@@ -1084,11 +1212,15 @@ export default function Home() {
       const released = parseInt(payload.output ?? "0");
       setVestingSchedules((prev) =>
         prev.map((s) =>
-          s.id === scheduleId ? { ...s, releasedAmount: s.releasedAmount + released } : s
-        )
+          s.id === scheduleId
+            ? { ...s, releasedAmount: s.releasedAmount + released }
+            : s,
+        ),
       );
       updateTx(txId, { status: "success" });
-      appendLog(`[vesting] Released ${released} tokens from schedule #${scheduleId}`);
+      appendLog(
+        `[vesting] Released ${released} tokens from schedule #${scheduleId}`,
+      );
     } catch (error) {
       updateTx(txId, { status: "error", error: formatApiError(error) });
       appendLog(`[error] Release failed: ${formatApiError(error)}`);
@@ -1108,7 +1240,7 @@ export default function Home() {
         args: { schedule_id: String(scheduleId) },
       });
       setVestingSchedules((prev) =>
-        prev.map((s) => (s.id === scheduleId ? { ...s, revoked: true } : s))
+        prev.map((s) => (s.id === scheduleId ? { ...s, revoked: true } : s)),
       );
       updateTx(txId, { status: "success" });
       appendLog(`[vesting] Schedule #${scheduleId} revoked`);
@@ -1120,15 +1252,23 @@ export default function Home() {
     }
   };
 
-  const handleApproveMilestone = async (scheduleId: number, milestoneIndex: number) => {
+  const handleApproveMilestone = async (
+    scheduleId: number,
+    milestoneIndex: number,
+  ) => {
     if (!contractId) return;
-    const txId = addTx(`Approve milestone ${milestoneIndex} on schedule #${scheduleId}`);
+    const txId = addTx(
+      `Approve milestone ${milestoneIndex} on schedule #${scheduleId}`,
+    );
     setIsVestingLoading(true);
     try {
       await requestJson("/api/invoke", {
         contractId,
         functionName: "approve_milestone",
-        args: { schedule_id: String(scheduleId), milestone_index: String(milestoneIndex) },
+        args: {
+          schedule_id: String(scheduleId),
+          milestone_index: String(milestoneIndex),
+        },
       });
       setVestingSchedules((prev) =>
         prev.map((s) =>
@@ -1136,14 +1276,16 @@ export default function Home() {
             ? {
                 ...s,
                 milestones: s.milestones.map((m) =>
-                  m.index === milestoneIndex ? { ...m, approved: true } : m
+                  m.index === milestoneIndex ? { ...m, approved: true } : m,
                 ),
               }
-            : s
-        )
+            : s,
+        ),
       );
       updateTx(txId, { status: "success" });
-      appendLog(`[vesting] Milestone ${milestoneIndex} approved on schedule #${scheduleId}`);
+      appendLog(
+        `[vesting] Milestone ${milestoneIndex} approved on schedule #${scheduleId}`,
+      );
     } catch (error) {
       updateTx(txId, { status: "error", error: formatApiError(error) });
       appendLog(`[error] Approve milestone failed: ${formatApiError(error)}`);
@@ -1196,7 +1338,7 @@ export default function Home() {
         args: { owner, metadata_hash: String(metadataHash) },
       });
       setIdentities((prev) =>
-        prev.map((id) => (id.owner === owner ? { ...id, metadataHash } : id))
+        prev.map((id) => (id.owner === owner ? { ...id, metadataHash } : id)),
       );
       updateTx(txId, { status: "success" });
     } catch (error) {
@@ -1218,7 +1360,7 @@ export default function Home() {
         args: { owner },
       });
       setIdentities((prev) =>
-        prev.map((id) => (id.owner === owner ? { ...id, active: false } : id))
+        prev.map((id) => (id.owner === owner ? { ...id, active: false } : id)),
       );
       updateTx(txId, { status: "success" });
       appendLog(`[did] Identity deactivated: ${owner}`);
@@ -1231,11 +1373,16 @@ export default function Home() {
   };
 
   const handleIssueCredential = async (params: {
-    issuer: string; subject: string; schemaHash: number;
-    dataHash: number; expiresAt: number;
+    issuer: string;
+    subject: string;
+    schemaHash: number;
+    dataHash: number;
+    expiresAt: number;
   }) => {
     if (!contractId) return;
-    const txId = addTx(`Issue credential from ${params.issuer.slice(0, 8)}… to ${params.subject.slice(0, 8)}…`);
+    const txId = addTx(
+      `Issue credential from ${params.issuer.slice(0, 8)}… to ${params.subject.slice(0, 8)}…`,
+    );
     setIsIdentityLoading(true);
     try {
       const payload = await requestJson<{ output: string }>("/api/invoke", {
@@ -1269,8 +1416,8 @@ export default function Home() {
                   },
                 ],
               }
-            : id
-        )
+            : id,
+        ),
       );
       updateTx(txId, { status: "success" });
       appendLog(`[did] Credential #${credId} issued`);
@@ -1296,9 +1443,9 @@ export default function Home() {
         prev.map((id) => ({
           ...id,
           credentials: id.credentials.map((c) =>
-            c.id === credentialId ? { ...c, status: "Revoked" as const } : c
+            c.id === credentialId ? { ...c, status: "Revoked" as const } : c,
           ),
-        }))
+        })),
       );
       updateTx(txId, { status: "success" });
       appendLog(`[did] Credential #${credentialId} revoked`);
@@ -1312,7 +1459,9 @@ export default function Home() {
 
   const handleAdjustReputation = async (subject: string, delta: number) => {
     if (!contractId) return;
-    const txId = addTx(`Adjust reputation for ${subject.slice(0, 8)}… (${delta > 0 ? "+" : ""}${delta})`);
+    const txId = addTx(
+      `Adjust reputation for ${subject.slice(0, 8)}… (${delta > 0 ? "+" : ""}${delta})`,
+    );
     setIsIdentityLoading(true);
     try {
       const payload = await requestJson<{ output: string }>("/api/invoke", {
@@ -1322,7 +1471,9 @@ export default function Home() {
       });
       const newScore = parseInt(payload.output ?? "0");
       setIdentities((prev) =>
-        prev.map((id) => (id.owner === subject ? { ...id, reputation: newScore } : id))
+        prev.map((id) =>
+          id.owner === subject ? { ...id, reputation: newScore } : id,
+        ),
       );
       updateTx(txId, { status: "success" });
       appendLog(`[did] Reputation updated: ${subject} → ${newScore}`);
@@ -1399,7 +1550,11 @@ export default function Home() {
     }
   };
 
-  const handleMultisigPropose = async (description: string, amount: number, recipient?: string) => {
+  const handleMultisigPropose = async (
+    description: string,
+    amount: number,
+    recipient?: string,
+  ) => {
     if (!contractId) return;
     const txId = addTx(`Propose: "${description.slice(0, 30)}"`);
     setIsMultisigLoading(true);
@@ -1443,7 +1598,9 @@ export default function Home() {
 
   const handleTransferCredits = async (to: string, amount: number) => {
     if (!contractId || !wallet.address) return;
-    const txId = addTx(`Transfer ${amount} Carbon Credits to ${to.slice(0, 8)}…`);
+    const txId = addTx(
+      `Transfer ${amount} Carbon Credits to ${to.slice(0, 8)}…`,
+    );
     setIsCarbonLoading(true);
     try {
       await requestJson("/api/invoke", {
@@ -1451,7 +1608,7 @@ export default function Home() {
         functionName: "transfer",
         args: { from: wallet.address, to, amount: String(amount) },
       });
-      setCarbonAssets(prev => ({ ...prev, balance: prev.balance - amount }));
+      setCarbonAssets((prev) => ({ ...prev, balance: prev.balance - amount }));
       updateTx(txId, { status: "success" });
       appendLog(`[carbon] ${amount} credits transferred to ${to}`);
     } catch (error) {
@@ -1500,7 +1657,14 @@ export default function Home() {
       });
       const id = payload.output ?? String(Date.now());
       setSocialPosts((prev) => [
-        { id, author: wallet.address!, content, likes: 0, tips: 0, timestamp: Math.floor(Date.now() / 1000) },
+        {
+          id,
+          author: wallet.address!,
+          content,
+          likes: 0,
+          tips: 0,
+          timestamp: Math.floor(Date.now() / 1000),
+        },
         ...prev,
       ]);
       updateTx(txId, { status: "success" });
@@ -1522,7 +1686,9 @@ export default function Home() {
         functionName: "like_post",
         args: { user: wallet.address, post_id: postId },
       });
-      setSocialPosts((prev) => prev.map((p) => p.id === postId ? { ...p, likes: p.likes + 1 } : p));
+      setSocialPosts((prev) =>
+        prev.map((p) => (p.id === postId ? { ...p, likes: p.likes + 1 } : p)),
+      );
       updateTx(txId, { status: "success" });
     } catch (error) {
       updateTx(txId, { status: "error", error: formatApiError(error) });
@@ -1539,9 +1705,17 @@ export default function Home() {
       await requestJson("/api/invoke", {
         contractId,
         functionName: "tip_post",
-        args: { tipper: wallet.address, post_id: postId, amount: String(amount) },
+        args: {
+          tipper: wallet.address,
+          post_id: postId,
+          amount: String(amount),
+        },
       });
-      setSocialPosts((prev) => prev.map((p) => p.id === postId ? { ...p, tips: p.tips + amount } : p));
+      setSocialPosts((prev) =>
+        prev.map((p) =>
+          p.id === postId ? { ...p, tips: p.tips + amount } : p,
+        ),
+      );
       updateTx(txId, { status: "success" });
     } catch (error) {
       updateTx(txId, { status: "error", error: formatApiError(error) });
@@ -1562,7 +1736,12 @@ export default function Home() {
         functionName: "register_issuer",
         args: { address: wallet.address, name },
       });
-      setCarbonIssuer({ address: wallet.address!, name, verified: false, totalMinted: 0 });
+      setCarbonIssuer({
+        address: wallet.address!,
+        name,
+        verified: false,
+        totalMinted: 0,
+      });
       updateTx(txId, { status: "success" });
       appendLog(`[carbon] Issuer registered: ${name}`);
     } catch (error) {
@@ -1582,7 +1761,7 @@ export default function Home() {
         functionName: "verify_issuer",
         args: { address },
       });
-      setCarbonIssuer((prev) => prev ? { ...prev, verified: true } : prev);
+      setCarbonIssuer((prev) => (prev ? { ...prev, verified: true } : prev));
       updateTx(txId, { status: "success" });
       appendLog(`[carbon] Issuer verified: ${address}`);
     } catch (error) {
@@ -1602,7 +1781,11 @@ export default function Home() {
         functionName: "mint",
         args: { to, amount: String(amount) },
       });
-      setCarbonAssets((prev) => ({ ...prev, balance: prev.balance + amount, totalOwned: prev.totalOwned + amount }));
+      setCarbonAssets((prev) => ({
+        ...prev,
+        balance: prev.balance + amount,
+        totalOwned: prev.totalOwned + amount,
+      }));
       updateTx(txId, { status: "success" });
       appendLog(`[carbon] Minted ${amount} credits to ${to}`);
     } catch (error) {
@@ -1622,7 +1805,11 @@ export default function Home() {
         functionName: "retire",
         args: { owner: wallet.address, amount: String(amount) },
       });
-      setCarbonAssets((prev) => ({ ...prev, balance: prev.balance - amount, totalRetired: prev.totalRetired + amount }));
+      setCarbonAssets((prev) => ({
+        ...prev,
+        balance: prev.balance - amount,
+        totalRetired: prev.totalRetired + amount,
+      }));
       updateTx(txId, { status: "success" });
       appendLog(`[carbon] Retired ${amount} credits`);
     } catch (error) {
@@ -1651,7 +1838,7 @@ export default function Home() {
             approvals: newApprovals,
             status: newApprovals >= t.threshold ? "Queued" : "Pending",
           };
-        })
+        }),
       );
       updateTx(txId, { status: "success" });
       appendLog(`[multisig] Tx #${msigTxId} approved`);
@@ -1674,7 +1861,7 @@ export default function Home() {
         args: { caller: walletAddress ?? "", tx_id: String(msigTxId) },
       });
       setMultisigTxs((prev) =>
-        prev.map((t) => (t.id === msigTxId ? { ...t, status: "Executed" } : t))
+        prev.map((t) => (t.id === msigTxId ? { ...t, status: "Executed" } : t)),
       );
       updateTx(txId, { status: "success" });
       appendLog(`[multisig] Tx #${msigTxId} executed`);
@@ -1697,7 +1884,9 @@ export default function Home() {
         args: { caller: walletAddress ?? "", tx_id: String(msigTxId) },
       });
       setMultisigTxs((prev) =>
-        prev.map((t) => (t.id === msigTxId ? { ...t, status: "Cancelled" } : t))
+        prev.map((t) =>
+          t.id === msigTxId ? { ...t, status: "Cancelled" } : t,
+        ),
       );
       updateTx(txId, { status: "success" });
       appendLog(`[multisig] Tx #${msigTxId} cancelled`);
@@ -1711,7 +1900,11 @@ export default function Home() {
 
   // ── AMM pool handlers ──────────────────────────────────────────────────────
 
-  const handleAmmSwap = async (tokenIn: "A" | "B", amountIn: number, minOut: number) => {
+  const handleAmmSwap = async (
+    tokenIn: "A" | "B",
+    amountIn: number,
+    minOut: number,
+  ) => {
     if (!contractId) return;
     const txId = addTx(`Swap ${amountIn} Token${tokenIn}`);
     setIsAmmLoading(true);
@@ -1729,9 +1922,10 @@ export default function Home() {
       const out = parseInt(payload.output ?? "0");
       setAmmPool((prev) => {
         if (!prev) return prev;
-        const [newRA, newRB] = tokenIn === "A"
-          ? [prev.reserveA + amountIn, prev.reserveB - out]
-          : [prev.reserveA - out, prev.reserveB + amountIn];
+        const [newRA, newRB] =
+          tokenIn === "A"
+            ? [prev.reserveA + amountIn, prev.reserveB - out]
+            : [prev.reserveA - out, prev.reserveB + amountIn];
         return { ...prev, reserveA: newRA, reserveB: newRB };
       });
       updateTx(txId, { status: "success", hash: payload.output });
@@ -1744,7 +1938,11 @@ export default function Home() {
     }
   };
 
-  const handleAmmAddLiquidity = async (amountA: number, amountB: number, minLp: number) => {
+  const handleAmmAddLiquidity = async (
+    amountA: number,
+    amountB: number,
+    minLp: number,
+  ) => {
     if (!contractId) return;
     const txId = addTx(`Add liquidity ${amountA}/${amountB}`);
     setIsAmmLoading(true);
@@ -1762,8 +1960,22 @@ export default function Home() {
       const lp = parseInt(payload.output ?? "0");
       setAmmPool((prev) =>
         prev
-          ? { ...prev, reserveA: prev.reserveA + amountA, reserveB: prev.reserveB + amountB, totalLp: prev.totalLp + lp }
-          : { reserveA: amountA, reserveB: amountB, totalLp: lp, tokenALabel: "TKA", tokenBLabel: "TKB", feeBps: 30, priceACum: 0, priceBCum: 0 }
+          ? {
+              ...prev,
+              reserveA: prev.reserveA + amountA,
+              reserveB: prev.reserveB + amountB,
+              totalLp: prev.totalLp + lp,
+            }
+          : {
+              reserveA: amountA,
+              reserveB: amountB,
+              totalLp: lp,
+              tokenALabel: "TKA",
+              tokenBLabel: "TKB",
+              feeBps: 30,
+              priceACum: 0,
+              priceBCum: 0,
+            },
       );
       setAmmLpBalance((prev) => prev + lp);
       updateTx(txId, { status: "success" });
@@ -1776,7 +1988,11 @@ export default function Home() {
     }
   };
 
-  const handleAmmRemoveLiquidity = async (lpAmount: number, minA: number, minB: number) => {
+  const handleAmmRemoveLiquidity = async (
+    lpAmount: number,
+    minA: number,
+    minB: number,
+  ) => {
     if (!contractId) return;
     const txId = addTx(`Remove ${lpAmount} LP`);
     setIsAmmLoading(true);
@@ -1794,8 +2010,13 @@ export default function Home() {
       const [outA, outB] = (payload.output ?? "0,0").split(",").map(Number);
       setAmmPool((prev) =>
         prev
-          ? { ...prev, reserveA: prev.reserveA - outA, reserveB: prev.reserveB - outB, totalLp: prev.totalLp - lpAmount }
-          : prev
+          ? {
+              ...prev,
+              reserveA: prev.reserveA - outA,
+              reserveB: prev.reserveB - outB,
+              totalLp: prev.totalLp - lpAmount,
+            }
+          : prev,
       );
       setAmmLpBalance((prev) => Math.max(0, prev - lpAmount));
       updateTx(txId, { status: "success" });
@@ -1818,7 +2039,12 @@ export default function Home() {
       const payload = await requestJson<{ output: string }>("/api/invoke", {
         contractId,
         functionName: "propose",
-        args: { proposer: walletAddress ?? "", title, description, deposit: "0" },
+        args: {
+          proposer: walletAddress ?? "",
+          title,
+          description,
+          deposit: "0",
+        },
       });
       const id = parseInt(payload.output ?? String(govProposals.length));
       const now = Math.floor(Date.now() / 1000);
@@ -1857,18 +2083,29 @@ export default function Home() {
       await requestJson("/api/invoke", {
         contractId,
         functionName: "vote",
-        args: { voter: walletAddress ?? "", proposal_id: String(proposalId), choice },
+        args: {
+          voter: walletAddress ?? "",
+          proposal_id: String(proposalId),
+          choice,
+        },
       });
       setGovProposals((prev) =>
         prev.map((p) => {
           if (p.id !== proposalId) return p;
           return {
             ...p,
-            votesFor: choice === "For" ? p.votesFor + govVotingPower : p.votesFor,
-            votesAgainst: choice === "Against" ? p.votesAgainst + govVotingPower : p.votesAgainst,
-            votesAbstain: choice === "Abstain" ? p.votesAbstain + govVotingPower : p.votesAbstain,
+            votesFor:
+              choice === "For" ? p.votesFor + govVotingPower : p.votesFor,
+            votesAgainst:
+              choice === "Against"
+                ? p.votesAgainst + govVotingPower
+                : p.votesAgainst,
+            votesAbstain:
+              choice === "Abstain"
+                ? p.votesAbstain + govVotingPower
+                : p.votesAbstain,
           };
-        })
+        }),
       );
       updateTx(txId, { status: "success" });
       appendLog(`[gov] Voted ${choice} on #${proposalId}`);
@@ -1892,7 +2129,11 @@ export default function Home() {
       });
       const status = payload.output === "2" ? "Passed" : "Defeated";
       setGovProposals((prev) =>
-        prev.map((p) => (p.id === proposalId ? { ...p, status: status as GovernanceProposal["status"] } : p))
+        prev.map((p) =>
+          p.id === proposalId
+            ? { ...p, status: status as GovernanceProposal["status"] }
+            : p,
+        ),
       );
       updateTx(txId, { status: "success" });
       appendLog(`[gov] Proposal #${proposalId} ${status}`);
@@ -1915,7 +2156,9 @@ export default function Home() {
         args: { caller: walletAddress ?? "", proposal_id: String(proposalId) },
       });
       setGovProposals((prev) =>
-        prev.map((p) => (p.id === proposalId ? { ...p, status: "Executed" } : p))
+        prev.map((p) =>
+          p.id === proposalId ? { ...p, status: "Executed" } : p,
+        ),
       );
       updateTx(txId, { status: "success" });
       appendLog(`[gov] Proposal #${proposalId} executed`);
@@ -1929,7 +2172,9 @@ export default function Home() {
 
   const handleGovDelegate = async (to: string | null) => {
     if (!contractId) return;
-    const txId = addTx(to ? `Delegate to ${to.slice(0, 8)}…` : "Revoke delegation");
+    const txId = addTx(
+      to ? `Delegate to ${to.slice(0, 8)}…` : "Revoke delegation",
+    );
     setIsGovLoading(true);
     try {
       await requestJson("/api/invoke", {
@@ -1957,9 +2202,15 @@ export default function Home() {
       const payload = await requestJson<{ output: string }>("/api/invoke", {
         contractId,
         functionName: "register_product",
-        args: { owner: wallet.address, name, metadata_hash: String(metadataHash) },
+        args: {
+          owner: wallet.address,
+          name,
+          metadata_hash: String(metadataHash),
+        },
       });
-      const id = parseInt(payload.output ?? String(supplyChainProducts.length + 1));
+      const id = parseInt(
+        payload.output ?? String(supplyChainProducts.length + 1),
+      );
       setSupplyChainProducts((prev) => [
         ...prev,
         {
@@ -1982,7 +2233,11 @@ export default function Home() {
     }
   };
 
-  const handleAddCheckpoint = async (productId: number, locationHash: number, notesHash: number) => {
+  const handleAddCheckpoint = async (
+    productId: number,
+    locationHash: number,
+    notesHash: number,
+  ) => {
     if (!contractId || !wallet.address) return;
     const txId = addTx(`Checkpoint for product #${productId}`);
     setIsSupplyChainLoading(true);
@@ -2000,9 +2255,13 @@ export default function Home() {
       setSupplyChainProducts((prev) =>
         prev.map((p) =>
           p.id === productId
-            ? { ...p, status: "InTransit" as SupplyChainStatus, checkpointCount: p.checkpointCount + 1 }
-            : p
-        )
+            ? {
+                ...p,
+                status: "InTransit" as SupplyChainStatus,
+                checkpointCount: p.checkpointCount + 1,
+              }
+            : p,
+        ),
       );
       updateTx(txId, { status: "success" });
       appendLog(`[supply-chain] Checkpoint added for product #${productId}`);
@@ -2014,7 +2273,11 @@ export default function Home() {
     }
   };
 
-  const handleSubmitQualityReport = async (productId: number, result: SupplyChainQuality, reportHash: number) => {
+  const handleSubmitQualityReport = async (
+    productId: number,
+    result: SupplyChainQuality,
+    reportHash: number,
+  ) => {
     if (!contractId || !wallet.address) return;
     const txId = addTx(`QA report for product #${productId}: ${result}`);
     setIsSupplyChainLoading(true);
@@ -2030,12 +2293,18 @@ export default function Home() {
         },
       });
       const newStatus: SupplyChainStatus =
-        result === "Pass" ? "Approved" : result === "Fail" ? "Rejected" : "QualityCheck";
+        result === "Pass"
+          ? "Approved"
+          : result === "Fail"
+            ? "Rejected"
+            : "QualityCheck";
       setSupplyChainProducts((prev) =>
-        prev.map((p) => (p.id === productId ? { ...p, status: newStatus } : p))
+        prev.map((p) => (p.id === productId ? { ...p, status: newStatus } : p)),
       );
       updateTx(txId, { status: "success" });
-      appendLog(`[supply-chain] QA report submitted for product #${productId}: ${result}`);
+      appendLog(
+        `[supply-chain] QA report submitted for product #${productId}: ${result}`,
+      );
     } catch (error) {
       updateTx(txId, { status: "error", error: formatApiError(error) });
       appendLog(`[error] QA report failed: ${formatApiError(error)}`);
@@ -2055,7 +2324,11 @@ export default function Home() {
         args: { caller: wallet.address, product_id: String(productId) },
       });
       setSupplyChainProducts((prev) =>
-        prev.map((p) => (p.id === productId ? { ...p, status: "Recalled" as SupplyChainStatus } : p))
+        prev.map((p) =>
+          p.id === productId
+            ? { ...p, status: "Recalled" as SupplyChainStatus }
+            : p,
+        ),
       );
       updateTx(txId, { status: "success" });
       appendLog(`[supply-chain] Product #${productId} recalled`);
@@ -2067,7 +2340,10 @@ export default function Home() {
     }
   };
 
-  const handleUpdateSupplyChainStatus = async (productId: number, status: SupplyChainStatus) => {
+  const handleUpdateSupplyChainStatus = async (
+    productId: number,
+    status: SupplyChainStatus,
+  ) => {
     if (!contractId || !wallet.address) return;
     const txId = addTx(`Update product #${productId} → ${status}`);
     setIsSupplyChainLoading(true);
@@ -2075,10 +2351,14 @@ export default function Home() {
       await requestJson("/api/invoke", {
         contractId,
         functionName: "update_status",
-        args: { caller: wallet.address, product_id: String(productId), new_status: status },
+        args: {
+          caller: wallet.address,
+          product_id: String(productId),
+          new_status: status,
+        },
       });
       setSupplyChainProducts((prev) =>
-        prev.map((p) => (p.id === productId ? { ...p, status } : p))
+        prev.map((p) => (p.id === productId ? { ...p, status } : p)),
       );
       updateTx(txId, { status: "success" });
       appendLog(`[supply-chain] Product #${productId} status → ${status}`);
@@ -2087,6 +2367,18 @@ export default function Home() {
       appendLog(`[error] Update status failed: ${formatApiError(error)}`);
     } finally {
       setIsSupplyChainLoading(false);
+    }
+  };
+
+  const handleFormat = async () => {
+    try {
+      const rustfmt = await import("rustfmt");
+      // ensure we're accessing the format function properly, it might be a default export or named export
+      const formatted = rustfmt.format(code);
+      setCode(formatted);
+      appendLog("[editor] Code formatted successfully");
+    } catch (error) {
+      appendLog(`[error] Format failed: ${String(error)}`);
     }
   };
 
@@ -2124,22 +2416,33 @@ export default function Home() {
                 <p className="truncate font-mono text-xs text-slate-200">
                   {DEFAULT_API_BASE_URL}
                 </p>
-                <p
-                  className={`mt-2 flex items-center gap-2 text-xs ${
-                    healthState === "online"
-                      ? "text-emerald-300"
-                      : healthState === "offline"
-                        ? "text-rose-300"
-                        : "text-amber-300"
-                  }`}
-                >
-                  {healthState === "checking" ? (
-                    <LoaderCircle size={14} className="animate-spin" />
-                  ) : (
-                    <Activity size={14} />
+                <div className="mt-2 flex items-center justify-between gap-2 text-xs">
+                  <p
+                    className={`flex items-center gap-2 ${
+                      healthState === "online"
+                        ? "text-emerald-300"
+                        : healthState === "offline"
+                          ? "text-rose-300"
+                          : "text-amber-300"
+                    }`}
+                  >
+                    {healthState === "checking" ? (
+                      <LoaderCircle size={14} className="animate-spin" />
+                    ) : (
+                      <Activity size={14} />
+                    )}
+                    <span className="truncate">{healthMessage}</span>
+                  </p>
+                  {healthState === "offline" && (
+                    <button
+                      type="button"
+                      onClick={() => checkHealth()}
+                      className="shrink-0 rounded border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium text-rose-300 transition hover:bg-rose-500/20"
+                    >
+                      Retry
+                    </button>
                   )}
-                  {healthMessage}
-                </p>
+                </div>
               </div>
 
               <div className="rounded-2xl border border-white/8 bg-white/5 px-4 py-3">
@@ -2247,287 +2550,340 @@ export default function Home() {
                     {compileStats.activeWorkers}
                   </p>
                 </div>
-                <div className="rounded-xl border border-white/8 bg-slate-950/50 p-3">
-                  <p className="text-slate-500">ETA</p>
-                  <p className="mt-1 text-base font-semibold text-slate-100">
-                    {(compileStats.estimatedWaitTimeMs / 1000).toFixed(1)}s
-                  </p>
-                </div>
-                <div className="rounded-xl border border-white/8 bg-slate-950/50 p-3">
-                  <p className="text-slate-500">Slow Builds</p>
-                  <p className="mt-1 text-base font-semibold text-rose-300">
-                    {compileStats.slowCompiles}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-white/8 bg-slate-950/50 p-3">
-                  <p className="text-slate-500">Total Builds</p>
-                  <p className="mt-1 text-base font-semibold text-indigo-300">
-                    {compileStats.totalCompiles}
-                  </p>
-                </div>
-              </div>
-            </div>
-            <CallPanel
-              onInvoke={handleInvoke}
-              isInvoking={isInvoking}
-              contractId={contractId}
-            />
-            <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
-                  Batch Compile
-                </p>
-                <button
-                  onClick={handleBatchCompile}
-                  className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-200 transition hover:bg-emerald-400/20"
-                >
-                  Compile Batch
-                </button>
-              </div>
-              <textarea
-                value={batchCompileRaw}
-                onChange={(e) => setBatchCompileRaw(e.target.value)}
-                className="h-44 w-full rounded-xl border border-white/10 bg-slate-950/70 p-3 font-mono text-[11px] text-slate-200 outline-none"
-              />
-              <div className="mt-3 space-y-2">
-                {batchResults.map((result, index) => (
-                  <div
-                    key={`${index}-${String(result.status)}`}
-                    className="rounded-xl border border-white/8 bg-slate-950/50 px-3 py-2 text-xs text-slate-300"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-semibold text-emerald-300">
-                        Contract {index + 1}
-                      </span>
-                      <span className="text-slate-500">
-                        {String(result.status)}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-slate-400">
-                      {result.value
-                        ? JSON.stringify(result.value)
-                        : String(result.reason ?? "pending")}
+                <Editor code={code} setCode={setCode} />
+              </section>
+            }
+            output={
+              <aside className="flex flex-col gap-4 bg-slate-950/40 p-4">
+                <DeployPanel
+                  onCompile={handleCompile}
+                  onDeploy={handleDeploy}
+                  isCompiling={isCompiling}
+                  isDeploying={isDeploying}
+                  hasCompiled={hasCompiled}
+                  compileSummary={compileSummary}
+                  compileError={compileError}
+                  contractId={contractId}
+                />
+                <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                      Compile Metrics
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {compileStats.activeWorkers}/{compileStats.maxWorkers}{" "}
+                      workers
                     </p>
                   </div>
-                ))}
-              </div>
-            </div>
-            <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
-                  Batch Deploy
-                </p>
-                <button
-                  onClick={handleBatchDeploy}
-                  className="rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1 text-xs font-medium text-cyan-200 transition hover:bg-cyan-400/20"
-                >
-                  Deploy All
-                </button>
-              </div>
-              <textarea
-                value={batchContractsRaw}
-                onChange={(e) => setBatchContractsRaw(e.target.value)}
-                className="h-44 w-full rounded-xl border border-white/10 bg-slate-950/70 p-3 font-mono text-[11px] text-slate-200 outline-none"
-              />
-            </div>
-            <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
-                  Pipeline Tracker
-                </p>
-                <p className="text-xs text-slate-500">
-                  {
-                    deployProgress.filter(
-                      (event) => event.status === "deployed",
-                    ).length
+                  <div className="grid grid-cols-3 gap-2 text-xs text-slate-300">
+                    <div className="rounded-xl border border-white/8 bg-slate-950/50 p-3">
+                      <p className="text-slate-500">Hit Rate</p>
+                      <p className="mt-1 text-lg font-semibold text-emerald-300">
+                        {compileStats.cacheHitRate}%
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-white/8 bg-slate-950/50 p-3">
+                      <p className="text-slate-500">Queue</p>
+                      <p className="mt-1 text-lg font-semibold text-cyan-300">
+                        {compileStats.queueLength}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-white/8 bg-slate-950/50 p-3">
+                      <p className="text-slate-500">Workers</p>
+                      <p className="mt-1 text-lg font-semibold text-orange-300">
+                        {compileStats.activeWorkers}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-white/8 bg-slate-950/50 p-3">
+                      <p className="text-slate-500">ETA</p>
+                      <p className="mt-1 text-base font-semibold text-slate-100">
+                        {(compileStats.estimatedWaitTimeMs / 1000).toFixed(1)}s
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-white/8 bg-slate-950/50 p-3">
+                      <p className="text-slate-500">Slow Builds</p>
+                      <p className="mt-1 text-base font-semibold text-rose-300">
+                        {compileStats.slowCompiles}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-white/8 bg-slate-950/50 p-3">
+                      <p className="text-slate-500">Total Builds</p>
+                      <p className="mt-1 text-base font-semibold text-indigo-300">
+                        {compileStats.totalCompiles}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <CallPanel
+                  onInvoke={handleInvoke}
+                  isInvoking={isInvoking}
+                  contractId={contractId}
+                  abi={contractAbi}
+                />
+                <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                      Batch Compile
+                    </p>
+                    <button
+                      onClick={handleBatchCompile}
+                      className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-200 transition hover:bg-emerald-400/20"
+                    >
+                      Compile Batch
+                    </button>
+                  </div>
+                  <textarea
+                    value={batchCompileRaw}
+                    onChange={(e) => setBatchCompileRaw(e.target.value)}
+                    className="h-44 w-full rounded-xl border border-white/10 bg-slate-950/70 p-3 font-mono text-[11px] text-slate-200 outline-none"
+                  />
+                  <div className="mt-3 space-y-2">
+                    {batchResults.map((result, index) => (
+                      <div
+                        key={`${index}-${String(result.status)}`}
+                        className="rounded-xl border border-white/8 bg-slate-950/50 px-3 py-2 text-xs text-slate-300"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-emerald-300">
+                            Contract {index + 1}
+                          </span>
+                          <span className="text-slate-500">
+                            {String(result.status)}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-slate-400">
+                          {result.value
+                            ? JSON.stringify(result.value)
+                            : String(result.reason ?? "pending")}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                      Batch Deploy
+                    </p>
+                    <button
+                      onClick={handleBatchDeploy}
+                      className="rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1 text-xs font-medium text-cyan-200 transition hover:bg-cyan-400/20"
+                    >
+                      Deploy All
+                    </button>
+                  </div>
+                  <textarea
+                    value={batchContractsRaw}
+                    onChange={(e) => setBatchContractsRaw(e.target.value)}
+                    className="h-44 w-full rounded-xl border border-white/10 bg-slate-950/70 p-3 font-mono text-[11px] text-slate-200 outline-none"
+                  />
+                </div>
+                <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                      Pipeline Tracker
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {
+                        deployProgress.filter(
+                          (event) => event.status === "deployed",
+                        ).length
+                      }
+                      /{deployProgress.length}
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    {deployProgress.slice(-6).map((event, index) => (
+                      <div
+                        key={`${event.timestamp ?? "deploy"}-${index}`}
+                        className="rounded-xl border border-white/8 bg-slate-950/50 px-3 py-2 text-xs text-slate-300"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-cyan-300">
+                            {event.contractName ?? event.batchId ?? "batch"}
+                          </span>
+                          <span className="text-slate-500">{event.status}</span>
+                        </div>
+                        <p className="mt-1 text-slate-400">{event.detail}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                      Live Invocation
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {invokeProgress.length} events
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    {invokeProgress.slice(-5).map((event, index) => (
+                      <div
+                        key={`${event.timestamp ?? "event"}-${index}`}
+                        className="rounded-xl border border-white/8 bg-slate-950/50 px-3 py-2 font-mono text-[11px] text-slate-300"
+                      >
+                        <span className="text-cyan-300">
+                          {event.status ?? event.type}
+                        </span>
+                        <span className="ml-2 text-slate-500">
+                          {event.timestamp ?? ""}
+                        </span>
+                        <div className="mt-1 whitespace-pre-wrap">
+                          {event.detail ?? "connected"}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <TransactionCallGraph
+                  graph={transactionGraph}
+                  selectedNodeId={selectedGraphNodeId}
+                  onNodeSelect={handleGraphNodeSelect}
+                />
+                <StorageTimeline
+                  totalFrames={storageTimeline.snapshots.length}
+                  currentFrame={Math.max(storageTimeline.currentIndex, 0)}
+                  contextLabel={
+                    activeSnapshot?.contextLabel ?? storageContextLabel
                   }
-                  /{deployProgress.length}
-                </p>
-              </div>
-              <div className="space-y-2">
-                {deployProgress.slice(-6).map((event, index) => (
-                  <div
-                    key={`${event.timestamp ?? "deploy"}-${index}`}
-                    className="rounded-xl border border-white/8 bg-slate-950/50 px-3 py-2 text-xs text-slate-300"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-semibold text-cyan-300">
-                        {event.contractName ?? event.batchId ?? "batch"}
-                      </span>
-                      <span className="text-slate-500">{event.status}</span>
-                    </div>
-                    <p className="mt-1 text-slate-400">{event.detail}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
-                  Live Invocation
-                </p>
-                <p className="text-xs text-slate-500">
-                  {invokeProgress.length} events
-                </p>
-              </div>
-              <div className="space-y-2">
-                {invokeProgress.slice(-5).map((event, index) => (
-                  <div
-                    key={`${event.timestamp ?? "event"}-${index}`}
-                    className="rounded-xl border border-white/8 bg-slate-950/50 px-3 py-2 font-mono text-[11px] text-slate-300"
-                  >
-                    <span className="text-cyan-300">
-                      {event.status ?? event.type}
-                    </span>
-                    <span className="ml-2 text-slate-500">
-                      {event.timestamp ?? ""}
-                    </span>
-                    <div className="mt-1 whitespace-pre-wrap">
-                      {event.detail ?? "connected"}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <TransactionCallGraph
-              graph={transactionGraph}
-              selectedNodeId={selectedGraphNodeId}
-              onNodeSelect={handleGraphNodeSelect}
-            />
-            <StorageTimeline
-              totalFrames={storageTimeline.snapshots.length}
-              currentFrame={Math.max(storageTimeline.currentIndex, 0)}
-              contextLabel={activeSnapshot?.contextLabel ?? storageContextLabel}
-              capturedAt={activeSnapshot?.capturedAt}
-              onScrub={handleTimelineScrub}
-            />
-            <StorageViewer
-              storage={storage}
-              contextLabel={storageContextLabel}
-              totalFrames={storageTimeline.snapshots.length}
-              currentFrame={Math.max(storageTimeline.currentIndex, 0)}
-              capturedAt={activeSnapshot?.capturedAt}
-              onScrubTimeline={handleTimelineScrub}
-            />
-            <WalletConnect wallet={wallet} />
-            <PredictionMarketPanel
-              contractId={contractId}
-              walletAddress={wallet.address ?? undefined}
-              onCreateMarket={handleCreateMarket}
-              onPlaceBet={handlePlaceBet}
-              onResolveMarket={handleResolveMarket}
-              onCancelMarket={handleCancelMarket}
-              onCalculatePayout={handleCalculatePayout}
-              markets={markets}
-              isLoading={isPredictionLoading}
-            />
-            <VestingDashboard
-              contractId={contractId}
-              walletAddress={wallet.address ?? undefined}
-              schedules={vestingSchedules}
-              isLoading={isVestingLoading}
-              onCreateLinear={handleCreateLinear}
-              onCreateMilestone={handleCreateMilestone}
-              onRelease={handleVestingRelease}
-              onRevoke={handleVestingRevoke}
-              onApproveMilestone={handleApproveMilestone}
-            />
-            <IdentityPortal
-              contractId={contractId}
-              walletAddress={wallet.address ?? undefined}
-              identities={identities}
-              isLoading={isIdentityLoading}
-              onRegister={handleRegisterIdentity}
-              onUpdateMetadata={handleUpdateMetadata}
-              onDeactivate={handleDeactivateIdentity}
-              onIssueCredential={handleIssueCredential}
-              onRevokeCredential={handleRevokeCredential}
-              onAdjustReputation={handleAdjustReputation}
-            />
-            <CarbonCreditDashboard
-              isLoading={isCarbonLoading}
-              issuer={carbonIssuer}
-              assets={carbonAssets}
-              onRegisterIssuer={handleRegisterIssuer}
-              onVerifyIssuer={handleVerifyIssuer}
-              onMint={handleMintCredits}
-              onTransfer={handleTransferCredits}
-              onRetire={handleRetireCredits}
-            />
-            <SocialFeedInterface
-              isLoading={isSocialLoading}
-              profile={socialProfile}
-              posts={socialPosts}
-              onRegisterProfile={handleRegisterSocialProfile}
-              onCreatePost={handleCreatePost}
-              onLikePost={handleLikePost}
-              onTipPost={handleTipPost}
-            />
-            <LendingDashboard />
-            <FlashLoanPanel />
-            <CloudStoragePanel />
-            <MusicRoyaltyPanel />
-            <MultisigWalletDashboard
-              contractId={contractId}
-              walletAddress={walletAddress}
-              signers={multisigSigners}
-              transactions={multisigTxs}
-              threshold={multisigThreshold}
-              isLoading={isMultisigLoading}
-              onAddSigner={handleMultisigAddSigner}
-              onRemoveSigner={handleMultisigRemoveSigner}
-              onChangeThreshold={handleMultisigChangeThreshold}
-              onPropose={handleMultisigPropose}
-              onApprove={handleMultisigApprove}
-              onExecute={handleMultisigExecute}
-              onCancel={handleMultisigCancel}
-            />
-            <AmmPoolPanel
-              contractId={contractId}
-              walletAddress={walletAddress}
-              pool={ammPool}
-              lpBalance={ammLpBalance}
-              isLoading={isAmmLoading}
-              onSwap={handleAmmSwap}
-              onAddLiquidity={handleAmmAddLiquidity}
-              onRemoveLiquidity={handleAmmRemoveLiquidity}
-            />
-            <GovernancePortal
-              contractId={contractId}
-              walletAddress={walletAddress}
-              proposals={govProposals}
-              votingPower={govVotingPower}
-              isLoading={isGovLoading}
-              onPropose={handleGovPropose}
-              onVote={handleGovVote}
-              onFinalise={handleGovFinalise}
-              onExecute={handleGovExecute}
-              onDelegate={handleGovDelegate}
-            />
-            <SupplyChainPanel
-              contractId={contractId}
-              walletAddress={wallet.address ?? undefined}
-              products={supplyChainProducts}
-              isLoading={isSupplyChainLoading}
-              onRegisterProduct={handleRegisterProduct}
-              onAddCheckpoint={handleAddCheckpoint}
-              onSubmitQualityReport={handleSubmitQualityReport}
-              onRecallProduct={handleRecallProduct}
-              onUpdateStatus={handleUpdateSupplyChainStatus}
-            />
-            <LotteryDashboard
-              contractId={contractId}
-              walletAddress={wallet.address ?? undefined}
-            />
-            <TransactionStatus transactions={transactions} onClear={clearTx} />
-            <Console 
-              logs={logs} 
-              baseLineNumber={0} 
-              droppedMessages={droppedMessages} 
-              isIngestionPaused={isIngestionPaused} 
-              onIngestionPauseChange={setIsIngestionPaused} 
-            />
-          </aside>
+                  capturedAt={activeSnapshot?.capturedAt}
+                  onScrub={handleTimelineScrub}
+                />
+                <StorageViewer
+                  storage={storage}
+                  contextLabel={storageContextLabel}
+                  totalFrames={storageTimeline.snapshots.length}
+                  currentFrame={Math.max(storageTimeline.currentIndex, 0)}
+                  capturedAt={activeSnapshot?.capturedAt}
+                  onScrubTimeline={handleTimelineScrub}
+                />
+                <WalletConnect />
+                <PredictionMarketPanel
+                  contractId={contractId}
+                  walletAddress={wallet.address ?? undefined}
+                  onCreateMarket={handleCreateMarket}
+                  onPlaceBet={handlePlaceBet}
+                  onResolveMarket={handleResolveMarket}
+                  onCancelMarket={handleCancelMarket}
+                  onCalculatePayout={handleCalculatePayout}
+                  markets={markets}
+                  isLoading={isPredictionLoading}
+                />
+                <VestingDashboard
+                  contractId={contractId}
+                  walletAddress={wallet.address ?? undefined}
+                  schedules={vestingSchedules}
+                  isLoading={isVestingLoading}
+                  onCreateLinear={handleCreateLinear}
+                  onCreateMilestone={handleCreateMilestone}
+                  onRelease={handleVestingRelease}
+                  onRevoke={handleVestingRevoke}
+                  onApproveMilestone={handleApproveMilestone}
+                />
+                <IdentityPortal
+                  contractId={contractId}
+                  walletAddress={wallet.address ?? undefined}
+                  identities={identities}
+                  isLoading={isIdentityLoading}
+                  onRegister={handleRegisterIdentity}
+                  onUpdateMetadata={handleUpdateMetadata}
+                  onDeactivate={handleDeactivateIdentity}
+                  onIssueCredential={handleIssueCredential}
+                  onRevokeCredential={handleRevokeCredential}
+                  onAdjustReputation={handleAdjustReputation}
+                />
+                <CarbonCreditDashboard
+                  isLoading={isCarbonLoading}
+                  issuer={carbonIssuer}
+                  assets={carbonAssets}
+                  onRegisterIssuer={handleRegisterIssuer}
+                  onVerifyIssuer={handleVerifyIssuer}
+                  onMint={handleMintCredits}
+                  onTransfer={handleTransferCredits}
+                  onRetire={handleRetireCredits}
+                />
+                <SocialFeedInterface
+                  isLoading={isSocialLoading}
+                  profile={socialProfile}
+                  posts={socialPosts}
+                  onRegisterProfile={handleRegisterSocialProfile}
+                  onCreatePost={handleCreatePost}
+                  onLikePost={handleLikePost}
+                  onTipPost={handleTipPost}
+                />
+                <LendingDashboard />
+                <FlashLoanPanel />
+                <CloudStoragePanel />
+                <MusicRoyaltyPanel />
+                <MultisigWalletDashboard
+                  contractId={contractId}
+                  walletAddress={walletAddress}
+                  signers={multisigSigners}
+                  transactions={multisigTxs}
+                  threshold={multisigThreshold}
+                  isLoading={isMultisigLoading}
+                  onAddSigner={handleMultisigAddSigner}
+                  onRemoveSigner={handleMultisigRemoveSigner}
+                  onChangeThreshold={handleMultisigChangeThreshold}
+                  onPropose={handleMultisigPropose}
+                  onApprove={handleMultisigApprove}
+                  onExecute={handleMultisigExecute}
+                  onCancel={handleMultisigCancel}
+                />
+                <AmmPoolPanel
+                  contractId={contractId}
+                  walletAddress={walletAddress}
+                  pool={ammPool}
+                  lpBalance={ammLpBalance}
+                  isLoading={isAmmLoading}
+                  onSwap={handleAmmSwap}
+                  onAddLiquidity={handleAmmAddLiquidity}
+                  onRemoveLiquidity={handleAmmRemoveLiquidity}
+                />
+                <GovernancePortal
+                  contractId={contractId}
+                  walletAddress={walletAddress}
+                  proposals={govProposals}
+                  votingPower={govVotingPower}
+                  isLoading={isGovLoading}
+                  onPropose={handleGovPropose}
+                  onVote={handleGovVote}
+                  onFinalise={handleGovFinalise}
+                  onExecute={handleGovExecute}
+                  onDelegate={handleGovDelegate}
+                />
+                <SupplyChainPanel
+                  contractId={contractId}
+                  walletAddress={wallet.address ?? undefined}
+                  products={supplyChainProducts}
+                  isLoading={isSupplyChainLoading}
+                  onRegisterProduct={handleRegisterProduct}
+                  onAddCheckpoint={handleAddCheckpoint}
+                  onSubmitQualityReport={handleSubmitQualityReport}
+                  onRecallProduct={handleRecallProduct}
+                  onUpdateStatus={handleUpdateSupplyChainStatus}
+                />
+                <LotteryDashboard
+                  contractId={contractId}
+                  walletAddress={wallet.address ?? undefined}
+                />
+                <TransactionStatus
+                  transactions={transactions}
+                  onClear={clearTx}
+                />
+                <ConsoleAndEventsDrawer
+                  logs={logs}
+                  baseLineNumber={0}
+                  droppedMessages={droppedMessages}
+                  isIngestionPaused={isIngestionPaused}
+                  onIngestionPauseChange={setIsIngestionPaused}
+                  contractId={contractId}
+                />
+              </aside>
+            }
+          />
         </main>
       </div>
     </div>

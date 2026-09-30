@@ -95,6 +95,9 @@ impl InsuranceProtocol {
     pub fn deactivate_product(env: Env, admin: Address, product_id: u32) -> Result<(), Error> {
         Self::assert_admin(&env, &admin)?;
         let mut product = get_product(&env, product_id)?;
+        if !product.is_active {
+            return Err(Error::ProductAlreadyInactive);
+        }
         product.is_active = false;
         set_product(&env, product_id, &product);
         Ok(())
@@ -116,7 +119,10 @@ impl InsuranceProtocol {
         let policy_count = get_policy_count(&env);
         for pid in 1..=policy_count {
             if let Ok(existing_policy) = get_policy(&env, pid) {
-                if existing_policy.holder == holder && existing_policy.product_id == product_id && existing_policy.is_active {
+                if existing_policy.holder == holder
+                    && existing_policy.product_id == product_id
+                    && existing_policy.is_active
+                {
                     return Err(Error::PolicyAlreadyExists);
                 }
             }
@@ -152,6 +158,10 @@ impl InsuranceProtocol {
         Self::assert_initialized(&env)?;
         claimant.require_auth();
 
+        if description.len() == 0 {
+            return Err(Error::EmptyDescription);
+        }
+
         let policy = get_policy(&env, policy_id)?;
         if !policy.is_active {
             return Err(Error::PolicyInactive);
@@ -185,12 +195,7 @@ impl InsuranceProtocol {
     }
 
     /// Vote on a pending claim. `approve = true` votes for payout.
-    pub fn vote_claim(
-        env: Env,
-        voter: Address,
-        claim_id: u32,
-        approve: bool,
-    ) -> Result<(), Error> {
+    pub fn vote_claim(env: Env, voter: Address, claim_id: u32, approve: bool) -> Result<(), Error> {
         Self::assert_initialized(&env)?;
         voter.require_auth();
 
@@ -198,6 +203,9 @@ impl InsuranceProtocol {
 
         if claim.status != ClaimStatus::Pending {
             return Err(Error::ClaimNotVotable);
+        }
+        if claim.claimant == voter {
+            return Err(Error::ClaimantCannotVote);
         }
         if has_voted(&env, claim_id, &voter) {
             return Err(Error::AlreadyVoted);

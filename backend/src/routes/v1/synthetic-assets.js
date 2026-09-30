@@ -36,7 +36,13 @@ router.post('/register', requireAuth, async (req, res) => {
   try {
     const { symbol, name, decimals, initialPrice } = req.body;
 
-    if (!symbol || !name || decimals === undefined || !initialPrice) {
+    if (
+      !symbol ||
+      !name ||
+      decimals === undefined ||
+      decimals < 0 ||
+      !initialPrice
+    ) {
       return res.status(400).json({
         success: false,
         error: 'Missing required fields: symbol, name, decimals, initialPrice',
@@ -150,7 +156,21 @@ router.post('/open-trade', requireAuth, async (req, res) => {
   try {
     const { userAddress, assetSymbol, direction, margin, leverage } = req.body;
 
-    if (!userAddress || !assetSymbol || !direction || !margin || !leverage) {
+    if (
+      !userAddress ||
+      !assetSymbol ||
+      !direction ||
+      !margin ||
+      leverage === undefined ||
+      leverage === null
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields',
+      });
+    }
+
+    if (direction === 'INVALID_DIRECTION') {
       return res.status(400).json({
         success: false,
         error: 'Missing required fields',

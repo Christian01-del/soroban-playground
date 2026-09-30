@@ -5,12 +5,19 @@ import express from 'express';
 
 import { asyncHandler, createHttpError } from '../middleware/errorHandler.js';
 import { getOracleService } from '../services/oracle/oracleService.js';
+import oracleProofQueueService from '../services/oracleProofQueueService.js';
 
 const router = express.Router();
 
 router.post(
   '/proofs',
   asyncHandler(async (req, res) => {
+    if (req.body && req.body.proofType) {
+      const result = await oracleProofQueueService.enqueueProofTask(req.body, {
+        source: 'api',
+      });
+      return res.status(202).json({ success: true, data: result });
+    }
     const { payload, metadata, wait } = req.body || {};
     if (payload === undefined || payload === null) {
       throw createHttpError(400, 'payload is required');
@@ -22,6 +29,22 @@ router.post(
     }
     const proof = await svc.submitProof(payload, { metadata });
     return res.status(202).json({ success: true, data: proof });
+  })
+);
+
+router.post(
+  '/proofs/batch',
+  asyncHandler(async (req, res) => {
+    const { tasks } = req.body || {};
+    if (!Array.isArray(tasks)) {
+      throw createHttpError(400, 'tasks array is required');
+    }
+    const results = await oracleProofQueueService.enqueueBatch(tasks, {
+      source: 'api',
+    });
+    return res
+      .status(202)
+      .json({ success: true, data: { count: results.length, tasks: results } });
   })
 );
 

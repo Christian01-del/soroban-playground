@@ -1,5 +1,12 @@
-import React from 'react';
-import { Clock, TrendingUp, Users, DollarSign, Calendar, ExternalLink } from 'lucide-react';
+import React from "react";
+import {
+  Clock,
+  TrendingUp,
+  Users,
+  DollarSign,
+  Calendar,
+  ExternalLink,
+} from "lucide-react";
 
 interface SearchResultsProps {
   results: SearchResult[];
@@ -36,89 +43,95 @@ const SearchResults: React.FC<SearchResultsProps> = ({
   results,
   isLoading = false,
   query,
-  meta
+  meta,
 }) => {
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
-      case 'active':
-        return 'bg-green-100 text-green-800';
-      case 'funded':
-        return 'bg-blue-100 text-blue-800';
-      case 'completed':
-        return 'bg-purple-100 text-purple-800';
-      case 'draft':
-        return 'bg-gray-100 text-gray-800';
-      case 'cancelled':
-        return 'bg-red-100 text-red-800';
+      case "active":
+        return "bg-green-100 text-green-800";
+      case "funded":
+        return "bg-blue-100 text-blue-800";
+      case "completed":
+        return "bg-purple-100 text-purple-800";
+      case "draft":
+        return "bg-gray-100 text-gray-800";
+      case "cancelled":
+        return "bg-red-100 text-red-800";
       default:
-        return 'bg-gray-100 text-gray-800';
+        return "bg-gray-100 text-gray-800";
     }
   };
 
   const getCategoryColor = (category: string) => {
     switch (category.toLowerCase()) {
-      case 'defi':
-        return 'bg-indigo-100 text-indigo-800';
-      case 'payments':
-        return 'bg-green-100 text-green-800';
-      case 'nft':
-        return 'bg-pink-100 text-pink-800';
-      case 'infrastructure':
-        return 'bg-orange-100 text-orange-800';
-      case 'tools':
-        return 'bg-blue-100 text-blue-800';
-      case 'analytics':
-        return 'bg-purple-100 text-purple-800';
+      case "defi":
+        return "bg-indigo-100 text-indigo-800";
+      case "payments":
+        return "bg-green-100 text-green-800";
+      case "nft":
+        return "bg-pink-100 text-pink-800";
+      case "infrastructure":
+        return "bg-orange-100 text-orange-800";
+      case "tools":
+        return "bg-blue-100 text-blue-800";
+      case "analytics":
+        return "bg-purple-100 text-purple-800";
       default:
-        return 'bg-gray-100 text-gray-800';
+        return "bg-gray-100 text-gray-800";
     }
   };
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
+    return date.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
     });
   };
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
       minimumFractionDigits: 0,
-      maximumFractionDigits: 0
+      maximumFractionDigits: 0,
     }).format(amount);
   };
 
   const highlightText = (text: string, query: string) => {
     if (!query || query.length < 2) return text;
-    
-    const regex = new RegExp(`(${query})`, 'gi');
+
+    const regex = new RegExp(`(${query})`, "gi");
     const parts = text.split(regex);
-    
-    return parts.map((part, index) => 
+
+    return parts.map((part, index) =>
       regex.test(part) ? (
-        <span key={index} className="font-semibold text-blue-600 bg-blue-50 px-0.5 rounded">
+        <span
+          key={index}
+          className="font-semibold text-blue-600 bg-blue-50 px-0.5 rounded"
+        >
           {part}
         </span>
       ) : (
         <span key={index}>{part}</span>
-      )
+      ),
     );
   };
 
   const truncateText = (text: string, maxLength: number) => {
     if (text.length <= maxLength) return text;
-    return text.substring(0, maxLength) + '...';
+    return text.substring(0, maxLength) + "...";
   };
 
   if (isLoading) {
     return (
       <div className="space-y-4">
         {[...Array(5)].map((_, index) => (
-          <div key={index} className="bg-white rounded-lg border border-gray-200 p-6 animate-pulse">
+          <div
+            key={index}
+            className="bg-white rounded-lg border border-gray-200 p-6 animate-pulse"
+          >
             <div className="space-y-4">
               <div className="h-6 bg-gray-200 rounded w-3/4"></div>
               <div className="h-4 bg-gray-200 rounded w-1/2"></div>
@@ -142,9 +155,13 @@ const SearchResults: React.FC<SearchResultsProps> = ({
           <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <TrendingUp className="w-8 h-8 text-gray-400" />
           </div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">No projects found</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">
+            No projects found
+          </h3>
           <p className="text-gray-600 mb-4">
-            {query ? `No projects found matching "${query}"` : 'No projects available'}
+            {query
+              ? `No projects found matching "${query}"`
+              : "No projects available"}
           </p>
           {query && (
             <div className="text-sm text-gray-500">
@@ -164,11 +181,9 @@ const SearchResults: React.FC<SearchResultsProps> = ({
           <div className="flex items-center justify-between">
             <div className="text-sm text-blue-800">
               Found {results.length} results for &quot;{meta.query}&quot;
-              {meta.searchType === 'fuzzy' && ' (including fuzzy matches)'}
+              {meta.searchType === "fuzzy" && " (including fuzzy matches)"}
             </div>
-            <div className="text-xs text-blue-600">
-              {meta.responseTime}ms
-            </div>
+            <div className="text-xs text-blue-600">{meta.responseTime}ms</div>
           </div>
         </div>
       )}
@@ -178,37 +193,44 @@ const SearchResults: React.FC<SearchResultsProps> = ({
         <div
           key={result.id}
           className={`bg-white rounded-lg border border-gray-200 p-6 hover:shadow-lg transition-shadow duration-200 ${
-            result.is_fuzzy_match ? 'border-yellow-300 bg-yellow-50' : ''
+            result.is_fuzzy_match ? "border-yellow-300 bg-yellow-50" : ""
           }`}
         >
           {/* Header with title and badges */}
           <div className="flex items-start justify-between mb-3">
             <div className="flex-1 min-w-0">
               <h3 className="text-lg font-semibold text-gray-900 mb-2 hover:text-blue-600 cursor-pointer">
-                {highlightText(result.title, query || '')}
+                {highlightText(result.title, query || "")}
                 {result.is_fuzzy_match && (
                   <span className="ml-2 text-xs bg-yellow-200 text-yellow-800 px-2 py-1 rounded-full">
                     Fuzzy Match
                   </span>
                 )}
               </h3>
-              
+
               {/* Badges */}
               <div className="flex flex-wrap gap-2 mb-3">
-                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getCategoryColor(result.category)}`}>
+                <span
+                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getCategoryColor(result.category)}`}
+                >
                   {result.category}
                 </span>
-                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${getStatusColor(result.status)}`}>
+                <span
+                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${getStatusColor(result.status)}`}
+                >
                   {result.status}
                 </span>
                 {result.tags?.slice(0, 3).map((tag, index) => (
-                  <span key={index} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                  <span
+                    key={index}
+                    className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800"
+                  >
                     {tag}
                   </span>
                 ))}
               </div>
             </div>
-            
+
             {/* Ranking indicator */}
             {result.search_rank && (
               <div className="ml-4 text-xs text-gray-500 text-right">
@@ -222,7 +244,7 @@ const SearchResults: React.FC<SearchResultsProps> = ({
 
           {/* Description */}
           <p className="text-gray-600 mb-4 line-clamp-3">
-            {highlightText(truncateText(result.description, 200), query || '')}
+            {highlightText(truncateText(result.description, 200), query || "")}
           </p>
 
           {/* Project details grid */}
@@ -287,7 +309,7 @@ const SearchResults: React.FC<SearchResultsProps> = ({
                 </div>
               )}
             </div>
-            
+
             <button className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 transition-colors">
               View Project
               <ExternalLink className="w-4 h-4" />

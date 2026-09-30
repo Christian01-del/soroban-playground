@@ -1,0 +1,3201 @@
+[
+  {
+    "id": 1,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Unified Redis Connection Pool & Resilient Reconnection Backoff Engine",
+    "labels": [
+      "bug",
+      "backend",
+      "performance",
+      "caching",
+      "production-critical"
+    ],
+    "location": "backend/src/services/redisService.js and backend/src/services/cacheService.js",
+    "code": "// backend/src/services/cacheService.js\nconst redisClient = createClient({ url: 'redis://localhost:6379' });\n// initialize() is never invoked in server.js, causing silent cache failure everywhere.",
+    "description": "The backend contains dual disjoint Redis clients (redisService.js and cacheService.js). cacheService connects unconditionally to localhost without shared connection pooling or sentinel/cluster retry backoff, while compileService and cacheInterceptor stub cache calls into no-ops.",
+    "impact": "Production deployments fail to persist contract build artifacts, invalidate cache tags, or sustain network blips, degrading throughput by 10x and causing Redis socket exhaustion.",
+    "fix": [
+      "Merge cacheService into redisService to create a single hardened ioredis/node-redis client singleton.",
+      "Implement exponential backoff with jitter on reconnect and circuit breaker fallback to LRU memory cache.",
+      "Replace no-op stubs in compileService.js with pipeline-batched Redis calls.",
+      "Inject REDIS_URL, REDIS_TLS, and cluster topology configuration via validated environment variables."
+    ]
+  },
+  {
+    "id": 2,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Zod Schema Validation Middleware for API Routes",
+    "labels": [
+      "bug",
+      "backend",
+      "security",
+      "production-critical"
+    ],
+    "location": "backend/src/middleware/validation.js",
+    "code": "export function validateInput(req, res, next) {\n  next(); // No-op pass-through accepting arbitrary unvalidated payloads\n}",
+    "description": "Validation middleware validateInput in backend/src/middleware/validation.js is a no-op that immediately executes next(). Downstream route controllers blindly consume req.body, req.query, and req.params.",
+    "impact": "Exposes all API endpoints (contracts, simulation, analytics, synthetic assets) to prototype pollution, SQL/NoSQL injection, unexpected undefined crashes, and remote payload smuggling.",
+    "fix": [
+      "Integrate Zod to define strict compile-time and runtime schemas for all route payloads.",
+      "Create a generic validateRequest({ body, query, params }) middleware returning structured 422 Unprocessable Entity responses with detailed validation error mappings.",
+      "Strip unknown keys (stripUnknown) to block mass assignment and parameter pollution."
+    ]
+  },
+  {
+    "id": 3,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Global Distributed Token-Bucket Rate Limiter with IP Spoofing Prevention",
+    "labels": [
+      "bug",
+      "backend",
+      "security",
+      "production-critical"
+    ],
+    "location": "backend/src/server.js and backend/src/middleware/rateLimiter.js",
+    "code": "// backend/src/server.js:178\n// app.use(rateLimitMiddleware('global')); // Commented out!",
+    "description": "Global rate limiting is commented out in server.js, leaving the root HTTP server exposed to DDoS. Additionally, rateLimiter uses naive req.ip without validating X-Forwarded-For against trusted reverse proxies.",
+    "impact": "Attackers can overwhelm the Rust compiler worker queues, forge client IP headers, and cause denial of service across shared API infrastructure.",
+    "fix": [
+      "Uncomment and enforce global rate limiting in server.js with Redis-backed sliding window counter.",
+      "Configure app.set('trust proxy', ['loopback', 'linklocal', 'uniquelocal', '10.0.0.0/8']) to prevent IP spoofing.",
+      "Add tiered rate limits: anonymous (60 req/min), authenticated (300 req/min), compilation/deploy (15 req/min)."
+    ]
+  },
+  {
+    "id": 4,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Dockerfile & Container Runtime Definition for Indexer Service",
+    "labels": [
+      "bug",
+      "devops",
+      "backend",
+      "database",
+      "production-critical"
+    ],
+    "location": "docker-compose.yml:43 and indexer/Dockerfile",
+    "code": "# docker-compose.yml references indexer/Dockerfile which does not exist\nindexer:\n  build:\n    context: ./indexer\n    dockerfile: Dockerfile # File missing",
+    "description": "docker-compose.yml specifies building an indexer service from ./indexer/Dockerfile, but no Dockerfile exists in the directory, completely breaking containerized deployment.",
+    "impact": "docker compose up --build fails immediately. The indexer service cannot be deployed to staging or production environments.",
+    "fix": [
+      "Create indexer/Dockerfile using multi-stage Rust build with cargo-chef for cached dependency compilation.",
+      "Include runtime libraries (libssl-dev, ca-certificates, libsqlite3-dev).",
+      "Create a non-root runner user (appuser:10001) and expose port 3001 with HEALTHCHECK instruction."
+    ]
+  },
+  {
+    "id": 5,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Database Migration Unification & PostgreSQL Source-of-Truth Enforcement",
+    "labels": [
+      "enhancement",
+      "backend",
+      "database",
+      "production-critical"
+    ],
+    "location": "backend/knexfile.js and backend/migrations/",
+    "code": "// backend/knexfile.js uses SQLite filename 'database.sqlite'\n// backend/migrations/ contains Postgres V001__*.sql dialect files\n// indexer/migrations/postgres/ has independent PostgreSQL DDL",
+    "description": "Database configuration is fragmented: backend Knex is set to SQLite, while migration files contain raw Postgres SQL, and indexer maintains separate Postgres DDL.",
+    "impact": "Running knex migrate:latest fails on syntax mismatches. Production Postgres databases cannot be deterministically migrated or rolled back.",
+    "fix": [
+      "Configure Knex to support dynamic dialect switching based on DATABASE_CLIENT (pg or better-sqlite3).",
+      "Convert all raw Postgres migration scripts into Knex migration files with reversible up and down hooks.",
+      "Add an automated migration integration test (backend/tests/migration.test.js) in CI verifying schema parity."
+    ]
+  },
+  {
+    "id": 6,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Fail-Fast Environment Variable Schema Validation on Boot",
+    "labels": [
+      "enhancement",
+      "backend",
+      "security",
+      "production-critical"
+    ],
+    "location": "backend/src/config/index.js and backend/src/server.js",
+    "code": "const config = {\n  port: process.env.PORT || 3000,\n  dbUrl: process.env.DATABASE_URL || 'sqlite://dev.db',\n  redisUrl: process.env.REDIS_URL || 'redis://localhost:6379'\n}; // Missing required production validation",
+    "description": "Backend starts without validating required environment variables, silently defaulting secrets, RPC URLs, and DB connections to insecure development fallbacks in production.",
+    "impact": "Production nodes can start in an unintended state, leak data to default local endpoints, or fail at runtime on the first authenticated request.",
+    "fix": [
+      "Implement envalid or Zod schema validation in backend/src/config/env.js executed before server bootstrap.",
+      "Enforce strict presence of JWT_SECRET, DATABASE_URL, REDIS_URL, SOROBAN_RPC_URL, and CORS_ALLOWED_ORIGINS when NODE_ENV=production.",
+      "Exit process with code 1 and formatted error report when any required variable is missing."
+    ]
+  },
+  {
+    "id": 7,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Sandboxed Rust Compilation Engine with CPU/Memory Cgroups & Temp Directory GC",
+    "labels": [
+      "bug",
+      "backend",
+      "security",
+      "performance",
+      "production-critical"
+    ],
+    "location": "backend/src/services/compileService.js",
+    "code": "// backend/src/services/compileService.js executes cargo build directly on host OS\nconst child = spawn('cargo', ['build', '--target', 'wasm32-unknown-unknown'], { cwd: tempDir });\n// No resource bounds, no PID isolation, temp directory cleaned only on happy path",
+    "description": "Compilation service invokes cargo directly on host OS without sandboxing, memory caps, CPU time limits, or reliable temp directory cleanup on errors/crashes.",
+    "impact": "Malicious contracts (e.g. macro expansion bombs or proc-macro exploits) can exhaust host disk/RAM, execute arbitrary code, or trigger host OS kernel panic.",
+    "fix": [
+      "Isolate compilation inside ephemeral rootless Docker/WASM sandboxes or nsjail with 512MB RAM and 2 CPU core caps.",
+      "Implement a strict 30-second compilation timeout with SIGKILL fallback.",
+      "Add an automated RAII-style garbage collector and cron cleanup worker for stale temp directories."
+    ]
+  },
+  {
+    "id": 8,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Soroban RPC Multi-Node Load Balancer with Failover & Health Checks",
+    "labels": [
+      "bug",
+      "backend",
+      "infrastructure",
+      "production-critical"
+    ],
+    "location": "backend/src/services/rpcService.js",
+    "code": "// backend/src/services/rpcService.js connects to a single hardcoded Soroban RPC endpoint\nconst rpcUrl = process.env.SOROBAN_RPC_URL;\nconst server = new SorobanRpc.Server(rpcUrl);",
+    "description": "RPC client relies on a single endpoint without connection pooling, latency-based load balancing, or automatic failover across multiple RPC providers.",
+    "impact": "Any upstream RPC rate limit or node outage causes 100% failure for all contract simulations, transaction submissions, and account lookups.",
+    "fix": [
+      "Create an RPC pool manager supporting a priority list of Soroban RPC nodes (e.g. Mainnet, Testnet, Public/Private).",
+      "Implement active background health check polling (getHealth, getLatestLedger) every 10 seconds.",
+      "Route traffic using round-robin with circuit breakers and automated failover."
+    ]
+  },
+  {
+    "id": 9,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] SEP-0010 Stellar Web Authentication & Replay Protection",
+    "labels": [
+      "enhancement",
+      "backend",
+      "security",
+      "production-critical"
+    ],
+    "location": "backend/src/middleware/auth.js and backend/src/services/authService.js",
+    "code": "// backend/src/middleware/auth.js accepts basic mock JWT tokens\nexport function verifyToken(req, res, next) {\n  const token = req.headers['authorization'];\n  if (!token) return res.status(401).json({ error: 'Unauthorized' });\n  // Missing Stellar cryptographic challenge/response verification\n}",
+    "description": "Authentication currently accepts arbitrary unsigned tokens or lacks full SEP-0010 Stellar challenge transaction signing with nonce verification.",
+    "impact": "Users can impersonate any Stellar public key, deploy contracts on behalf of other accounts, or forge user identity.",
+    "fix": [
+      "Implement SEP-0010 standard: generate cryptographically random challenge transactions with 5-minute timebounds.",
+      "Verify signatures against user public keys using stellar-sdk Keypair.verify.",
+      "Issue signed JWT access tokens (15m expiry) and store rotating refresh tokens in Redis with jti revocation tracking."
+    ]
+  },
+  {
+    "id": 10,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] BullMQ Distributed Queue Worker Architecture for Asynchronous Compilation & Deployments",
+    "labels": [
+      "enhancement",
+      "backend",
+      "performance",
+      "production-critical"
+    ],
+    "location": "backend/src/workers/compileWorker.js and backend/src/services/queueService.js",
+    "code": "// Compilation requests block HTTP event loop synchronously\napp.post('/api/v1/compile', async (req, res) => {\n  const result = await compileContract(req.body); // Blocks for 5-15 seconds!\n  res.json(result);\n});",
+    "description": "Contract compilation and simulation are executed synchronously inside HTTP request handlers, blocking worker threads and causing HTTP 504 Gateway Timeouts under load.",
+    "impact": "A burst of 10 concurrent compilation requests blocks the entire Node.js event loop, dropping all incoming HTTP connections.",
+    "fix": [
+      "Decouple compilation and deployment into BullMQ persistent Redis job queues.",
+      "Return 202 Accepted with a jobId and poll/WebSocket progress endpoint.",
+      "Run dedicated worker processes with configurable concurrency, backoff retries, and dead-letter queues."
+    ]
+  },
+  {
+    "id": 11,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Cargo Root Workspace Alignment & Compiler Optimization Profile",
+    "labels": [
+      "enhancement",
+      "contract",
+      "rust",
+      "production-critical"
+    ],
+    "location": "Cargo.toml",
+    "code": "[workspace]\nmembers = [\n    \"contracts/debugging-utils\",\n    \"contracts/cross-contract-utils\",\n    # Missing ~70 contracts in contracts/ directory\n]",
+    "description": "Root Cargo.toml only includes 21 out of ~90 contract directories, and lacks production WASM optimization profiles (LTO, opt-level, symbol stripping).",
+    "impact": "cargo build --workspace misses the majority of contracts in CI, and generated WASM binaries are 3x larger than necessary, wasting ledger gas fees.",
+    "fix": [
+      "Add all active contract directories to [workspace].members in Cargo.toml.",
+      "Configure [profile.release] with opt-level = 'z', lto = true, codegen-units = 1, panic = 'abort', and strip = 'symbols'.",
+      "Add cargo check --workspace and cargo clippy --workspace to CI."
+    ]
+  },
+  {
+    "id": 12,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Soroban Contract TTL Extension & State Archival Protection Pattern",
+    "labels": [
+      "bug",
+      "contract",
+      "rust",
+      "security",
+      "production-critical"
+    ],
+    "location": "contracts/ (across all stateful contracts)",
+    "code": "// contracts/liquidity-pool/src/lib.rs\nenv.storage().instance().set(&DataKey::Reserve0, &reserve0);\n// Missing env.storage().instance().extend_ttl(LEDGER_THRESHOLD, EXTEND_LIMIT);",
+    "description": "Stateful smart contracts store instance and persistent data without calling env.storage().instance().extend_ttl() or persistent().extend_ttl().",
+    "impact": "On Stellar Mainnet, unextended contract storage entries will be archived after the TTL expires, rendering contracts and locked funds permanently inaccessible.",
+    "fix": [
+      "Implement a standardized StorageManager helper in contracts/common-utils that automatically extends TTL on read/write operations.",
+      "Set threshold to 100,000 ledgers (~5.7 days) and extend limit to 500,000 ledgers (~28 days).",
+      "Add contract tests verifying storage TTL extension behavior."
+    ]
+  },
+  {
+    "id": 13,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Strict Auth & Replay Verification (`require_auth_for_args`) in All Protocol Contracts",
+    "labels": [
+      "bug",
+      "contract",
+      "rust",
+      "security",
+      "production-critical"
+    ],
+    "location": "contracts/lending-pool/src/lib.rs, contracts/amm-pool/src/lib.rs, contracts/escrow/src/lib.rs",
+    "code": "// contracts/escrow/src/lib.rs\npub fn release_funds(env: Env, beneficiary: Address, amount: i128) {\n  // Missing depositor.require_auth() or strict auth verification!\n  transfer_tokens(&env, &beneficiary, amount);\n}",
+    "description": "Multiple financial contracts perform state transitions or token transfers without validating caller authorization via require_auth() or require_auth_for_args().",
+    "impact": "Unauthorized third parties can drain escrow pools, liquidate healthy collateral, or alter governance parameters.",
+    "fix": [
+      "Audit and enforce require_auth() on every state-mutating and fund-transfer function across all contracts.",
+      "Use require_auth_for_args for fine-grained multi-party authorization.",
+      "Add negative unit tests asserting Panic on missing/invalid auth."
+    ]
+  },
+  {
+    "id": 14,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Safe Math & Overflow/Underflow Invariant Verification in DeFi Protocols",
+    "labels": [
+      "bug",
+      "contract",
+      "rust",
+      "security",
+      "production-critical"
+    ],
+    "location": "contracts/synthetic-assets/src/lib.rs and contracts/interest-rate-model/src/lib.rs",
+    "code": "// Raw integer arithmetic without checked operations\nlet new_debt = current_debt + borrowed_amount;\nlet collateral_ratio = (collateral_value * 100) / new_debt; // Potential div-by-zero!",
+    "description": "Contracts perform unchecked mathematical operations (+, -, *, /) instead of checked_* or saturating_* operations, and lack zero-division guards.",
+    "impact": "Integer overflows, underflows, or division by zero will cause unexpected panics or erroneous accounting balances during high-volatility market events.",
+    "fix": [
+      "Replace all raw arithmetic with checked_add, checked_sub, checked_mul, and checked_div returning custom ContractError.",
+      "Implement a fixed-point math library (e.g. 18-decimal or 7-decimal fixed point) for precision token calculations.",
+      "Introduce property-based tests (proptest) asserting invariants across 10,000 random input permutations."
+    ]
+  },
+  {
+    "id": 15,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Universal Contract Upgradeability Pattern with WASM Hash Timelock",
+    "labels": [
+      "enhancement",
+      "contract",
+      "rust",
+      "security",
+      "production-critical"
+    ],
+    "location": "contracts/governance/src/lib.rs and contracts/timelock/src/lib.rs",
+    "code": "// contracts/governance/src/lib.rs\npub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {\n  admin.require_auth();\n  env.deployer().update_current_contract_wasm(new_wasm_hash);\n  // Instant upgrade without timelock or community veto window\n}",
+    "description": "Contract upgrades execute immediately upon admin invocation without timelock delays, multi-signature consensus, or rollback safeguards.",
+    "impact": "A compromised admin key can instantly replace contract code with malicious bytecode and drain all locked user assets.",
+    "fix": [
+      "Implement a 2-step upgrade pattern: schedule_upgrade(wasm_hash, delay) and execute_upgrade(wasm_hash).",
+      "Enforce a mandatory minimum 48-hour timelock delay between scheduling and execution.",
+      "Emit UpgradeScheduled and ContractUpgraded events for public indexer observability."
+    ]
+  },
+  {
+    "id": 16,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] WebSocket Connection Pool, Heartbeat, and Redis Pub/Sub Adapter",
+    "labels": [
+      "bug",
+      "backend",
+      "performance",
+      "production-critical"
+    ],
+    "location": "backend/src/websocket.js and backend/src/services/websocketService.js",
+    "code": "// backend/src/websocket.js\nwss.on('connection', (ws) => {\n  // Missing ping/pong heartbeat, no max connection limit, stores sockets in local memory\n});",
+    "description": "WebSocket server holds connections in local memory without ping/pong liveness checks, per-IP connection limits, or distributed Redis Pub/Sub adapter.",
+    "impact": "Dead TCP sockets accumulate indefinitely leading to file descriptor exhaustion; scaling to multiple backend replicas fails because broadcasts are local to single processes.",
+    "fix": [
+      "Implement 30-second ping/pong heartbeat with termination of unacknowledged connections.",
+      "Integrate @socket.io/redis-adapter or custom Redis Pub/Sub for cross-cluster event broadcasting.",
+      "Enforce max 10 concurrent WebSocket connections per IP address."
+    ]
+  },
+  {
+    "id": 17,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Multi-Wallet Connector Architecture with Auto-Reconnection & Network Sync",
+    "labels": [
+      "enhancement",
+      "frontend",
+      "wallet",
+      "production-critical"
+    ],
+    "location": "frontend/src/components/WalletModal.tsx and frontend/src/hooks/useWallet.ts",
+    "code": "// frontend/src/hooks/useWallet.ts\n// Hardcoded to window.freighter with no fallback or event listeners\nconst isConnected = await isConnected();",
+    "description": "Wallet integration only supports Freighter via direct window injection, without support for xBull, Albedo, Hana, or WalletConnect (SEP-0043), and fails to track account or network change events.",
+    "impact": "Users on mobile or using alternative Stellar wallets cannot interact with the playground; switching networks in the wallet causes out-of-sync UI state.",
+    "fix": [
+      "Integrate @stellar/freighter-api, @creit-tech/xbull-wallet-connect, and Albedo via a unified WalletAdapter interface.",
+      "Implement persistent session restoration from localStorage with network verification.",
+      "Listen to wallet network/account change events and automatically update global application state."
+    ]
+  },
+  {
+    "id": 18,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Monaco Editor Web-Worker Compilation & Memory Leak Prevention",
+    "labels": [
+      "bug",
+      "frontend",
+      "performance",
+      "production-critical"
+    ],
+    "location": "frontend/src/components/Editor.tsx",
+    "code": "// Monaco models created on every render without disposal\nmonaco.editor.create(editorRef.current, { ...options });\n// editor.dispose() omitted in useEffect cleanup",
+    "description": "Monaco editor instances and WebAssembly language worker models are instantiated without proper lifecycle cleanup on component unmount, leaking hundreds of megabytes of RAM.",
+    "impact": "Browsing between playground contracts rapidly consumes browser memory, causing tab crashes on client machines.",
+    "fix": [
+      "Wrap Monaco instance in a dedicated hook with strict useEffect cleanup (editor.dispose(), model.dispose()).",
+      "Move Rust syntax analysis and linting into a dedicated background Web Worker.",
+      "Add Jest/React Testing Library tests asserting model disposal."
+    ]
+  },
+  {
+    "id": 19,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Pre-Flight Transaction Simulation & Dynamic Gas Estimation Engine",
+    "labels": [
+      "enhancement",
+      "frontend",
+      "backend",
+      "production-critical"
+    ],
+    "location": "backend/src/services/deployService.js and frontend/src/hooks/useContractInteraction.ts",
+    "code": "// Directly submits transactions without simulating resource limits\nconst tx = new TransactionBuilder(account, { fee: '100' }).build();\nawait server.sendTransaction(tx);",
+    "description": "Transactions are submitted directly to the network without pre-flight simulateTransaction checks, resulting in frequent out-of-gas or auth-failed transaction failures.",
+    "impact": "Users burn transaction fees on failed submissions and receive cryptic raw XDR error codes with zero contextual feedback.",
+    "fix": [
+      "Run server.simulateTransaction() before prompting user for signature.",
+      "Extract exact CPU instructions, memory bytes, and storage footprint to dynamically set resource bounds with a 15% safety buffer.",
+      "Parse simulation error results to provide human-readable diagnostic messages."
+    ]
+  },
+  {
+    "id": 20,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Indexer Block Reorg Detection, Sequence Continuity & Rollback Handler",
+    "labels": [
+      "bug",
+      "indexer",
+      "database",
+      "rust",
+      "production-critical"
+    ],
+    "location": "indexer/src/main.rs and indexer/src/db/",
+    "code": "// indexer/src/main.rs\n// Assumes sequential monotonic ledger ingestion without checking parent hash continuity\ndb.insert_ledger(ledger.sequence, ledger.events);",
+    "description": "Indexer sequentially inserts ledgers without validating ledger parent hash continuity, making it vulnerable to data corruption during Stellar Core network reorgs or missed ledgers.",
+    "impact": "Database stores duplicate, missing, or orphaned contract events, corrupting analytics and token balances for all users.",
+    "fix": [
+      "Store parent_ledger_hash and ledger_hash in PostgreSQL indexer schema.",
+      "Detect fork/reorg events by comparing incoming parent hash with stored tip; trigger automated atomic rollback transaction.",
+      "Implement a gap-recovery worker that detects missing ledger sequences and backfills asynchronously."
+    ]
+  },
+  {
+    "id": 21,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Graceful Process Shutdown Handler with In-Flight Drain & Socket Teardown",
+    "labels": [
+      "bug",
+      "backend",
+      "production-critical"
+    ],
+    "location": "backend/src/shutdown.js and backend/src/server.js",
+    "code": "process.on('SIGTERM', () => {\n  process.exit(0); // Forcibly terminates active compiler workers and open DB transactions!\n});",
+    "description": "SIGINT and SIGTERM signals trigger immediate process.exit(0), killing running compilation subprocesses, active database queries, and WebSocket connections mid-stream.",
+    "impact": "Leaves orphaned temporary files, hanging locks in PostgreSQL/Redis, and corrupted build state during deployments/rolling restarts.",
+    "fix": [
+      "Implement a 20-second graceful drain sequence in shutdown.js.",
+      "Stop accepting new HTTP connections via server.close().",
+      "Wait for active BullMQ workers to complete jobs, flush Redis pipelines, close Knex connection pools, and exit cleanly."
+    ]
+  },
+  {
+    "id": 22,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Prometheus Metrics Exporter & Distributed OpenTelemetry / Jaeger Tracing",
+    "labels": [
+      "enhancement",
+      "backend",
+      "observability",
+      "production-critical"
+    ],
+    "location": "backend/src/tracing.js and backend/src/metrics/",
+    "code": "// backend/src/tracing.js\n// Tracing configuration is incomplete and not bound to Express middleware or RPC calls",
+    "description": "Backend lacks standardized Prometheus metrics collection (HTTP request duration, compiler queue depth, active WebSockets, RPC error rates) and distributed tracing across async workers.",
+    "impact": "Zero visibility into production latency bottlenecks, memory leaks, or compiler queue stalls in production Grafana dashboards.",
+    "fix": [
+      "Mount /metrics endpoint exporting prom-client metrics (histograms for route latency, gauges for active jobs).",
+      "Instrument OpenTelemetry SDK with W3C Trace Context propagation across HTTP, Redis BullMQ jobs, and Soroban RPC calls.",
+      "Export traces to Jaeger / OTLP collector with configurable sampling rate."
+    ]
+  },
+  {
+    "id": 23,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Strict Content Security Policy (CSP) & Security Headers Middleware",
+    "labels": [
+      "enhancement",
+      "frontend",
+      "backend",
+      "security",
+      "production-critical"
+    ],
+    "location": "frontend/next.config.ts and backend/src/server.js",
+    "code": "// backend/src/server.js\n// helmet() is applied with default loose settings; next.config.ts missing CSP headers",
+    "description": "Frontend and backend lack a hardened Content Security Policy (CSP), Permissions-Policy, Strict-Transport-Security (HSTS), and X-Frame-Options headers.",
+    "impact": "Susceptible to Cross-Site Scripting (XSS), malicious iframe clickjacking of wallet approval prompts, and unauthorized script injection.",
+    "fix": [
+      "Configure helmet with strict CSP: script-src 'self' 'wasm-unsafe-eval', frame-ancestors 'none', object-src 'none'.",
+      "Enforce HSTS (max-age=63072000; includeSubDomains; preload).",
+      "Add Permissions-Policy restricting camera, microphone, and geolocation."
+    ]
+  },
+  {
+    "id": 24,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Dynamic Soroban XDR Contract Spec Parser & Interactive Interface Generator",
+    "labels": [
+      "enhancement",
+      "frontend",
+      "contract",
+      "production-critical"
+    ],
+    "location": "frontend/src/components/ContractInteraction.tsx and frontend/src/utils/xdrParser.ts",
+    "code": "// Hardcoded ABI mapping for demo contracts only\nif (contractName === 'counter') { ... } else { throw new Error('Unsupported contract'); }",
+    "description": "Frontend contract runner relies on static hardcoded forms rather than dynamically parsing the contract's official Soroban XDR Environment Specification from the compiled WASM binary.",
+    "impact": "Developers cannot dynamically test custom uploaded or newly compiled contracts without manually editing frontend source code.",
+    "fix": [
+      "Implement dynamic XDR parsing using stellar-sdk.xdr.ScSpecEntry.",
+      "Auto-generate interactive UI forms for all contract functions with proper type inputs (Address, Symbol, Vec, Map, i128, u64).",
+      "Support custom struct decoding and validation."
+    ]
+  },
+  {
+    "id": 25,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Automated End-to-End Test Suite with Headless Stellar Testnet Runner",
+    "labels": [
+      "testing",
+      "ci-cd",
+      "production-critical"
+    ],
+    "location": ".github/workflows/e2e.yml and tests/e2e/",
+    "code": "# .github/workflows/ only has basic linting; no end-to-end integration tests",
+    "description": "Repository lacks an end-to-end integration testing pipeline validating the complete lifecycle: contract editing -> WASM compilation -> testnet deployment -> transaction execution -> indexer event verification.",
+    "impact": "Regressions in compiler toolchain, RPC serialization, or wallet signing slip into production undetected.",
+    "fix": [
+      "Create Playwright E2E test suite running in GitHub Actions against local Standalone Soroban RPC container.",
+      "Automate test wallet provisioning via Friendbot funding API.",
+      "Assert 100% success across contract deployment, invocation, and UI state reconciliation."
+    ]
+  },
+  {
+    "id": 26,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Cross-Contract Invocation Reentrancy Guard Protocol",
+    "labels": [
+      "contracts",
+      "security",
+      "rust",
+      "production-critical"
+    ],
+    "location": "contracts/cross-contract-utils/src/lib.rs",
+    "code": "// Location: contracts/cross-contract-utils/src/lib.rs\n// Critical invariant or security check missing.",
+    "description": "Missing reentrancy locks during external contract calls allows state mutation before initial execution concludes.",
+    "impact": "Prevents production stability, compromises contract security, or exposes the application to data loss and performance degradation.",
+    "fix": [
+      "Implement comprehensive architectural refactor in contracts/cross-contract-utils/src/lib.rs.",
+      "Add strict unit and integration tests covering edge cases.",
+      "Verify compliance with Soroban SDK best practices."
+    ]
+  },
+  {
+    "id": 27,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Decimal Precision Scaling & Rounding Engine for AMM Swap Curves",
+    "labels": [
+      "contracts",
+      "defi",
+      "rust",
+      "production-critical"
+    ],
+    "location": "contracts/amm-pool/src/lib.rs",
+    "code": "// Location: contracts/amm-pool/src/lib.rs\n// Critical invariant or security check missing.",
+    "description": "Constant product formula (x * y = k) suffers from integer truncation bias during small-amount swaps.",
+    "impact": "Prevents production stability, compromises contract security, or exposes the application to data loss and performance degradation.",
+    "fix": [
+      "Implement comprehensive architectural refactor in contracts/amm-pool/src/lib.rs.",
+      "Add strict unit and integration tests covering edge cases.",
+      "Verify compliance with Soroban SDK best practices."
+    ]
+  },
+  {
+    "id": 28,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Decentralized Price Oracle Staleness Threshold & Multi-Source Medianizer",
+    "labels": [
+      "contracts",
+      "oracle",
+      "rust",
+      "production-critical"
+    ],
+    "location": "contracts/oracle/src/lib.rs",
+    "code": "// Location: contracts/oracle/src/lib.rs\n// Critical invariant or security check missing.",
+    "description": "Oracle accepts price feeds regardless of timestamp age, exposing lending markets to flash crashes.",
+    "impact": "Prevents production stability, compromises contract security, or exposes the application to data loss and performance degradation.",
+    "fix": [
+      "Implement comprehensive architectural refactor in contracts/oracle/src/lib.rs.",
+      "Add strict unit and integration tests covering edge cases.",
+      "Verify compliance with Soroban SDK best practices."
+    ]
+  },
+  {
+    "id": 29,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Liquidation Engine with Health-Factor Computation & Bad-Debt Socialization",
+    "labels": [
+      "contracts",
+      "defi",
+      "rust",
+      "production-critical"
+    ],
+    "location": "contracts/lending-pool/src/lib.rs",
+    "code": "// Location: contracts/lending-pool/src/lib.rs\n// Critical invariant or security check missing.",
+    "description": "Undercollateralized positions cannot be liquidated in a single atomic transaction during market volatility.",
+    "impact": "Prevents production stability, compromises contract security, or exposes the application to data loss and performance degradation.",
+    "fix": [
+      "Implement comprehensive architectural refactor in contracts/lending-pool/src/lib.rs.",
+      "Add strict unit and integration tests covering edge cases.",
+      "Verify compliance with Soroban SDK best practices."
+    ]
+  },
+  {
+    "id": 30,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Flash Loan Receiver Callback Verification & Fee Accrual Engine",
+    "labels": [
+      "contracts",
+      "defi",
+      "rust",
+      "production-critical"
+    ],
+    "location": "contracts/flash-loan/src/lib.rs",
+    "code": "// Location: contracts/flash-loan/src/lib.rs\n// Critical invariant or security check missing.",
+    "description": "Flash loan logic does not verify exact balance return plus protocol fee before invocation completion.",
+    "impact": "Prevents production stability, compromises contract security, or exposes the application to data loss and performance degradation.",
+    "fix": [
+      "Implement comprehensive architectural refactor in contracts/flash-loan/src/lib.rs.",
+      "Add strict unit and integration tests covering edge cases.",
+      "Verify compliance with Soroban SDK best practices."
+    ]
+  },
+  {
+    "id": 31,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Multi-Signature Threshold Voting with Off-Chain Signature Aggregation",
+    "labels": [
+      "contracts",
+      "security",
+      "rust",
+      "production-critical"
+    ],
+    "location": "contracts/multisig/src/lib.rs",
+    "code": "// Location: contracts/multisig/src/lib.rs\n// Critical invariant or security check missing.",
+    "description": "Threshold signature verification does not enforce monotonic nonce increments, risking replay attacks.",
+    "impact": "Prevents production stability, compromises contract security, or exposes the application to data loss and performance degradation.",
+    "fix": [
+      "Implement comprehensive architectural refactor in contracts/multisig/src/lib.rs.",
+      "Add strict unit and integration tests covering edge cases.",
+      "Verify compliance with Soroban SDK best practices."
+    ]
+  },
+  {
+    "id": 32,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] DID Registry with Verifiable Credential Revocation & Schema Verification",
+    "labels": [
+      "contracts",
+      "identity",
+      "rust",
+      "production-critical"
+    ],
+    "location": "contracts/did-registry/src/lib.rs",
+    "code": "// Location: contracts/did-registry/src/lib.rs\n// Critical invariant or security check missing.",
+    "description": "Decentralized identifier updates lack cryptographic proof verification of document controller.",
+    "impact": "Prevents production stability, compromises contract security, or exposes the application to data loss and performance degradation.",
+    "fix": [
+      "Implement comprehensive architectural refactor in contracts/did-registry/src/lib.rs.",
+      "Add strict unit and integration tests covering edge cases.",
+      "Verify compliance with Soroban SDK best practices."
+    ]
+  },
+  {
+    "id": 33,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Token Vesting Linear Curve Engine with Cliff Revocation Safeguards",
+    "labels": [
+      "contracts",
+      "tokenomics",
+      "rust",
+      "production-critical"
+    ],
+    "location": "contracts/vesting/src/lib.rs",
+    "code": "// Location: contracts/vesting/src/lib.rs\n// Critical invariant or security check missing.",
+    "description": "Vesting schedules allow rounding errors that prevent beneficiaries from claiming remaining dust tokens.",
+    "impact": "Prevents production stability, compromises contract security, or exposes the application to data loss and performance degradation.",
+    "fix": [
+      "Implement comprehensive architectural refactor in contracts/vesting/src/lib.rs.",
+      "Add strict unit and integration tests covering edge cases.",
+      "Verify compliance with Soroban SDK best practices."
+    ]
+  },
+  {
+    "id": 34,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] DAO Governance Proposal Quorum Calculation & Snapshot Ledger Checkpoints",
+    "labels": [
+      "contracts",
+      "governance",
+      "rust",
+      "production-critical"
+    ],
+    "location": "contracts/governance/src/lib.rs",
+    "code": "// Location: contracts/governance/src/lib.rs\n// Critical invariant or security check missing.",
+    "description": "Voting power is calculated at vote time rather than proposal snapshot ledger, enabling flash loan vote manipulation.",
+    "impact": "Prevents production stability, compromises contract security, or exposes the application to data loss and performance degradation.",
+    "fix": [
+      "Implement comprehensive architectural refactor in contracts/governance/src/lib.rs.",
+      "Add strict unit and integration tests covering edge cases.",
+      "Verify compliance with Soroban SDK best practices."
+    ]
+  },
+  {
+    "id": 35,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Staking Pool Reward Debt Algorithm with Continuous Compounding",
+    "labels": [
+      "contracts",
+      "defi",
+      "rust",
+      "production-critical"
+    ],
+    "location": "contracts/staking/src/lib.rs",
+    "code": "// Location: contracts/staking/src/lib.rs\n// Critical invariant or security check missing.",
+    "description": "Reward distribution loop iterates over all stakers, causing gas limit exhaustion when pool size grows.",
+    "impact": "Prevents production stability, compromises contract security, or exposes the application to data loss and performance degradation.",
+    "fix": [
+      "Implement comprehensive architectural refactor in contracts/staking/src/lib.rs.",
+      "Add strict unit and integration tests covering edge cases.",
+      "Verify compliance with Soroban SDK best practices."
+    ]
+  },
+  {
+    "id": 36,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Synthetic Asset Collateralization Ratio Enforcement & Mint Debt Tracking",
+    "labels": [
+      "contracts",
+      "defi",
+      "rust",
+      "production-critical"
+    ],
+    "location": "contracts/synthetic-assets/src/lib.rs",
+    "code": "// Location: contracts/synthetic-assets/src/lib.rs\n// Critical invariant or security check missing.",
+    "description": "Debt shares are not properly adjusted when global collateral prices fluctuate.",
+    "impact": "Prevents production stability, compromises contract security, or exposes the application to data loss and performance degradation.",
+    "fix": [
+      "Implement comprehensive architectural refactor in contracts/synthetic-assets/src/lib.rs.",
+      "Add strict unit and integration tests covering edge cases.",
+      "Verify compliance with Soroban SDK best practices."
+    ]
+  },
+  {
+    "id": 37,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Automated Market Maker Impermanent Loss Mitigation & Fee Distributor",
+    "labels": [
+      "contracts",
+      "defi",
+      "rust",
+      "production-critical"
+    ],
+    "location": "contracts/amm-pool/src/lib.rs",
+    "code": "// Location: contracts/amm-pool/src/lib.rs\n// Critical invariant or security check missing.",
+    "description": "Fee claims do not account for dynamic liquidity provisioning intervals.",
+    "impact": "Prevents production stability, compromises contract security, or exposes the application to data loss and performance degradation.",
+    "fix": [
+      "Implement comprehensive architectural refactor in contracts/amm-pool/src/lib.rs.",
+      "Add strict unit and integration tests covering edge cases.",
+      "Verify compliance with Soroban SDK best practices."
+    ]
+  },
+  {
+    "id": 38,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] NFT Marketplace Dutch & English Auction Settlement Engine",
+    "labels": [
+      "contracts",
+      "nft",
+      "rust",
+      "production-critical"
+    ],
+    "location": "contracts/dutch-auction/src/lib.rs",
+    "code": "// Location: contracts/dutch-auction/src/lib.rs\n// Critical invariant or security check missing.",
+    "description": "Auction settlement does not atomically return outbid funds to previous highest bidders.",
+    "impact": "Prevents production stability, compromises contract security, or exposes the application to data loss and performance degradation.",
+    "fix": [
+      "Implement comprehensive architectural refactor in contracts/dutch-auction/src/lib.rs.",
+      "Add strict unit and integration tests covering edge cases.",
+      "Verify compliance with Soroban SDK best practices."
+    ]
+  },
+  {
+    "id": 39,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Carbon Credit Retirement Verification & Serialized Certificate Registry",
+    "labels": [
+      "contracts",
+      "rwa",
+      "rust",
+      "production-critical"
+    ],
+    "location": "contracts/carbon-credit/src/lib.rs",
+    "code": "// Location: contracts/carbon-credit/src/lib.rs\n// Critical invariant or security check missing.",
+    "description": "Retired carbon credits can be re-transferred due to missing burnt state assertion.",
+    "impact": "Prevents production stability, compromises contract security, or exposes the application to data loss and performance degradation.",
+    "fix": [
+      "Implement comprehensive architectural refactor in contracts/carbon-credit/src/lib.rs.",
+      "Add strict unit and integration tests covering edge cases.",
+      "Verify compliance with Soroban SDK best practices."
+    ]
+  },
+  {
+    "id": 40,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Real-World Asset (RWA) Fractional Ownership & Compliance Whitelist",
+    "labels": [
+      "contracts",
+      "rwa",
+      "rust",
+      "production-critical"
+    ],
+    "location": "contracts/real-estate/src/lib.rs",
+    "code": "// Location: contracts/real-estate/src/lib.rs\n// Critical invariant or security check missing.",
+    "description": "Asset transfers bypass KYC/AML whitelist verification checks.",
+    "impact": "Prevents production stability, compromises contract security, or exposes the application to data loss and performance degradation.",
+    "fix": [
+      "Implement comprehensive architectural refactor in contracts/real-estate/src/lib.rs.",
+      "Add strict unit and integration tests covering edge cases.",
+      "Verify compliance with Soroban SDK best practices."
+    ]
+  },
+  {
+    "id": 41,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Peer-to-Peer Insurance Protocol Parametric Oracle Trigger System",
+    "labels": [
+      "contracts",
+      "insurance",
+      "rust",
+      "production-critical"
+    ],
+    "location": "contracts/insurance-protocol/src/lib.rs",
+    "code": "// Location: contracts/insurance-protocol/src/lib.rs\n// Critical invariant or security check missing.",
+    "description": "Claims payout triggers on unverified external weather/flight oracle payloads.",
+    "impact": "Prevents production stability, compromises contract security, or exposes the application to data loss and performance degradation.",
+    "fix": [
+      "Implement comprehensive architectural refactor in contracts/insurance-protocol/src/lib.rs.",
+      "Add strict unit and integration tests covering edge cases.",
+      "Verify compliance with Soroban SDK best practices."
+    ]
+  },
+  {
+    "id": 42,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Decentralized Content Publishing Registry with Royalty Splitting",
+    "labels": [
+      "contracts",
+      "media",
+      "rust",
+      "production-critical"
+    ],
+    "location": "contracts/content-publishing/src/lib.rs",
+    "code": "// Location: contracts/content-publishing/src/lib.rs\n// Critical invariant or security check missing.",
+    "description": "Royalty calculations overflow when splitting across more than 5 co-creators.",
+    "impact": "Prevents production stability, compromises contract security, or exposes the application to data loss and performance degradation.",
+    "fix": [
+      "Implement comprehensive architectural refactor in contracts/content-publishing/src/lib.rs.",
+      "Add strict unit and integration tests covering edge cases.",
+      "Verify compliance with Soroban SDK best practices."
+    ]
+  },
+  {
+    "id": 43,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] File Notary Cryptographic Merkle Tree Batch Proof Verification",
+    "labels": [
+      "contracts",
+      "storage",
+      "rust",
+      "production-critical"
+    ],
+    "location": "contracts/file-notary/src/lib.rs",
+    "code": "// Location: contracts/file-notary/src/lib.rs\n// Critical invariant or security check missing.",
+    "description": "Notarization stores full raw hashes in instance storage instead of compact Merkle roots.",
+    "impact": "Prevents production stability, compromises contract security, or exposes the application to data loss and performance degradation.",
+    "fix": [
+      "Implement comprehensive architectural refactor in contracts/file-notary/src/lib.rs.",
+      "Add strict unit and integration tests covering edge cases.",
+      "Verify compliance with Soroban SDK best practices."
+    ]
+  },
+  {
+    "id": 44,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Bug Bounty Program Proof-of-Exploit Escrow & Arbitrator Quorum",
+    "labels": [
+      "contracts",
+      "security",
+      "rust",
+      "production-critical"
+    ],
+    "location": "contracts/bug-bounty/src/lib.rs",
+    "code": "// Location: contracts/bug-bounty/src/lib.rs\n// Critical invariant or security check missing.",
+    "description": "Bounty payout can be locked indefinitely if an arbitrator becomes inactive.",
+    "impact": "Prevents production stability, compromises contract security, or exposes the application to data loss and performance degradation.",
+    "fix": [
+      "Implement comprehensive architectural refactor in contracts/bug-bounty/src/lib.rs.",
+      "Add strict unit and integration tests covering edge cases.",
+      "Verify compliance with Soroban SDK best practices."
+    ]
+  },
+  {
+    "id": 45,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Cross-Chain Bridge Wrapped Asset Mint/Burn Event Relay Validator",
+    "labels": [
+      "contracts",
+      "bridge",
+      "rust",
+      "production-critical"
+    ],
+    "location": "contracts/cross-chain-bridge/src/lib.rs",
+    "code": "// Location: contracts/cross-chain-bridge/src/lib.rs\n// Critical invariant or security check missing.",
+    "description": "Relayer signatures lack cross-chain replay protection (missing source chain ID in domain separator).",
+    "impact": "Prevents production stability, compromises contract security, or exposes the application to data loss and performance degradation.",
+    "fix": [
+      "Implement comprehensive architectural refactor in contracts/cross-chain-bridge/src/lib.rs.",
+      "Add strict unit and integration tests covering edge cases.",
+      "Verify compliance with Soroban SDK best practices."
+    ]
+  },
+  {
+    "id": 46,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Next.js Hydration Mismatch & SSR Safe Wallet Initialization",
+    "labels": [
+      "frontend",
+      "nextjs",
+      "react",
+      "production-critical"
+    ],
+    "location": "frontend/src/app/layout.tsx",
+    "code": "// Location: frontend/src/app/layout.tsx\n// Critical invariant or security check missing.",
+    "description": "Direct access to window.stellar during SSR causes React hydration errors and layout shifts.",
+    "impact": "Prevents production stability, compromises contract security, or exposes the application to data loss and performance degradation.",
+    "fix": [
+      "Implement comprehensive architectural refactor in frontend/src/app/layout.tsx.",
+      "Add strict unit and integration tests covering edge cases.",
+      "Verify compliance with Soroban SDK best practices."
+    ]
+  },
+  {
+    "id": 47,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] TanStack Query Cache Key Serialization & Optimistic Update Rollback",
+    "labels": [
+      "frontend",
+      "state",
+      "performance",
+      "production-critical"
+    ],
+    "location": "frontend/src/hooks/useContractData.ts",
+    "code": "// Location: frontend/src/hooks/useContractData.ts\n// Critical invariant or security check missing.",
+    "description": "Contract state queries lack standardized query keys, causing stale contract reads after transactions.",
+    "impact": "Prevents production stability, compromises contract security, or exposes the application to data loss and performance degradation.",
+    "fix": [
+      "Implement comprehensive architectural refactor in frontend/src/hooks/useContractData.ts.",
+      "Add strict unit and integration tests covering edge cases.",
+      "Verify compliance with Soroban SDK best practices."
+    ]
+  },
+  {
+    "id": 48,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Global Error Boundary & Toast Notification Diagnostic Exporter",
+    "labels": [
+      "frontend",
+      "ui",
+      "ux",
+      "production-critical"
+    ],
+    "location": "frontend/src/components/ErrorBoundary.tsx",
+    "code": "// Location: frontend/src/components/ErrorBoundary.tsx\n// Critical invariant or security check missing.",
+    "description": "Uncaught JavaScript errors in contract simulation crash entire React component tree.",
+    "impact": "Prevents production stability, compromises contract security, or exposes the application to data loss and performance degradation.",
+    "fix": [
+      "Implement comprehensive architectural refactor in frontend/src/components/ErrorBoundary.tsx.",
+      "Add strict unit and integration tests covering edge cases.",
+      "Verify compliance with Soroban SDK best practices."
+    ]
+  },
+  {
+    "id": 49,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] GraphQL Indexer Subgraph Query Complexity & Depth Limiter",
+    "labels": [
+      "indexer",
+      "graphql",
+      "security",
+      "production-critical"
+    ],
+    "location": "indexer/src/graphql/",
+    "code": "// Location: indexer/src/graphql/\n// Critical invariant or security check missing.",
+    "description": "Complex nested GraphQL queries can consume 100% CPU on indexer server.",
+    "impact": "Prevents production stability, compromises contract security, or exposes the application to data loss and performance degradation.",
+    "fix": [
+      "Implement comprehensive architectural refactor in indexer/src/graphql/.",
+      "Add strict unit and integration tests covering edge cases.",
+      "Verify compliance with Soroban SDK best practices."
+    ]
+  },
+  {
+    "id": 50,
+    "tier": "Tier 1: Top 50 Production Critical",
+    "title": "[CRITICAL] Production Multi-Stage Docker Compose Network Isolation & Secret Management",
+    "labels": [
+      "devops",
+      "security",
+      "docker",
+      "production-critical"
+    ],
+    "location": "docker-compose.yml",
+    "code": "// Location: docker-compose.yml\n// Critical invariant or security check missing.",
+    "description": "Services share default bridge network without TLS or secret isolation.",
+    "impact": "Prevents production stability, compromises contract security, or exposes the application to data loss and performance degradation.",
+    "fix": [
+      "Implement comprehensive architectural refactor in docker-compose.yml.",
+      "Add strict unit and integration tests covering edge cases.",
+      "Verify compliance with Soroban SDK best practices."
+    ]
+  },
+  {
+    "id": 51,
+    "tier": "Tier 2: Advanced DeFi & Smart Contract Protocols (51-75)",
+    "title": "[51] Yield Farming Strategy Optimizer with Multi-Pool Rebalancing",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "security"
+    ],
+    "location": "contracts/yield-farming/src/lib.rs",
+    "code": "// Location: contracts/yield-farming/src/lib.rs\n// Production requirement: Yield Farming Strategy Optimizer with Multi-Pool Rebalancing",
+    "description": "Dynamic APY calculations and auto-compounding algorithms for liquidity vault tokens. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `contracts/yield-farming/src/lib.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 52,
+    "tier": "Tier 2: Advanced DeFi & Smart Contract Protocols (51-75)",
+    "title": "[52] Algorithmic Stablecoin Collateral Peg Stability Module (PSM)",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "security"
+    ],
+    "location": "contracts/stablecoin/src/lib.rs",
+    "code": "// Location: contracts/stablecoin/src/lib.rs\n// Production requirement: Algorithmic Stablecoin Collateral Peg Stability Module (PSM)",
+    "description": "1:1 swap module with USDC/USDT reserve backing and dynamic mint/burn fees. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `contracts/stablecoin/src/lib.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 53,
+    "tier": "Tier 2: Advanced DeFi & Smart Contract Protocols (51-75)",
+    "title": "[53] Perpetual Futures Virtual AMM (vAMM) Funding Rate Engine",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "security"
+    ],
+    "location": "contracts/perpetuals/src/lib.rs",
+    "code": "// Location: contracts/perpetuals/src/lib.rs\n// Production requirement: Perpetual Futures Virtual AMM (vAMM) Funding Rate Engine",
+    "description": "8-hour funding rate calculation and mark-price vs index-price tracking. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `contracts/perpetuals/src/lib.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 54,
+    "tier": "Tier 2: Advanced DeFi & Smart Contract Protocols (51-75)",
+    "title": "[54] Prediction Market Binary & Categorical Outcome Settlement",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "security"
+    ],
+    "location": "contracts/prediction-market/src/lib.rs",
+    "code": "// Location: contracts/prediction-market/src/lib.rs\n// Production requirement: Prediction Market Binary & Categorical Outcome Settlement",
+    "description": "Conditional token minting, liquidity share pricing, and oracle dispute resolution. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `contracts/prediction-market/src/lib.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 55,
+    "tier": "Tier 2: Advanced DeFi & Smart Contract Protocols (51-75)",
+    "title": "[55] Options Trading Black-Scholes Greeks Calculator & Margin Pool",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "security"
+    ],
+    "location": "contracts/options/src/lib.rs",
+    "code": "// Location: contracts/options/src/lib.rs\n// Production requirement: Options Trading Black-Scholes Greeks Calculator & Margin Pool",
+    "description": "Automated margin call triggers and cash-settled European options execution. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `contracts/options/src/lib.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 56,
+    "tier": "Tier 2: Advanced DeFi & Smart Contract Protocols (51-75)",
+    "title": "[56] Liquid Staking Derivative (LSD) Exchange Rate Accrual Engine",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "security"
+    ],
+    "location": "contracts/staking-derivatives/src/lib.rs",
+    "code": "// Location: contracts/staking-derivatives/src/lib.rs\n// Production requirement: Liquid Staking Derivative (LSD) Exchange Rate Accrual Engine",
+    "description": "Validator reward accounting and unstaking unbonding queue management. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `contracts/staking-derivatives/src/lib.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 57,
+    "tier": "Tier 2: Advanced DeFi & Smart Contract Protocols (51-75)",
+    "title": "[57] Decentralized Loan Syndication & Multi-Lender Risk Tranches",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "security"
+    ],
+    "location": "contracts/loan-syndication/src/lib.rs",
+    "code": "// Location: contracts/loan-syndication/src/lib.rs\n// Production requirement: Decentralized Loan Syndication & Multi-Lender Risk Tranches",
+    "description": "Senior and junior tranche yield distribution with default protection. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `contracts/loan-syndication/src/lib.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 58,
+    "tier": "Tier 2: Advanced DeFi & Smart Contract Protocols (51-75)",
+    "title": "[58] NFT Fractionalization Vault with ERC-20 Tokenizer & Buyout Auction",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "security"
+    ],
+    "location": "contracts/nft-fractional/src/lib.rs",
+    "code": "// Location: contracts/nft-fractional/src/lib.rs\n// Production requirement: NFT Fractionalization Vault with ERC-20 Tokenizer & Buyout Auction",
+    "description": "Locking NFTs in vault contracts and issuing proportional governance tokens. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `contracts/nft-fractional/src/lib.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 59,
+    "tier": "Tier 2: Advanced DeFi & Smart Contract Protocols (51-75)",
+    "title": "[59] Dynamic Fee AMM with Volatility-Adjusted Slippage Curve",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "security"
+    ],
+    "location": "contracts/amm-pool/src/lib.rs",
+    "code": "// Location: contracts/amm-pool/src/lib.rs\n// Production requirement: Dynamic Fee AMM with Volatility-Adjusted Slippage Curve",
+    "description": "Adjusting swap fees based on recent price volatility and pool utilization. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `contracts/amm-pool/src/lib.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 60,
+    "tier": "Tier 2: Advanced DeFi & Smart Contract Protocols (51-75)",
+    "title": "[60] Cross-Contract Escrow with Multi-Asset Atomic Swap Capabilities",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "security"
+    ],
+    "location": "contracts/escrow/src/lib.rs",
+    "code": "// Location: contracts/escrow/src/lib.rs\n// Production requirement: Cross-Contract Escrow with Multi-Asset Atomic Swap Capabilities",
+    "description": "Hash time-locked contract (HTLC) primitives for cross-asset swaps. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `contracts/escrow/src/lib.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 61,
+    "tier": "Tier 2: Advanced DeFi & Smart Contract Protocols (51-75)",
+    "title": "[61] Subscription Billing Contract with Pre-Approved Recurring Pull Payments",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "security"
+    ],
+    "location": "contracts/subscription/src/lib.rs",
+    "code": "// Location: contracts/subscription/src/lib.rs\n// Production requirement: Subscription Billing Contract with Pre-Approved Recurring Pull Payments",
+    "description": "Time-bounded allowance pull mechanisms with subscriber cancel guarantees. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `contracts/subscription/src/lib.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 62,
+    "tier": "Tier 2: Advanced DeFi & Smart Contract Protocols (51-75)",
+    "title": "[62] Zero-Knowledge Proof Verification Verifier for Private Transactions",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "security"
+    ],
+    "location": "contracts/zk-verifier/src/lib.rs",
+    "code": "// Location: contracts/zk-verifier/src/lib.rs\n// Production requirement: Zero-Knowledge Proof Verification Verifier for Private Transactions",
+    "description": "Groth16 / BN254 elliptic curve pairing verification inside Soroban environment. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `contracts/zk-verifier/src/lib.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 63,
+    "tier": "Tier 2: Advanced DeFi & Smart Contract Protocols (51-75)",
+    "title": "[63] Parametric Crop Insurance with Satellite Rainfall Oracle Integration",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "security"
+    ],
+    "location": "contracts/crop-insurance/src/lib.rs",
+    "code": "// Location: contracts/crop-insurance/src/lib.rs\n// Production requirement: Parametric Crop Insurance with Satellite Rainfall Oracle Integration",
+    "description": "Automated payout triggers based on authenticated meteorological data feeds. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `contracts/crop-insurance/src/lib.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 64,
+    "tier": "Tier 2: Advanced DeFi & Smart Contract Protocols (51-75)",
+    "title": "[64] Decentralized Sports Betting Odds Maker & Multi-Oracle Consensual Settlement",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "security"
+    ],
+    "location": "contracts/sports-betting/src/lib.rs",
+    "code": "// Location: contracts/sports-betting/src/lib.rs\n// Production requirement: Decentralized Sports Betting Odds Maker & Multi-Oracle Consensual Settlement",
+    "description": "Pari-mutuel betting pools with multi-oracle consensus validation. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `contracts/sports-betting/src/lib.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 65,
+    "tier": "Tier 2: Advanced DeFi & Smart Contract Protocols (51-75)",
+    "title": "[65] Royalty Distribution Engine with Tiered Co-Creator Waterfall Payments",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "security"
+    ],
+    "location": "contracts/royalty/src/lib.rs",
+    "code": "// Location: contracts/royalty/src/lib.rs\n// Production requirement: Royalty Distribution Engine with Tiered Co-Creator Waterfall Payments",
+    "description": "Recursive revenue splitting with gas-efficient batched payouts. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `contracts/royalty/src/lib.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 66,
+    "tier": "Tier 2: Advanced DeFi & Smart Contract Protocols (51-75)",
+    "title": "[66] Decentralized Reputation Score Aggregator & Sybil Resistance Matrix",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "security"
+    ],
+    "location": "contracts/reputation/src/lib.rs",
+    "code": "// Location: contracts/reputation/src/lib.rs\n// Production requirement: Decentralized Reputation Score Aggregator & Sybil Resistance Matrix",
+    "description": "Decay-weighted on-chain activity scoring and credential verification. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `contracts/reputation/src/lib.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 67,
+    "tier": "Tier 2: Advanced DeFi & Smart Contract Protocols (51-75)",
+    "title": "[67] Time-Locked Governance Emergency Pause / Circuit Breaker Multi-Sig",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "security"
+    ],
+    "location": "contracts/emergency-pause/src/lib.rs",
+    "code": "// Location: contracts/emergency-pause/src/lib.rs\n// Production requirement: Time-Locked Governance Emergency Pause / Circuit Breaker Multi-Sig",
+    "description": "Guardian multi-sig role with capability to pause token transfers during exploits. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `contracts/emergency-pause/src/lib.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 68,
+    "tier": "Tier 2: Advanced DeFi & Smart Contract Protocols (51-75)",
+    "title": "[68] Patent & Intellectual Property Licensing Registry with Milestone Escrow",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "security"
+    ],
+    "location": "contracts/patent-registry/src/lib.rs",
+    "code": "// Location: contracts/patent-registry/src/lib.rs\n// Production requirement: Patent & Intellectual Property Licensing Registry with Milestone Escrow",
+    "description": "Non-fungible license grants with milestone verification release. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `contracts/patent-registry/src/lib.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 69,
+    "tier": "Tier 2: Advanced DeFi & Smart Contract Protocols (51-75)",
+    "title": "[69] Decentralized Energy Grid Peer-to-Peer Trading Ledger",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "security"
+    ],
+    "location": "contracts/energy-trading/src/lib.rs",
+    "code": "// Location: contracts/energy-trading/src/lib.rs\n// Production requirement: Decentralized Energy Grid Peer-to-Peer Trading Ledger",
+    "description": "Smart meter IoT proof verification and kilowatt-hour token settlement. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `contracts/energy-trading/src/lib.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 70,
+    "tier": "Tier 2: Advanced DeFi & Smart Contract Protocols (51-75)",
+    "title": "[70] Venture Capital Milestone-Based Token Tranche Vesting Pool",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "security"
+    ],
+    "location": "contracts/vc-vesting/src/lib.rs",
+    "code": "// Location: contracts/vc-vesting/src/lib.rs\n// Production requirement: Venture Capital Milestone-Based Token Tranche Vesting Pool",
+    "description": "Investor voting on milestone achievement before releasing locked token tranches. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `contracts/vc-vesting/src/lib.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 71,
+    "tier": "Tier 2: Advanced DeFi & Smart Contract Protocols (51-75)",
+    "title": "[71] Automated Portfolio Index Token Rebalancing Engine",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "security"
+    ],
+    "location": "contracts/index-token/src/lib.rs",
+    "code": "// Location: contracts/index-token/src/lib.rs\n// Production requirement: Automated Portfolio Index Token Rebalancing Engine",
+    "description": "Basket token minting and automated arbitrage-driven rebalancing. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `contracts/index-token/src/lib.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 72,
+    "tier": "Tier 2: Advanced DeFi & Smart Contract Protocols (51-75)",
+    "title": "[72] Decentralized Advertising Impression Verifier & Publisher Payout",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "security"
+    ],
+    "location": "contracts/ad-network/src/lib.rs",
+    "code": "// Location: contracts/ad-network/src/lib.rs\n// Production requirement: Decentralized Advertising Impression Verifier & Publisher Payout",
+    "description": "Cryptographic proof of engagement and micro-payment channel settlement. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `contracts/ad-network/src/lib.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 73,
+    "tier": "Tier 2: Advanced DeFi & Smart Contract Protocols (51-75)",
+    "title": "[73] Supply Chain Cold-Chain Temperature Logging & SLA Penalty Enforcer",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "security"
+    ],
+    "location": "contracts/supply-chain/src/lib.rs",
+    "code": "// Location: contracts/supply-chain/src/lib.rs\n// Production requirement: Supply Chain Cold-Chain Temperature Logging & SLA Penalty Enforcer",
+    "description": "Temperature violation tracking with automated deposit slashing. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `contracts/supply-chain/src/lib.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 74,
+    "tier": "Tier 2: Advanced DeFi & Smart Contract Protocols (51-75)",
+    "title": "[74] Charity Donation Direct-Impact Tracking with Milestone Validation",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "security"
+    ],
+    "location": "contracts/charity-tracker/src/lib.rs",
+    "code": "// Location: contracts/charity-tracker/src/lib.rs\n// Production requirement: Charity Donation Direct-Impact Tracking with Milestone Validation",
+    "description": "Transparent donor fund allocation with DAO-verified proof of delivery. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `contracts/charity-tracker/src/lib.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 75,
+    "tier": "Tier 2: Advanced DeFi & Smart Contract Protocols (51-75)",
+    "title": "[75] Gaming Item Crafting & Durability Degradation Engine",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "security"
+    ],
+    "location": "contracts/gaming-crafting/src/lib.rs",
+    "code": "// Location: contracts/gaming-crafting/src/lib.rs\n// Production requirement: Gaming Item Crafting & Durability Degradation Engine",
+    "description": "On-chain item crafting recipes with deterministic pseudo-random attribute generation. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `contracts/gaming-crafting/src/lib.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 76,
+    "tier": "Tier 3: Backend Scalability & Distributed Architecture (76-95)",
+    "title": "[76] Distributed Job Scheduling Engine with Redlock Mutual Exclusion",
+    "labels": [
+      "backend",
+      "architecture",
+      "scalability"
+    ],
+    "location": "backend/src/services/scheduler.js",
+    "code": "// Location: backend/src/services/scheduler.js\n// Production requirement: Distributed Job Scheduling Engine with Redlock Mutual Exclusion",
+    "description": "Ensures cron maintenance jobs execute on exactly one cluster replica. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `backend/src/services/scheduler.js`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 77,
+    "tier": "Tier 3: Backend Scalability & Distributed Architecture (76-95)",
+    "title": "[77] PostgreSQL Read-Replica Connection Pool & Query Routing Layer",
+    "labels": [
+      "backend",
+      "architecture",
+      "scalability"
+    ],
+    "location": "backend/src/database/pool.js",
+    "code": "// Location: backend/src/database/pool.js\n// Production requirement: PostgreSQL Read-Replica Connection Pool & Query Routing Layer",
+    "description": "Routes read-heavy analytics queries to read-replicas, preserving master write capacity. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `backend/src/database/pool.js`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 78,
+    "tier": "Tier 3: Backend Scalability & Distributed Architecture (76-95)",
+    "title": "[78] Winston Structured JSON Logger with Correlation IDs & PII Masking",
+    "labels": [
+      "backend",
+      "architecture",
+      "scalability"
+    ],
+    "location": "backend/src/utils/logger.js",
+    "code": "// Location: backend/src/utils/logger.js\n// Production requirement: Winston Structured JSON Logger with Correlation IDs & PII Masking",
+    "description": "Injects traceId into all log lines and sanitizes user private keys and secrets. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `backend/src/utils/logger.js`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 79,
+    "tier": "Tier 3: Backend Scalability & Distributed Architecture (76-95)",
+    "title": "[79] Automated Database Backup, S3 Snapshot & Disaster Recovery Verification",
+    "labels": [
+      "backend",
+      "architecture",
+      "scalability"
+    ],
+    "location": "src/bin/backup-tool.rs",
+    "code": "// Location: src/bin/backup-tool.rs\n// Production requirement: Automated Database Backup, S3 Snapshot & Disaster Recovery Verification",
+    "description": "Hourly automated database dumps with cryptographic checksum validation. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `src/bin/backup-tool.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 80,
+    "tier": "Tier 3: Backend Scalability & Distributed Architecture (76-95)",
+    "title": "[80] API Request De-Duplication & Idempotency Key Middleware",
+    "labels": [
+      "backend",
+      "architecture",
+      "scalability"
+    ],
+    "location": "backend/src/middleware/idempotency.js",
+    "code": "// Location: backend/src/middleware/idempotency.js\n// Production requirement: API Request De-Duplication & Idempotency Key Middleware",
+    "description": "Prevents double-submission of contract deployments using Redis idempotency locks. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `backend/src/middleware/idempotency.js`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 81,
+    "tier": "Tier 3: Backend Scalability & Distributed Architecture (76-95)",
+    "title": "[81] Multi-Tenant Organization Workspaces & RBAC Permission Matrix",
+    "labels": [
+      "backend",
+      "architecture",
+      "scalability"
+    ],
+    "location": "backend/src/middleware/rbac.js",
+    "code": "// Location: backend/src/middleware/rbac.js\n// Production requirement: Multi-Tenant Organization Workspaces & RBAC Permission Matrix",
+    "description": "Role-based access control for team contract deployments and shared API keys. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `backend/src/middleware/rbac.js`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 82,
+    "tier": "Tier 3: Backend Scalability & Distributed Architecture (76-95)",
+    "title": "[82] Real-Time Event Webhook Notification Dispatcher with HMAC Signatures",
+    "labels": [
+      "backend",
+      "architecture",
+      "scalability"
+    ],
+    "location": "backend/src/services/webhookService.js",
+    "code": "// Location: backend/src/services/webhookService.js\n// Production requirement: Real-Time Event Webhook Notification Dispatcher with HMAC Signatures",
+    "description": "Dispatches on-chain contract events to external user webhooks with exponential retry. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `backend/src/services/webhookService.js`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 83,
+    "tier": "Tier 3: Backend Scalability & Distributed Architecture (76-95)",
+    "title": "[83] Compiler Artifact S3 / Cloudflare R2 Persistent Storage Adapter",
+    "labels": [
+      "backend",
+      "architecture",
+      "scalability"
+    ],
+    "location": "backend/src/services/storageService.js",
+    "code": "// Location: backend/src/services/storageService.js\n// Production requirement: Compiler Artifact S3 / Cloudflare R2 Persistent Storage Adapter",
+    "description": "Uploads compiled WASM binaries and build logs to S3-compatible object storage. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `backend/src/services/storageService.js`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 84,
+    "tier": "Tier 3: Backend Scalability & Distributed Architecture (76-95)",
+    "title": "[84] OpenAPI 3.1 Specification Auto-Generator & Swagger UI Interactive Explorer",
+    "labels": [
+      "backend",
+      "architecture",
+      "scalability"
+    ],
+    "location": "backend/src/docs/openapi.js",
+    "code": "// Location: backend/src/docs/openapi.js\n// Production requirement: OpenAPI 3.1 Specification Auto-Generator & Swagger UI Interactive Explorer",
+    "description": "Generates dynamic OpenAPI documentation from Zod validation schemas. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `backend/src/docs/openapi.js`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 85,
+    "tier": "Tier 3: Backend Scalability & Distributed Architecture (76-95)",
+    "title": "[85] Dynamic Circuit Breaker Middleware with Half-Open Failure Rate Probing",
+    "labels": [
+      "backend",
+      "architecture",
+      "scalability"
+    ],
+    "location": "backend/src/middleware/circuitBreaker.js",
+    "code": "// Location: backend/src/middleware/circuitBreaker.js\n// Production requirement: Dynamic Circuit Breaker Middleware with Half-Open Failure Rate Probing",
+    "description": "Protects backend from cascading failures when upstream Horizon nodes degrade. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `backend/src/middleware/circuitBreaker.js`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 86,
+    "tier": "Tier 3: Backend Scalability & Distributed Architecture (76-95)",
+    "title": "[86] Database Query Performance Analyzer & Slow Query Alerting Interceptor",
+    "labels": [
+      "backend",
+      "architecture",
+      "scalability"
+    ],
+    "location": "backend/src/database/interceptor.js",
+    "code": "// Location: backend/src/database/interceptor.js\n// Production requirement: Database Query Performance Analyzer & Slow Query Alerting Interceptor",
+    "description": "Logs and alerts on any Knex query taking longer than 200ms in production. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `backend/src/database/interceptor.js`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 87,
+    "tier": "Tier 3: Backend Scalability & Distributed Architecture (76-95)",
+    "title": "[87] Secure Cookie Session Management with CSRF Token Double-Submit Validation",
+    "labels": [
+      "backend",
+      "architecture",
+      "scalability"
+    ],
+    "location": "backend/src/middleware/csrf.js",
+    "code": "// Location: backend/src/middleware/csrf.js\n// Production requirement: Secure Cookie Session Management with CSRF Token Double-Submit Validation",
+    "description": "Protects authenticated browser sessions from cross-site request forgery. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `backend/src/middleware/csrf.js`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 88,
+    "tier": "Tier 3: Backend Scalability & Distributed Architecture (76-95)",
+    "title": "[88] Stellar Horizon Ingestion Engine with Transaction Hash Indexing",
+    "labels": [
+      "backend",
+      "architecture",
+      "scalability"
+    ],
+    "location": "backend/src/services/horizonService.js",
+    "code": "// Location: backend/src/services/horizonService.js\n// Production requirement: Stellar Horizon Ingestion Engine with Transaction Hash Indexing",
+    "description": "Polls Horizon transaction endpoints with backoff and gap detection. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `backend/src/services/horizonService.js`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 89,
+    "tier": "Tier 3: Backend Scalability & Distributed Architecture (76-95)",
+    "title": "[89] Encrypted Key Management Service (KMS) Integration for Custodial Faucets",
+    "labels": [
+      "backend",
+      "architecture",
+      "scalability"
+    ],
+    "location": "backend/src/services/kmsService.js",
+    "code": "// Location: backend/src/services/kmsService.js\n// Production requirement: Encrypted Key Management Service (KMS) Integration for Custodial Faucets",
+    "description": "Stores testnet faucet keys inside AWS KMS / Vault with strict rotation. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `backend/src/services/kmsService.js`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 90,
+    "tier": "Tier 3: Backend Scalability & Distributed Architecture (76-95)",
+    "title": "[90] Health Check / Ready Check Probes with Deep Dependency Validation",
+    "labels": [
+      "backend",
+      "architecture",
+      "scalability"
+    ],
+    "location": "backend/src/routes/health.js",
+    "code": "// Location: backend/src/routes/health.js\n// Production requirement: Health Check / Ready Check Probes with Deep Dependency Validation",
+    "description": "Verifies PostgreSQL, Redis, Soroban RPC, and worker queue connectivity. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `backend/src/routes/health.js`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 91,
+    "tier": "Tier 3: Backend Scalability & Distributed Architecture (76-95)",
+    "title": "[91] HTTP/2 & TLS 1.3 Termination Support with Automatic Let's Encrypt Renewal",
+    "labels": [
+      "backend",
+      "architecture",
+      "scalability"
+    ],
+    "location": "backend/src/server.js",
+    "code": "// Location: backend/src/server.js\n// Production requirement: HTTP/2 & TLS 1.3 Termination Support with Automatic Let's Encrypt Renewal",
+    "description": "High-performance ALPN HTTP/2 support for multiplexed WebSocket and API traffic. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `backend/src/server.js`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 92,
+    "tier": "Tier 3: Backend Scalability & Distributed Architecture (76-95)",
+    "title": "[92] API Deprecation Warning Header (Sunset RFC 8594) Interceptor",
+    "labels": [
+      "backend",
+      "architecture",
+      "scalability"
+    ],
+    "location": "backend/src/middleware/deprecation.js",
+    "code": "// Location: backend/src/middleware/deprecation.js\n// Production requirement: API Deprecation Warning Header (Sunset RFC 8594) Interceptor",
+    "description": "Standardizes Sunset and Link headers on deprecated v1 endpoints. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `backend/src/middleware/deprecation.js`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 93,
+    "tier": "Tier 3: Backend Scalability & Distributed Architecture (76-95)",
+    "title": "[93] Contract Source Code Verification & Bytecode Hash Matching Service",
+    "labels": [
+      "backend",
+      "architecture",
+      "scalability"
+    ],
+    "location": "backend/src/services/verifyService.js",
+    "code": "// Location: backend/src/services/verifyService.js\n// Production requirement: Contract Source Code Verification & Bytecode Hash Matching Service",
+    "description": "Validates that uploaded Rust source compiles into exact on-chain WASM hash. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `backend/src/services/verifyService.js`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 94,
+    "tier": "Tier 3: Backend Scalability & Distributed Architecture (76-95)",
+    "title": "[94] Distributed Cache Invalidation Engine with Tag-Based Dependency Purging",
+    "labels": [
+      "backend",
+      "architecture",
+      "scalability"
+    ],
+    "location": "backend/src/services/cacheInvalidator.js",
+    "code": "// Location: backend/src/services/cacheInvalidator.js\n// Production requirement: Distributed Cache Invalidation Engine with Tag-Based Dependency Purging",
+    "description": "Invalidates all contract-related caches upon new ledger event publication. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `backend/src/services/cacheInvalidator.js`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 95,
+    "tier": "Tier 3: Backend Scalability & Distributed Architecture (76-95)",
+    "title": "[95] Microservice Service Discovery & gRPC Inter-Service Communication Layer",
+    "labels": [
+      "backend",
+      "architecture",
+      "scalability"
+    ],
+    "location": "backend/src/grpc/",
+    "code": "// Location: backend/src/grpc/\n// Production requirement: Microservice Service Discovery & gRPC Inter-Service Communication Layer",
+    "description": "Low-latency gRPC protocol buffers for communication between backend and indexer. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `backend/src/grpc/`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 96,
+    "tier": "Tier 4: Enterprise Frontend, WASM & Monaco Tooling (96-115)",
+    "title": "[96] Client-Side Rust WASM Compiler Engine via WebAssembly in Browser",
+    "labels": [
+      "frontend",
+      "wasm",
+      "monaco",
+      "performance"
+    ],
+    "location": "frontend/src/workers/wasmCompiler.ts",
+    "code": "// Location: frontend/src/workers/wasmCompiler.ts\n// Production requirement: Client-Side Rust WASM Compiler Engine via WebAssembly in Browser",
+    "description": "Compiles simple contracts directly in the browser using rustc wasm target. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `frontend/src/workers/wasmCompiler.ts`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 97,
+    "tier": "Tier 4: Enterprise Frontend, WASM & Monaco Tooling (96-115)",
+    "title": "[97] Monaco Editor Custom Soroban Rust Autocomplete & Hover Tooltip Provider",
+    "labels": [
+      "frontend",
+      "wasm",
+      "monaco",
+      "performance"
+    ],
+    "location": "frontend/src/components/MonacoCustomLanguage.ts",
+    "code": "// Location: frontend/src/components/MonacoCustomLanguage.ts\n// Production requirement: Monaco Editor Custom Soroban Rust Autocomplete & Hover Tooltip Provider",
+    "description": "Provides contextual auto-complete for Soroban SDK macros (#[contractimpl], Symbol, Address). This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `frontend/src/components/MonacoCustomLanguage.ts`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 98,
+    "tier": "Tier 4: Enterprise Frontend, WASM & Monaco Tooling (96-115)",
+    "title": "[98] Interactive Transaction Flow Visualizer & DAG Execution Graph",
+    "labels": [
+      "frontend",
+      "wasm",
+      "monaco",
+      "performance"
+    ],
+    "location": "frontend/src/components/ExecutionGraph.tsx",
+    "code": "// Location: frontend/src/components/ExecutionGraph.tsx\n// Production requirement: Interactive Transaction Flow Visualizer & DAG Execution Graph",
+    "description": "Renders cross-contract calls and token transfers as an interactive visual graph. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `frontend/src/components/ExecutionGraph.tsx`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 99,
+    "tier": "Tier 4: Enterprise Frontend, WASM & Monaco Tooling (96-115)",
+    "title": "[99] Custom Contract Template Gallery with Live Search, Filter & Forking",
+    "labels": [
+      "frontend",
+      "wasm",
+      "monaco",
+      "performance"
+    ],
+    "location": "frontend/src/components/TemplateGallery.tsx",
+    "code": "// Location: frontend/src/components/TemplateGallery.tsx\n// Production requirement: Custom Contract Template Gallery with Live Search, Filter & Forking",
+    "description": "Fast client-side indexing and instant cloning of verified protocol templates. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `frontend/src/components/TemplateGallery.tsx`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 100,
+    "tier": "Tier 4: Enterprise Frontend, WASM & Monaco Tooling (96-115)",
+    "title": "[100] Dynamic ABI Form Validation with Real-Time Type Constraint Checking",
+    "labels": [
+      "frontend",
+      "wasm",
+      "monaco",
+      "performance"
+    ],
+    "location": "frontend/src/components/ContractForm.tsx",
+    "code": "// Location: frontend/src/components/ContractForm.tsx\n// Production requirement: Dynamic ABI Form Validation with Real-Time Type Constraint Checking",
+    "description": "Validates user inputs against Soroban XDR types before simulation. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `frontend/src/components/ContractForm.tsx`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 101,
+    "tier": "Tier 4: Enterprise Frontend, WASM & Monaco Tooling (96-115)",
+    "title": "[101] Dark / Light / High-Contrast Theme Engine with CSS Custom Properties",
+    "labels": [
+      "frontend",
+      "wasm",
+      "monaco",
+      "performance"
+    ],
+    "location": "frontend/src/styles/theme.css",
+    "code": "// Location: frontend/src/styles/theme.css\n// Production requirement: Dark / Light / High-Contrast Theme Engine with CSS Custom Properties",
+    "description": "Accessible, flicker-free theme switching with system preference detection. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `frontend/src/styles/theme.css`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 102,
+    "tier": "Tier 4: Enterprise Frontend, WASM & Monaco Tooling (96-115)",
+    "title": "[102] Offline State Detection, Service Worker Caching & Sync Queue",
+    "labels": [
+      "frontend",
+      "wasm",
+      "monaco",
+      "performance"
+    ],
+    "location": "frontend/src/workers/serviceWorker.ts",
+    "code": "// Location: frontend/src/workers/serviceWorker.ts\n// Production requirement: Offline State Detection, Service Worker Caching & Sync Queue",
+    "description": "Enables offline contract editing and caches documentation/templates. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `frontend/src/workers/serviceWorker.ts`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 103,
+    "tier": "Tier 4: Enterprise Frontend, WASM & Monaco Tooling (96-115)",
+    "title": "[103] WASM Binary Decompiler & Disassembler (Wat Viewer) Tab",
+    "labels": [
+      "frontend",
+      "wasm",
+      "monaco",
+      "performance"
+    ],
+    "location": "frontend/src/components/WatViewer.tsx",
+    "code": "// Location: frontend/src/components/WatViewer.tsx\n// Production requirement: WASM Binary Decompiler & Disassembler (Wat Viewer) Tab",
+    "description": "Converts compiled WASM bytecode into readable WebAssembly Text format. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `frontend/src/components/WatViewer.tsx`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 104,
+    "tier": "Tier 4: Enterprise Frontend, WASM & Monaco Tooling (96-115)",
+    "title": "[104] Contract State Storage Browser with Key-Value Inspection & Diffing",
+    "labels": [
+      "frontend",
+      "wasm",
+      "monaco",
+      "performance"
+    ],
+    "location": "frontend/src/components/StorageBrowser.tsx",
+    "code": "// Location: frontend/src/components/StorageBrowser.tsx\n// Production requirement: Contract State Storage Browser with Key-Value Inspection & Diffing",
+    "description": "Inspects and diffs instance, persistent, and temporary contract storage entries. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `frontend/src/components/StorageBrowser.tsx`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 105,
+    "tier": "Tier 4: Enterprise Frontend, WASM & Monaco Tooling (96-115)",
+    "title": "[105] Accessibility (a11y) WCAG 2.1 AA Compliance Audit & Keyboard Navigation",
+    "labels": [
+      "frontend",
+      "wasm",
+      "monaco",
+      "performance"
+    ],
+    "location": "frontend/src/components/",
+    "code": "// Location: frontend/src/components/\n// Production requirement: Accessibility (a11y) WCAG 2.1 AA Compliance Audit & Keyboard Navigation",
+    "description": "Enforces keyboard traps in modals, ARIA labels, and color contrast compliance. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `frontend/src/components/`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 106,
+    "tier": "Tier 4: Enterprise Frontend, WASM & Monaco Tooling (96-115)",
+    "title": "[106] Automated Code Formatter (rustfmt) WebAssembly Worker Integration",
+    "labels": [
+      "frontend",
+      "wasm",
+      "monaco",
+      "performance"
+    ],
+    "location": "frontend/src/workers/rustfmtWorker.ts",
+    "code": "// Location: frontend/src/workers/rustfmtWorker.ts\n// Production requirement: Automated Code Formatter (rustfmt) WebAssembly Worker Integration",
+    "description": "Formats Rust code in the editor using wasm-bindgen rustfmt. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `frontend/src/workers/rustfmtWorker.ts`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 107,
+    "tier": "Tier 4: Enterprise Frontend, WASM & Monaco Tooling (96-115)",
+    "title": "[107] Contract Unit Test Runner & Assertion Output Console in Frontend",
+    "labels": [
+      "frontend",
+      "wasm",
+      "monaco",
+      "performance"
+    ],
+    "location": "frontend/src/components/TestConsole.tsx",
+    "code": "// Location: frontend/src/components/TestConsole.tsx\n// Production requirement: Contract Unit Test Runner & Assertion Output Console in Frontend",
+    "description": "Displays cargo test outputs with colored terminal emulation (xterm.js). This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `frontend/src/components/TestConsole.tsx`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 108,
+    "tier": "Tier 4: Enterprise Frontend, WASM & Monaco Tooling (96-115)",
+    "title": "[108] Real-Time Collaborative Code Editing with WebRTC / CRDTs (Yjs)",
+    "labels": [
+      "frontend",
+      "wasm",
+      "monaco",
+      "performance"
+    ],
+    "location": "frontend/src/services/collabService.ts",
+    "code": "// Location: frontend/src/services/collabService.ts\n// Production requirement: Real-Time Collaborative Code Editing with WebRTC / CRDTs (Yjs)",
+    "description": "Enables real-time peer-to-peer pair programming on smart contracts. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `frontend/src/services/collabService.ts`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 109,
+    "tier": "Tier 4: Enterprise Frontend, WASM & Monaco Tooling (96-115)",
+    "title": "[109] Gas Consumption Profiler & Resource Heatmap Visualizer",
+    "labels": [
+      "frontend",
+      "wasm",
+      "monaco",
+      "performance"
+    ],
+    "location": "frontend/src/components/GasProfiler.tsx",
+    "code": "// Location: frontend/src/components/GasProfiler.tsx\n// Production requirement: Gas Consumption Profiler & Resource Heatmap Visualizer",
+    "description": "Highlights expensive code lines based on Soroban CPU and memory metrics. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `frontend/src/components/GasProfiler.tsx`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 110,
+    "tier": "Tier 4: Enterprise Frontend, WASM & Monaco Tooling (96-115)",
+    "title": "[110] Dynamic Network Switcher with Custom RPC URL Persistence",
+    "labels": [
+      "frontend",
+      "wasm",
+      "monaco",
+      "performance"
+    ],
+    "location": "frontend/src/components/NetworkSwitcher.tsx",
+    "code": "// Location: frontend/src/components/NetworkSwitcher.tsx\n// Production requirement: Dynamic Network Switcher with Custom RPC URL Persistence",
+    "description": "Seamlessly switch between Mainnet, Testnet, Futurenet, and local standalone RPCs. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `frontend/src/components/NetworkSwitcher.tsx`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 111,
+    "tier": "Tier 4: Enterprise Frontend, WASM & Monaco Tooling (96-115)",
+    "title": "[111] Multi-Tab Workspace File Manager with Virtual File Tree",
+    "labels": [
+      "frontend",
+      "wasm",
+      "monaco",
+      "performance"
+    ],
+    "location": "frontend/src/components/FileTree.tsx",
+    "code": "// Location: frontend/src/components/FileTree.tsx\n// Production requirement: Multi-Tab Workspace File Manager with Virtual File Tree",
+    "description": "Supports multi-file Rust projects (src/lib.rs, src/test.rs, Cargo.toml). This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `frontend/src/components/FileTree.tsx`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 112,
+    "tier": "Tier 4: Enterprise Frontend, WASM & Monaco Tooling (96-115)",
+    "title": "[112] Interactive Debugger with Step-by-Step Contract Instruction Stepper",
+    "labels": [
+      "frontend",
+      "wasm",
+      "monaco",
+      "performance"
+    ],
+    "location": "frontend/src/components/Debugger.tsx",
+    "code": "// Location: frontend/src/components/Debugger.tsx\n// Production requirement: Interactive Debugger with Step-by-Step Contract Instruction Stepper",
+    "description": "Step through contract execution and inspect local variables and call stack. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `frontend/src/components/Debugger.tsx`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 113,
+    "tier": "Tier 4: Enterprise Frontend, WASM & Monaco Tooling (96-115)",
+    "title": "[113] Contract Deployment Wizard with Step-by-Step Parameter Wizard",
+    "labels": [
+      "frontend",
+      "wasm",
+      "monaco",
+      "performance"
+    ],
+    "location": "frontend/src/components/DeployWizard.tsx",
+    "code": "// Location: frontend/src/components/DeployWizard.tsx\n// Production requirement: Contract Deployment Wizard with Step-by-Step Parameter Wizard",
+    "description": "Guides users through initialization args, constructor auth, and salt generation. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `frontend/src/components/DeployWizard.tsx`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 114,
+    "tier": "Tier 4: Enterprise Frontend, WASM & Monaco Tooling (96-115)",
+    "title": "[114] Export Project to Zip / GitHub Repository One-Click Integration",
+    "labels": [
+      "frontend",
+      "wasm",
+      "monaco",
+      "performance"
+    ],
+    "location": "frontend/src/components/ExportModal.tsx",
+    "code": "// Location: frontend/src/components/ExportModal.tsx\n// Production requirement: Export Project to Zip / GitHub Repository One-Click Integration",
+    "description": "Packages playground projects into fully configured cargo repositories. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `frontend/src/components/ExportModal.tsx`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 115,
+    "tier": "Tier 4: Enterprise Frontend, WASM & Monaco Tooling (96-115)",
+    "title": "[115] Responsive Mobile/Tablet Layout with Collapsible Sidebars & Touch Controls",
+    "labels": [
+      "frontend",
+      "wasm",
+      "monaco",
+      "performance"
+    ],
+    "location": "frontend/src/app/page.tsx",
+    "code": "// Location: frontend/src/app/page.tsx\n// Production requirement: Responsive Mobile/Tablet Layout with Collapsible Sidebars & Touch Controls",
+    "description": "Optimized touch-friendly UI for tablets and mobile devices. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `frontend/src/app/page.tsx`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 116,
+    "tier": "Tier 5: Indexer Quorum, High-Throughput & CI/CD Hardening (116-130)",
+    "title": "[116] Indexer Quorum Consensus Tracker & Validator Health Telemetry",
+    "labels": [
+      "indexer",
+      "ci-cd",
+      "devops",
+      "infrastructure"
+    ],
+    "location": "indexer/src/quorum/",
+    "code": "// Location: indexer/src/quorum/\n// Production requirement: Indexer Quorum Consensus Tracker & Validator Health Telemetry",
+    "description": "Tracks Stellar validator votes, quorum sets, and SCP consensus rounds in real-time. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `indexer/src/quorum/`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 117,
+    "tier": "Tier 5: Indexer Quorum, High-Throughput & CI/CD Hardening (116-130)",
+    "title": "[117] High-Throughput Batch Event Ingestion Engine with PostgreSQL COPY Protocol",
+    "labels": [
+      "indexer",
+      "ci-cd",
+      "devops",
+      "infrastructure"
+    ],
+    "location": "indexer/src/db/batch.rs",
+    "code": "// Location: indexer/src/db/batch.rs\n// Production requirement: High-Throughput Batch Event Ingestion Engine with PostgreSQL COPY Protocol",
+    "description": "Ingests 10,000 events/second using binary COPY streams rather than INSERTs. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `indexer/src/db/batch.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 118,
+    "tier": "Tier 5: Indexer Quorum, High-Throughput & CI/CD Hardening (116-130)",
+    "title": "[118] GraphQL Real-Time Subscriptions for Contract Event Filtering via WebSockets",
+    "labels": [
+      "indexer",
+      "ci-cd",
+      "devops",
+      "infrastructure"
+    ],
+    "location": "indexer/src/graphql/subscriptions.rs",
+    "code": "// Location: indexer/src/graphql/subscriptions.rs\n// Production requirement: GraphQL Real-Time Subscriptions for Contract Event Filtering via WebSockets",
+    "description": "Allows frontend clients to subscribe to specific contract topics in real-time. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `indexer/src/graphql/subscriptions.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 119,
+    "tier": "Tier 5: Indexer Quorum, High-Throughput & CI/CD Hardening (116-130)",
+    "title": "[119] SQL Query Optimizer & Multi-Column Composite Indexing for Contract Events",
+    "labels": [
+      "indexer",
+      "ci-cd",
+      "devops",
+      "infrastructure"
+    ],
+    "location": "indexer/migrations/postgres/",
+    "code": "// Location: indexer/migrations/postgres/\n// Production requirement: SQL Query Optimizer & Multi-Column Composite Indexing for Contract Events",
+    "description": "Adds composite indexes on (contract_id, topic0, ledger_sequence) for sub-10ms queries. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `indexer/migrations/postgres/`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 120,
+    "tier": "Tier 5: Indexer Quorum, High-Throughput & CI/CD Hardening (116-130)",
+    "title": "[120] Indexer Prometheus Metrics Exporter & Ingestion Lag Telemetry",
+    "labels": [
+      "indexer",
+      "ci-cd",
+      "devops",
+      "infrastructure"
+    ],
+    "location": "indexer/src/metrics.rs",
+    "code": "// Location: indexer/src/metrics.rs\n// Production requirement: Indexer Prometheus Metrics Exporter & Ingestion Lag Telemetry",
+    "description": "Exposes current ingested ledger sequence vs network tip for lag monitoring. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `indexer/src/metrics.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 121,
+    "tier": "Tier 5: Indexer Quorum, High-Throughput & CI/CD Hardening (116-130)",
+    "title": "[121] Multi-Arch Docker Images (linux/amd64, linux/arm64) for Apple Silicon & Cloud",
+    "labels": [
+      "indexer",
+      "ci-cd",
+      "devops",
+      "infrastructure"
+    ],
+    "location": ".github/workflows/docker.yml",
+    "code": "// Location: .github/workflows/docker.yml\n// Production requirement: Multi-Arch Docker Images (linux/amd64, linux/arm64) for Apple Silicon & Cloud",
+    "description": "Automates multi-architecture Docker image builds with GitHub Actions cache. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `.github/workflows/docker.yml`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 122,
+    "tier": "Tier 5: Indexer Quorum, High-Throughput & CI/CD Hardening (116-130)",
+    "title": "[122] Cargo Audit & Dependency Vulnerability Scanner in CI Pipeline",
+    "labels": [
+      "indexer",
+      "ci-cd",
+      "devops",
+      "infrastructure"
+    ],
+    "location": ".github/workflows/security.yml",
+    "code": "// Location: .github/workflows/security.yml\n// Production requirement: Cargo Audit & Dependency Vulnerability Scanner in CI Pipeline",
+    "description": "Fails pull requests introducing Rust or NPM dependencies with known CVEs. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `.github/workflows/security.yml`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 123,
+    "tier": "Tier 5: Indexer Quorum, High-Throughput & CI/CD Hardening (116-130)",
+    "title": "[123] Synthetic Load Testing Suite with k6 & 1000 Concurrent VUs",
+    "labels": [
+      "indexer",
+      "ci-cd",
+      "devops",
+      "infrastructure"
+    ],
+    "location": "tests/load/k6-script.js",
+    "code": "// Location: tests/load/k6-script.js\n// Production requirement: Synthetic Load Testing Suite with k6 & 1000 Concurrent VUs",
+    "description": "Automates load tests validating 1000 req/s with p99 latency < 150ms. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `tests/load/k6-script.js`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 124,
+    "tier": "Tier 5: Indexer Quorum, High-Throughput & CI/CD Hardening (116-130)",
+    "title": "[124] Terraform Infrastructure-as-Code for AWS / GCP Production Cluster",
+    "labels": [
+      "indexer",
+      "ci-cd",
+      "devops",
+      "infrastructure"
+    ],
+    "location": "deploy/terraform/",
+    "code": "// Location: deploy/terraform/\n// Production requirement: Terraform Infrastructure-as-Code for AWS / GCP Production Cluster",
+    "description": "Provisions VPC, EKS/GKE Kubernetes cluster, Managed PostgreSQL, and Redis. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `deploy/terraform/`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 125,
+    "tier": "Tier 5: Indexer Quorum, High-Throughput & CI/CD Hardening (116-130)",
+    "title": "[125] Helm Charts for Production Kubernetes Deployment with Horizontal Pod Autoscaler",
+    "labels": [
+      "indexer",
+      "ci-cd",
+      "devops",
+      "infrastructure"
+    ],
+    "location": "deploy/helm/",
+    "code": "// Location: deploy/helm/\n// Production requirement: Helm Charts for Production Kubernetes Deployment with Horizontal Pod Autoscaler",
+    "description": "Configures HPA targeting 70% CPU utilization across backend compiler pods. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `deploy/helm/`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 126,
+    "tier": "Tier 5: Indexer Quorum, High-Throughput & CI/CD Hardening (116-130)",
+    "title": "[126] Zero-Downtime Rolling Deployment & Database Migration Helm Hooks",
+    "labels": [
+      "indexer",
+      "ci-cd",
+      "devops",
+      "infrastructure"
+    ],
+    "location": "deploy/helm/templates/migrations.yaml",
+    "code": "// Location: deploy/helm/templates/migrations.yaml\n// Production requirement: Zero-Downtime Rolling Deployment & Database Migration Helm Hooks",
+    "description": "Executes database migrations in pre-upgrade Kubernetes jobs before pod rollout. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `deploy/helm/templates/migrations.yaml`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 127,
+    "tier": "Tier 5: Indexer Quorum, High-Throughput & CI/CD Hardening (116-130)",
+    "title": "[127] Security CodeQL Static Analysis & Semgrep SAST Scanning in CI",
+    "labels": [
+      "indexer",
+      "ci-cd",
+      "devops",
+      "infrastructure"
+    ],
+    "location": ".github/workflows/codeql.yml",
+    "code": "// Location: .github/workflows/codeql.yml\n// Production requirement: Security CodeQL Static Analysis & Semgrep SAST Scanning in CI",
+    "description": "Scans pull requests for CWE vulnerabilities, command injections, and data leaks. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `.github/workflows/codeql.yml`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 128,
+    "tier": "Tier 5: Indexer Quorum, High-Throughput & CI/CD Hardening (116-130)",
+    "title": "[128] Automated Release Changelog Generator & Semantic Versioning Workflow",
+    "labels": [
+      "indexer",
+      "ci-cd",
+      "devops",
+      "infrastructure"
+    ],
+    "location": ".github/workflows/release.yml",
+    "code": "// Location: .github/workflows/release.yml\n// Production requirement: Automated Release Changelog Generator & Semantic Versioning Workflow",
+    "description": "Generates signed GitHub releases and Docker tags based on Conventional Commits. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `.github/workflows/release.yml`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 129,
+    "tier": "Tier 5: Indexer Quorum, High-Throughput & CI/CD Hardening (116-130)",
+    "title": "[129] Disaster Recovery Replication Runbook & Chaos Engineering Test Harness",
+    "labels": [
+      "indexer",
+      "ci-cd",
+      "devops",
+      "infrastructure"
+    ],
+    "location": "docs/disaster-recovery.md",
+    "code": "// Location: docs/disaster-recovery.md\n// Production requirement: Disaster Recovery Replication Runbook & Chaos Engineering Test Harness",
+    "description": "Automates chaos tests (killing Redis, simulating RPC dropouts, DB partition). This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `docs/disaster-recovery.md`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 130,
+    "tier": "Tier 5: Indexer Quorum, High-Throughput & CI/CD Hardening (116-130)",
+    "title": "[130] Continuous Performance Benchmarking Suite with Criterion.rs for Contracts",
+    "labels": [
+      "indexer",
+      "ci-cd",
+      "devops",
+      "infrastructure"
+    ],
+    "location": "benches/contract_bench.rs",
+    "code": "// Location: benches/contract_bench.rs\n// Production requirement: Continuous Performance Benchmarking Suite with Criterion.rs for Contracts",
+    "description": "Tracks CPU instruction and memory consumption regressions across contract updates. This is a critical component required for enterprise scalability, resilience, and production operation.",
+    "impact": "Lacking this component prevents high-throughput scaling, creates security or user experience gaps, and blocks enterprise production readiness.",
+    "fix": [
+      "Implement production-grade logic in `benches/contract_bench.rs`.",
+      "Ensure backward compatibility and adherence to Soroban standards.",
+      "Add comprehensive test coverage and documentation."
+    ]
+  },
+  {
+    "id": 131,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[131] Account Abstraction & Passkey / WebAuthn (secp256r1) Contract Authenticator",
+    "labels": [
+      "contract",
+      "security",
+      "identity",
+      "rust",
+      "premium"
+    ],
+    "location": "contracts/account-abstraction/src/lib.rs",
+    "code": "// contracts/account-abstraction/src/lib.rs\n// Verifies secp256r1 WebAuthn passkey signatures on-chain\npub fn verify_passkey_auth(env: Env, client_data_json: Bytes, authenticator_data: Bytes, signature: BytesN<64>) -> bool {\n  // Requires parsing clientDataJSON challenge and ECDSA secp256r1 signature verification\n}",
+    "description": "Smart contract account abstraction implementing native WebAuthn (FIDO2 / Passkey) cryptographic verification over secp256r1 curve, allowing users to sign transactions using TouchID/FaceID without mnemonic seed phrases.",
+    "impact": "Unlocks mass-market onboarding by eliminating seed phrase management while maintaining hardware-grade biometric security.",
+    "fix": [
+      "Implement SHA-256 clientDataJSON hashing and challenge extraction in Soroban Rust.",
+      "Verify authenticatorData flags (User Presence, User Verification).",
+      "Perform secp256r1 signature verification against stored public key."
+    ]
+  },
+  {
+    "id": 132,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[132] Dynamic Concentrated Liquidity AMM with Tick Math & Range Orders",
+    "labels": [
+      "contract",
+      "defi",
+      "amm",
+      "rust",
+      "premium"
+    ],
+    "location": "contracts/concentrated-liquidity/src/lib.rs",
+    "code": "// contracts/concentrated-liquidity/src/lib.rs\n// Implements Uniswap v3 style tick math for capital-efficient liquidity\npub fn mint_position(env: Env, tick_lower: i32, tick_upper: i32, liquidity: u128) -> PositionKey {\n  // Calculates sqrtPriceX96 and updates tick index bitmap\n}",
+    "description": "Concentrated liquidity AMM protocol allowing liquidity providers to allocate capital within customized price intervals [tick_lower, tick_upper], providing up to 4000x capital efficiency compared to standard x*y=k pools.",
+    "impact": "Drastically deepens liquidity on Stellar DEX with minimal capital, reducing slippage for high-volume token trades.",
+    "fix": [
+      "Implement Q64.96 fixed point tick math (get_sqrt_ratio_at_tick, get_tick_at_sqrt_ratio).",
+      "Maintain a sparse bitmap of initialized ticks for constant-gas cross-tick swaps.",
+      "Calculate uncollected swap fees per unit of liquidity across tick transitions."
+    ]
+  },
+  {
+    "id": 133,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[133] Zero-Knowledge zk-SNARK / PlonK Proof Verifier for Private Whitelist & KYC",
+    "labels": [
+      "contract",
+      "security",
+      "defi",
+      "rust",
+      "premium"
+    ],
+    "location": "contracts/zk-kyc/src/lib.rs",
+    "code": "// contracts/zk-kyc/src/lib.rs\n// Verifies Groth16 / BN254 zk-SNARK proofs on-chain\npub fn verify_compliance_proof(env: Env, proof: Groth16Proof, public_inputs: Vec<BytesN<32>>) -> bool {\n  // Elliptic curve pairing check (e(A, B) = e(alpha, beta) * e(x, gamma) * e(C, delta))\n}",
+    "description": "On-chain zero-knowledge proof verification contract allowing users to prove regulatory KYC compliance, accredited investor status, or whitelist membership without revealing their real-world identity or wallet history.",
+    "impact": "Enables institutional DeFi compliance while preserving 100% user privacy and data sovereignty.",
+    "fix": [
+      "Implement BN254 G1/G2 point decompression and scalar multiplication in Soroban.",
+      "Verify Groth16 pairing equality against public inputs.",
+      "Prevent proof replay attacks using nullifier hash registry."
+    ]
+  },
+  {
+    "id": 134,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[134] Two-Phase Collateralized Debt Auction & Bad-Debt Socialization Protocol",
+    "labels": [
+      "contract",
+      "defi",
+      "lending",
+      "rust",
+      "premium"
+    ],
+    "location": "contracts/lending-pool/src/auction.rs",
+    "code": "// contracts/lending-pool/src/auction.rs\npub fn kick_liquidation_auction(env: Env, vault_id: u64, bad_debt: i128) -> u64 {\n  // Dutch auction decreasing price over time until bidder covers bad debt\n}",
+    "description": "Automated two-phase English and Dutch auction protocol to liquidate under-collateralized lending positions during sharp market downturns, with reserve fund fallback to socialize unrecoverable debt.",
+    "impact": "Prevents lending protocol insolvency during black-swan market crashes and eliminates liquidation MEV sandwich attacks.",
+    "fix": [
+      "Implement continuous price-decay curve for Dutch liquidation auctions.",
+      "Add atomic debt burn upon bidder token transfer.",
+      "Create secondary stability pool fallback for unbid auctions."
+    ]
+  },
+  {
+    "id": 135,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[135] Cross-Chain Interoperability Protocol (CCIP) Message Relay & Gas Refunding",
+    "labels": [
+      "contract",
+      "devops",
+      "security",
+      "rust",
+      "premium"
+    ],
+    "location": "contracts/ccip-bridge/src/lib.rs",
+    "code": "// contracts/ccip-bridge/src/lib.rs\npub fn execute_cross_chain_message(env: Env, source_chain_id: u64, message_payload: Bytes, merkle_proof: Vec<BytesN<32>>) {\n  // Validates decentralized relayer threshold signatures and Merkle root inclusion\n}",
+    "description": "Cross-chain communication and state bridge protocol with cryptographic Merkle proof verification, message replay protection, and automated execution gas fee refunding.",
+    "impact": "Enables Soroban contracts to trustlessly trigger and react to contract calls originating on Ethereum, Solana, and Cosmos.",
+    "fix": [
+      "Implement Merkle Patricia Trie / SHA-256 proof validator.",
+      "Track processed message nonces per source chain.",
+      "Calculate dynamic gas refunds for relayers in native XLM."
+    ]
+  },
+  {
+    "id": 136,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[136] Flash Mint Stablecoin Engine with Dynamic Stability Fee & Debt Ceiling",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "premium"
+    ],
+    "location": "contracts/stablecoin/src/flash_mint.rs",
+    "code": "// contracts/stablecoin/src/flash_mint.rs\n// EIP-3156 compliant flash minting without upfront collateral\npub fn flash_mint(env: Env, receiver: Address, amount: i128, params: Bytes) -> bool {\n  // Mints tokens, invokes receiver callback, burns amount + fee\n}",
+    "description": "EIP-3156 compliant flash-minting engine allowing arbitrageurs to mint millions in synthetic stablecoins with zero initial collateral, provided the full amount plus fee is burned within the same transaction.",
+    "impact": "Ensures instant cross-DEX price parity and maximizes protocol revenue through flash mint fees.",
+    "fix": [
+      "Implement flash_mint with dynamic stability fee calculation.",
+      "Enforce strict single-transaction burn validation with reentrancy protection.",
+      "Set global and per-transaction debt ceilings."
+    ]
+  },
+  {
+    "id": 137,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[137] Multi-Oracle Medianizer with Outlier Rejection & Circuit-Breaker Freeze",
+    "labels": [
+      "contract",
+      "oracle",
+      "security",
+      "rust",
+      "premium"
+    ],
+    "location": "contracts/oracle/src/medianizer.rs",
+    "code": "// contracts/oracle/src/medianizer.rs\npub fn compute_median_price(env: Env, reports: Vec<PriceReport>) -> Result<i128, OracleError> {\n  // Sorts reports, rejects statistical outliers (>2 standard deviations), checks TWAP\n}",
+    "description": "Decentralized oracle aggregator combining price reports from 7+ independent oracles (Chainlink, Pyth, Band, Stellar Horizon), filtering statistical outliers, and freezing feeds if prices deviate >15% in <5 minutes.",
+    "impact": "Guarantees DeFi protocols never execute on manipulated, stale, or flash-loan-attacked price data.",
+    "fix": [
+      "Implement quickselect median calculation in Soroban Rust.",
+      "Enforce maximum report age threshold (30 seconds).",
+      "Add circuit breaker freeze triggering governance notification on price anomalies."
+    ]
+  },
+  {
+    "id": 138,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[138] Time-Weighted Average Market Maker (TWAMM) for Long-Term Order Execution",
+    "labels": [
+      "contract",
+      "defi",
+      "amm",
+      "rust",
+      "premium"
+    ],
+    "location": "contracts/twamm/src/lib.rs",
+    "code": "// contracts/twamm/src/lib.rs\n// Breaks large orders into infinite sub-orders executed smoothly across ledgers\npub fn submit_twamm_order(env: Env, token_in: Address, amount: i128, duration_ledgers: u32) -> u64 {\n  // Inserts order into lazy execution order pool\n}",
+    "description": "Time-Weighted Average Market Maker protocol allowing institutional traders to execute multi-million dollar swaps broken into continuous micro-trades across thousands of ledgers without moving market spot prices.",
+    "impact": "Attracts institutional capital by minimizing slippage and MEV front-running on large trades.",
+    "fix": [
+      "Implement embedded piecewise-linear execution formulas in AMM pool.",
+      "Lazy-evaluate pool state on swap interactions to conserve gas.",
+      "Support order cancellation with proportional refund of unexecuted balances."
+    ]
+  },
+  {
+    "id": 139,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[139] Synthetic Stock & Commodity Index Derivative with Perpetual Funding Rate",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "premium"
+    ],
+    "location": "contracts/synthetic-derivatives/src/lib.rs",
+    "code": "// contracts/synthetic-derivatives/src/lib.rs\npub fn update_funding_rate(env: Env, market_id: Symbol, mark_price: i128, index_price: i128) {\n  // Calculates 8-hour funding payment exchanged between longs and shorts\n}",
+    "description": "Perpetual synthetic derivatives market supporting equity indices (S&P 500, Nasdaq) and commodities (Gold, Crude Oil) with continuous funding rate adjustments anchoring contract price to real-world index values.",
+    "impact": "Enables 24/7 global trading of traditional financial assets on Stellar network.",
+    "fix": [
+      "Implement funding rate clamp and continuous interest rate accrual.",
+      "Support cross-margin position management and automated liquidation triggers.",
+      "Emit real-time trade execution and funding payment telemetry."
+    ]
+  },
+  {
+    "id": 140,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[140] Decentralized Identity Soulbound Token (SBT) with Cryptographic Attestations",
+    "labels": [
+      "contract",
+      "identity",
+      "security",
+      "rust",
+      "premium"
+    ],
+    "location": "contracts/soulbound-token/src/lib.rs",
+    "code": "// contracts/soulbound-token/src/lib.rs\n// Non-transferable credential token with cryptographic issuer attestations\npub fn issue_attestation(env: Env, recipient: Address, claim_type: Symbol, expiration: u64, proof: Bytes) {\n  // Stores verified claim locked to recipient address\n}",
+    "description": "Soulbound token implementation binding verifiable credentials, developer reputation scores, and governance participation badges permanently to user Stellar addresses with revocation capabilities.",
+    "impact": "Forms the foundation for on-chain undercollateralized lending based on verifiable credit history.",
+    "fix": [
+      "Enforce non-transferable token standard blocking transfer and transfer_from.",
+      "Implement issuer signature verification and expiration tracking.",
+      "Support burner key recovery via social recovery guardians."
+    ]
+  },
+  {
+    "id": 141,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[141] Liquid Staking Derivative Unbonding Queue & Slashing Insurance Fund",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "premium"
+    ],
+    "location": "contracts/lsd-pool/src/queue.rs",
+    "code": "// contracts/lsd-pool/src/queue.rs\npub fn request_unbond(env: Env, staker: Address, lsd_amount: i128) -> u64 {\n  // Enqueues unbonding request with 14-day epoch timer and claimable XLM shares\n}",
+    "description": "Liquid Staking protocol unbonding queue managing validator withdrawal cycles, FIFO claim redemptions, and an automated protocol insurance reserve protecting stakers from validator slashing penalties.",
+    "impact": "Provides safe, liquid staking on Stellar with zero risk of capital lockup contagion.",
+    "fix": [
+      "Implement FIFO circular unbonding queue in persistent storage.",
+      "Calculate epoch-based exchange rate (stXLM -> XLM) reflecting earned rewards.",
+      "Automate insurance fund deduction upon validator downtime penalties."
+    ]
+  },
+  {
+    "id": 142,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[142] Automated Yield Vault with Flash-Loan Powered Leverage Looping",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "premium"
+    ],
+    "location": "contracts/leverage-vault/src/lib.rs",
+    "code": "// contracts/leverage-vault/src/lib.rs\n// Flash loans funds to multiply supply/borrow yield loop up to 5x leverage\npub fn leverage_deposit(env: Env, user: Address, initial_capital: i128, target_leverage: u32) {\n  // Flash borrow -> Supply -> Borrow -> Repay flash loan\n}",
+    "description": "Automated DeFi vault that leverages flash loans to execute atomic recursive supply-and-borrow loops, magnifying staking and lending yields up to 5x while monitoring health factors to prevent liquidation.",
+    "impact": "Delivers industry-leading yield optimization strategies to retail users in a single click.",
+    "fix": [
+      "Integrate atomic flash loan callback loop with lending pool.",
+      "Implement automated deleveraging unwind triggered when collateral ratio approaches safety threshold.",
+      "Deduct performance fee and compound earnings back into vault shares."
+    ]
+  },
+  {
+    "id": 143,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[143] Decentralized Limit Order Book (CLOB) with Binary Search Tree Execution",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "premium"
+    ],
+    "location": "contracts/order-book/src/lib.rs",
+    "code": "// contracts/order-book/src/lib.rs\n// On-chain Central Limit Order Book with price-time priority matching\npub fn place_limit_order(env: Env, trader: Address, side: OrderSide, price: u64, quantity: i128) -> u64 {\n  // Matches against existing orders or inserts into sorted Red-Black / AVL tree\n}",
+    "description": "On-chain Central Limit Order Book (CLOB) matching engine with price-time priority, supporting limit orders, stop-loss orders, partial fills, and maker-taker fee structures.",
+    "impact": "Provides a traditional professional trading experience with zero slippage for limit orders.",
+    "fix": [
+      "Implement gas-optimized sorted linked list / radix tree for active price levels.",
+      "Execute partial fill matching in constant ledger time.",
+      "Support batched order cancellation in a single transaction."
+    ]
+  },
+  {
+    "id": 144,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[144] Multi-Asset Generalized Dutch Auction Protocol for Fair Token Offerings",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "premium"
+    ],
+    "location": "contracts/dutch-auction/src/batch.rs",
+    "code": "// contracts/dutch-auction/src/batch.rs\npub fn calculate_clearing_price(env: Env, auction_id: u64) -> i128 {\n  // Uniform clearing price where cumulative demand equals total token supply\n}",
+    "description": "Fair token launch auction mechanism using batch Dutch auctions with uniform clearing price settlement, eliminating gas wars, bot front-running, and token dumping during initial public offerings.",
+    "impact": "Guarantees fair token distribution and capital formation for projects launching on Stellar.",
+    "fix": [
+      "Collect sealed bids over a multi-day bidding window.",
+      "Calculate uniform clearing price intersecting supply and demand curves.",
+      "Distribute tokens and refund excess bid funds atomically."
+    ]
+  },
+  {
+    "id": 145,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[145] Decentralized Insurance Actuarial Risk Pool with Dynamic Premium Pricing",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "premium"
+    ],
+    "location": "contracts/insurance-pool/src/pricing.rs",
+    "code": "// contracts/insurance-pool/src/pricing.rs\npub fn quote_premium(env: Env, policy_value: i128, duration: u64, risk_factor: u32) -> i128 {\n  // Actuarial bonding curve adjusting premium based on capital pool utilization\n}",
+    "description": "Decentralized mutual insurance protocol with dynamic actuarial pricing bonding curves, capital underwriting tranches, and multi-signature claim assessment committees.",
+    "impact": "Protects smart contract users from hacks, de-pegs, and smart contract failure risks.",
+    "fix": [
+      "Implement utilization-based premium calculation formula.",
+      "Support LP capital staking in senior (low-risk) and junior (high-yield) tranches.",
+      "Automate payout distribution upon verified claim approval."
+    ]
+  },
+  {
+    "id": 146,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[146] Dynamic Fee Automated Market Maker with Real-Time Volatility Tracking",
+    "labels": [
+      "contract",
+      "defi",
+      "amm",
+      "rust",
+      "premium"
+    ],
+    "location": "contracts/dynamic-amm/src/volatility.rs",
+    "code": "// contracts/dynamic-amm/src/volatility.rs\npub fn get_dynamic_fee(env: Env) -> u32 {\n  // Calculates rolling 1-hour realized volatility and scales fee between 0.05% and 1.5%\n}",
+    "description": "AMM pool that dynamically increases swap fees during high volatility to protect liquidity providers from Toxic Arbitrage Flow (LVR - Loss Versus Rebalancing), and lowers fees during calm periods to maximize volume.",
+    "impact": "Significantly improves LP profitability and reduces impermanent loss on volatile currency pairs.",
+    "fix": [
+      "Compute exponential moving average (EMA) of price return variance on-chain.",
+      "Dynamically scale swap fee bps in real time.",
+      "Cap maximum dynamic fee at 200 bps to protect retail traders."
+    ]
+  },
+  {
+    "id": 147,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[147] Time-Lock Governance with Quadratic Voting & Sybil-Proof Stake Delegation",
+    "labels": [
+      "contract",
+      "governance",
+      "security",
+      "rust",
+      "premium"
+    ],
+    "location": "contracts/dao-governance/src/quadratic.rs",
+    "code": "// contracts/dao-governance/src/quadratic.rs\npub fn cast_quadratic_vote(env: Env, voter: Address, proposal_id: u64, votes: u64) {\n  // Cost in voting tokens = votes^2; prevents whale domination\n}",
+    "description": "Decentralized governance module implementing Quadratic Voting (voting weight = sqrt(staked tokens)) and stake delegation with time-locked snapshot checkpoints.",
+    "impact": "Eliminates plutocracy and whale dominance in protocol governance, giving broader community members meaningful voting influence.",
+    "fix": [
+      "Implement integer square-root algorithm in Soroban SDK.",
+      "Record historical voting power snapshots at proposal creation ledger.",
+      "Support partial and delegated voting power assignment."
+    ]
+  },
+  {
+    "id": 148,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[148] Real-World Asset (RWA) Revenue Distribution Waterfall with Senior/Junior Tranches",
+    "labels": [
+      "contract",
+      "defi",
+      "rust",
+      "premium"
+    ],
+    "location": "contracts/rwa-waterfall/src/lib.rs",
+    "code": "// contracts/rwa-waterfall/src/lib.rs\npub fn distribute_revenue(env: Env, incoming_usdc: i128) {\n  // 1st: Senior debt interest -> 2nd: Junior debt -> 3rd: Equity residual dividend\n}",
+    "description": "Structured finance waterfall contract for tokenized real estate, private credit, and infrastructure assets, distributing rental and dividend income hierarchically across risk tranches.",
+    "impact": "Enables institutional-grade real-world asset securitization on Stellar.",
+    "fix": [
+      "Implement multi-tier waterfall priority payment queue.",
+      "Calculate interest accrual and amortization schedules per tranche.",
+      "Enforce compliance whitelist for investor dividend claims."
+    ]
+  },
+  {
+    "id": 149,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[149] Cross-Contract Invocation Transaction Bundle Executor with Atomic Revert",
+    "labels": [
+      "contract",
+      "security",
+      "rust",
+      "premium"
+    ],
+    "location": "contracts/bundle-executor/src/lib.rs",
+    "code": "// contracts/bundle-executor/src/lib.rs\npub fn execute_batch_bundle(env: Env, calls: Vec<ContractCall>) -> Vec<Bytes> {\n  // Executes sequence of contract invocations; reverts everything if any call fails\n}",
+    "description": "Multi-call transaction bundler that allows dApps and users to bundle multiple complex interactions (e.g. approve token -> deposit -> borrow -> swap -> stake) into a single atomic transaction.",
+    "impact": "Reduces user transaction signing overhead from 5 prompts to 1, while eliminating partial execution failure risk.",
+    "fix": [
+      "Parse dynamic ContractCall arguments and target contract addresses.",
+      "Execute calls sequentially and collect return values.",
+      "Enforce atomic rollback on any internal revert."
+    ]
+  },
+  {
+    "id": 150,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[150] Bug Bounty Escrow with Multi-Party Dispute Resolution & Arbitrator Slashing",
+    "labels": [
+      "contract",
+      "security",
+      "rust",
+      "premium"
+    ],
+    "location": "contracts/bounty-dispute/src/lib.rs",
+    "code": "// contracts/bounty-dispute/src/lib.rs\npub fn resolve_bounty_dispute(env: Env, bounty_id: u64, ruling: RulingVerdict, arbitrator_sig: Bytes) {\n  // Releases bounty to whitehat hacker or returns deposit to protocol sponsor\n}",
+    "description": "Decentralized bug bounty escrow and arbitration protocol where independent security auditors stake collateral to judge vulnerability severity, with automated slashing for corrupt rulings.",
+    "impact": "Creates a trustless, transparent vulnerability disclosure ecosystem for Soroban smart contracts.",
+    "fix": [
+      "Implement time-locked vulnerability submission hashing (commit-reveal).",
+      "Require arbitrator stake bonds before casting dispute rulings.",
+      "Automate payout distribution and appeal periods."
+    ]
+  },
+  {
+    "id": 151,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[151] Distributed WebAssembly Sandbox with Memory Guard & Syscall Virtualization",
+    "labels": [
+      "backend",
+      "security",
+      "performance",
+      "premium"
+    ],
+    "location": "backend/src/services/wasmSandbox.js",
+    "code": "// backend/src/services/wasmSandbox.js\n// Executes Soroban WASM in isolated v8/Wasmtime worker with strict 128MB heap limit\nconst wasmInstance = await WebAssembly.instantiate(wasmBytes, sandboxImports);",
+    "description": "High-performance isolated WASM execution sandbox running contract simulations in background worker threads with memory ceilings, CPU tick metering, and virtualization of host syscalls.",
+    "impact": "Prevents malicious WASM binaries from executing infinite loops or exhausting backend server memory during contract simulations.",
+    "fix": [
+      "Integrate wasmtime-node or v8 WebAssembly memory limits (max 128MB).",
+      "Inject instruction gas counter to terminate execution after 100M instructions.",
+      "Virtualize Soroban host environment functions (env.storage, env.crypto)."
+    ]
+  },
+  {
+    "id": 152,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[152] Zero-Downtime PostgreSQL Logical Replication & Automatic Failover Orchestrator",
+    "labels": [
+      "backend",
+      "database",
+      "devops",
+      "premium"
+    ],
+    "location": "backend/src/database/replication.js",
+    "code": "// backend/src/database/replication.js\n// Monitors primary PostgreSQL health and seamlessly promotes read replica on failure\nconst pool = new PgPoolCluster({ primary: PRIMARY_DB, replicas: [REPLICA_1, REPLICA_2] });",
+    "description": "Multi-node PostgreSQL connection clustering supporting automated query routing (writes to primary, reads to replicas) with sub-second health detection and zero-downtime failover.",
+    "impact": "Ensures 99.99% database uptime during maintenance, hardware failures, or cloud region outages.",
+    "fix": [
+      "Implement dynamic read/write connection pool routing in Knex.",
+      "Add active background health polling of primary and replica sync lag.",
+      "Execute automated circuit breaker failover to promote standby replica."
+    ]
+  },
+  {
+    "id": 153,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[153] Distributed Leaky-Bucket Rate Limiter with Ed25519 Signed API Key Verification",
+    "labels": [
+      "backend",
+      "security",
+      "scalability",
+      "premium"
+    ],
+    "location": "backend/src/middleware/apiKeyLimiter.js",
+    "code": "// backend/src/middleware/apiKeyLimiter.js\n// Verifies Ed25519 signature of API key and checks sliding token bucket in Redis\nexport async function authenticateApiKey(req, res, next) { ... }",
+    "description": "Enterprise API gateway middleware verifying Ed25519 cryptographically signed developer API keys with sub-millisecond Redis leaky-bucket rate limiting and usage tier enforcement.",
+    "impact": "Protects public infrastructure from abuse while offering tiered throughput to partner developers and enterprise clients.",
+    "fix": [
+      "Verify API key signatures without database lookups using public key caching.",
+      "Implement Redis Lua script for atomic leaky-bucket token consumption.",
+      "Return standard X-RateLimit-Limit, X-RateLimit-Remaining, and Retry-After headers."
+    ]
+  },
+  {
+    "id": 154,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[154] Real-Time WebSocket Channel Multiplexing with RFC 6902 JSON Patch Delta Sync",
+    "labels": [
+      "backend",
+      "websocket",
+      "performance",
+      "premium"
+    ],
+    "location": "backend/src/services/wsMultiplexer.js",
+    "code": "// backend/src/services/wsMultiplexer.js\n// Computes RFC 6902 JSON Patch delta between contract states to minimize bandwidth\nconst patch = jsonpatch.compare(prevState, newState);\nws.send(JSON.stringify({ type: 'DIFF', patch }));",
+    "description": "High-throughput WebSocket state streaming protocol that transmits binary delta patches (RFC 6902 JSON Patch) instead of full state snapshots, reducing network bandwidth by 85%.",
+    "impact": "Enables instant 60fps real-time UI updates for trading charts, order books, and contract state watchers on low-bandwidth networks.",
+    "fix": [
+      "Implement fast JSON diffing engine for contract storage changes.",
+      "Support client subscription multiplexing on single WebSocket connection.",
+      "Add client-side automatic reconnection and missed-patch reconciliation."
+    ]
+  },
+  {
+    "id": 155,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[155] End-to-End Cryptographic Ledger Audit Trail & Tamper-Evident Hash Chains",
+    "labels": [
+      "backend",
+      "audit",
+      "security",
+      "compliance",
+      "premium"
+    ],
+    "location": "backend/src/services/auditTrail.js",
+    "code": "// backend/src/services/auditTrail.js\n// Records every compilation, deployment, and admin action into a SHA-256 Merkle audit chain\nconst entryHash = crypto.createHash('sha256').update(prevHash + JSON.stringify(action)).digest('hex');",
+    "description": "Cryptographic tamper-evident audit logging service that hashes and chains all contract deployments, admin config changes, and user authentication events into an immutable Merkle tree.",
+    "impact": "Guarantees SOC-2, ISO 27001, and regulatory compliance for enterprise deployments.",
+    "fix": [
+      "Implement monotonic SHA-256 hash chaining for all database mutating events.",
+      "Periodically anchor audit Merkle roots onto Stellar blockchain.",
+      "Provide cryptographic audit verification API endpoint."
+    ]
+  },
+  {
+    "id": 156,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[156] Client-Side WebAssembly Rust Formatter (rustfmt) & AST Linter in Web Worker",
+    "labels": [
+      "frontend",
+      "performance",
+      "module: editor-ui",
+      "premium"
+    ],
+    "location": "frontend/src/workers/formatterWorker.ts",
+    "code": "// frontend/src/workers/formatterWorker.ts\n// Runs rustfmt compiled to WebAssembly inside browser Web Worker\nimport initRustfmt, { format_rust_code } from 'rustfmt-wasm';\nself.onmessage = (e) => { self.postMessage(format_rust_code(e.data)); };",
+    "description": "Client-side Web Worker compiling and running rustfmt and syn AST analysis directly in the browser, providing instant code formatting (Shift+Alt+F) without server round-trips.",
+    "impact": "Delivers zero-latency code formatting and syntax diagnostics for developers in the online IDE.",
+    "fix": [
+      "Compile rustfmt to wasm32-unknown-unknown with minimal binary footprint.",
+      "Hook formatting provider into Monaco Editor language configuration.",
+      "Add debounce handling to avoid worker queue contention during rapid typing."
+    ]
+  },
+  {
+    "id": 157,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[157] Interactive 3D Call Graph & Gas Consumption Heatmap Visualizer",
+    "labels": [
+      "frontend",
+      "feature: data-visualization",
+      "performance",
+      "premium"
+    ],
+    "location": "frontend/src/components/CallGraphVisualizer.tsx",
+    "code": "// frontend/src/components/CallGraphVisualizer.tsx\n// Renders interactive DAG of cross-contract invocations and CPU instruction hotspots\n<Canvas><ForceDirectedGraph nodes={callNodes} edges={callEdges} /></Canvas>",
+    "description": "Interactive visualizer using Three.js / React Flow to render cross-contract call traces as a directed acyclic graph (DAG), color-coded by CPU instruction count and storage footprint.",
+    "impact": "Allows smart contract developers to instantly pinpoint expensive code paths and gas bottlenecks visually.",
+    "fix": [
+      "Parse Soroban simulation diagnostic events into graph nodes and edges.",
+      "Color-code call nodes using heat gradient (green -> yellow -> red) based on gas cost.",
+      "Support click-to-highlight corresponding line numbers in Monaco Editor."
+    ]
+  },
+  {
+    "id": 158,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[158] Real-Time Peer-to-Peer Collaborative Code Workspace with WebRTC & Yjs CRDTs",
+    "labels": [
+      "frontend",
+      "real-time",
+      "module: editor-ui",
+      "premium"
+    ],
+    "location": "frontend/src/services/p2pCollab.ts",
+    "code": "// frontend/src/services/p2pCollab.ts\n// Multi-user collaborative coding using Yjs Conflict-Free Replicated Data Types & WebRTC\nconst ydoc = new Y.Doc();\nconst provider = new WebrtcProvider(roomName, ydoc);\nconst binding = new MonacoBinding(ydoc.getText('monaco'), editor.getModel(), new Set([editor]));",
+    "description": "Real-time collaborative editing engine integrating Yjs Conflict-Free Replicated Data Types (CRDTs) over WebRTC and WebSockets, enabling multiple developers to pair-program on smart contracts with live cursor indicators.",
+    "impact": "Transforms Soroban Playground into a real-time collaborative classroom and hackathon development environment.",
+    "fix": [
+      "Bind Y.Text document to Monaco Editor instance with remote cursor rendering.",
+      "Implement WebRTC mesh signaling with WebSocket relay fallback.",
+      "Add collaborative compilation sharing and live chat panel."
+    ]
+  },
+  {
+    "id": 159,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[159] High-Throughput Indexer Stream Ingestion with Kafka / Redpanda Buffer",
+    "labels": [
+      "indexer",
+      "scalability",
+      "event-driven",
+      "premium"
+    ],
+    "location": "indexer/src/stream/kafka.rs",
+    "code": "// indexer/src/stream/kafka.rs\n// Streams ingested Stellar ledgers into distributed Kafka topic partitioned by contract_id\nlet producer: FutureProducer = ClientConfig::new().set(\"bootstrap.servers\", &kafka_url).create()?;\nproducer.send(FutureRecord::to(\"stellar-events\").key(&contract_id).payload(&event_bytes), Duration::from_secs(0)).await?;",
+    "description": "High-throughput event streaming architecture buffering ingested Stellar ledgers into Apache Kafka / Redpanda partitions, decoupling ingestion from database write consumers.",
+    "impact": "Guarantees zero dropped events and linear horizontal scalability during 50,000+ tx/sec network spikes.",
+    "fix": [
+      "Implement Kafka producer in Rust indexer with snappy compression and batching.",
+      "Partition event streams by contract address to guarantee sequential processing.",
+      "Add consumer group backpressure monitoring and auto-scaling."
+    ]
+  },
+  {
+    "id": 160,
+    "tier": "Tier 6: 30 Next-Gen Premium Enterprise Issues",
+    "title": "[160] Multi-Region Global Edge RPC Proxy with Anycast Routing & Sub-50ms Caching",
+    "labels": [
+      "devops",
+      "scalability",
+      "performance",
+      "premium"
+    ],
+    "location": "deploy/terraform/edge-proxy.tf",
+    "code": "// deploy/terraform/edge-proxy.tf\n// Cloudflare Worker / AWS CloudFront Edge proxy caching deterministic RPC reads\nresource \"aws_cloudfront_distribution\" \"rpc_proxy\" {\n  origin { domain_name = \"rpc.soroban-playground.org\" }\n  default_cache_behavior { target_origin_id = \"rpc-backend\" min_ttl = 5 }\n}",
+    "description": "Global edge caching proxy deployed across 250+ edge locations routing contract simulation and ledger read queries to the nearest geographic cache, reducing global latency to <50ms.",
+    "impact": "Delivers instantaneous dApp responsiveness worldwide and reduces load on core Soroban RPC nodes by 90%.",
+    "fix": [
+      "Deploy Cloudflare Worker / CloudFront edge cache for getLedger, getEvents, and simulateTransaction.",
+      "Implement cache key hashing based on contract ID and ledger sequence.",
+      "Route mutating sendTransaction calls directly to primary RPC cluster."
+    ]
+  }
+]

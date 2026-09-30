@@ -4,24 +4,176 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-sqlx = { version = "0.7", features = ["runtime-tokio", "tls-rustls", "postgres", "sqlite", "macros"] }
-async-trait = "0.1"
-tokio = { version = "1", features = ["full"] }
-dotenv = "0.15"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-sha2 = "0.10"
+sqlx = { workspace = true, features = ["postgres", "sqlite"] }
+async-trait.workspace = true
+tokio.workspace = true
+dotenv.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+hex.workspace = true
 aes-gcm = "0.10"
 aead = "0.5"
 aws-config = "0.55"
 aws-sdk-s3 = "0.28"
-chrono = "0.4"
+chrono.workspace = true
 tokio-util = { version = "0.7", features = ["io"] }
 
 [workspace]
+resolver = "2"
 members = [
-    "contracts/debugging-utils",
+    "indexer",
+    "contracts/access-control",
+    "contracts/ad-network",
+    "contracts/admin-setter",
+    "contracts/airdrop",
+    "contracts/allowlist",
+    "contracts/amm-pool",
+    "contracts/analysis-utils",
+    "contracts/bounty-dispute",
+    "contracts/bug-bounty",
+    "contracts/carbon-credit",
+    "contracts/carbon-credit-oracle",
+    "contracts/cartel",
+    "contracts/charity-tracker",
+    "contracts/cloud-storage",
+    "contracts/content-publishing",
+    "contracts/counter",
+    "contracts/crop-insurance",
+    "contracts/cross-chain-bridge",
     "contracts/cross-contract-utils",
-    "contracts/insurance-oracle",
+    "contracts/dao-treasury",
+    "contracts/data-marketplace",
+    "contracts/debugging-utils",
+    "contracts/dex-aggregator",
+    "contracts/did-registry",
+    "contracts/donation-tracker",
+    "contracts/dutch-auction",
+    "contracts/emergency-pause",
+    "contracts/energy-trading",
     "contracts/erc-721",
+    "contracts/escrow",
+    "contracts/file-notary",
+    "contracts/flash-loan",
+    "contracts/gaming-crafting",
+    "contracts/governance",
+    "contracts/guess-the-number",
+    "contracts/hello-world",
+    "contracts/identity-registry",
+    "contracts/index-token",
+    "contracts/insurance-oracle",
+    "contracts/insurance-protocol",
+    "contracts/interest-rate-model",
+    "contracts/job-marketplace",
+    "contracts/key-value-store",
+    "contracts/lending-protocol",
+    "contracts/limit-order-book",
+    "contracts/loan-syndication",
+    "contracts/lottery",
+    "contracts/message-board",
+    "contracts/migration-utils",
+    "contracts/multisig-wallet",
+    "contracts/music-licensing",
+    "contracts/music-royalty",
+    "contracts/nft-amm",
+    "contracts/nft-enumerable",
+    "contracts/nft-fractional",
+    "contracts/nft-marketplace",
+    "contracts/options",
+    "contracts/options-protocol",
+    "contracts/parametric-insurance",
+    "contracts/patent-registry",
+    "contracts/pause-toggle-contract",
+    "contracts/payment_splitter",
+    "contracts/perpetual-futures",
+    "contracts/perpetuals",
+    "contracts/prediction-market",
+    "contracts/price-aggregator",
+    "contracts/price-feed-aggregator",
+    "contracts/price_feed_adapter",
+    "contracts/profile-registry",
+    "contracts/property-testing",
+    "contracts/proxy-pattern",
+    "contracts/quadratic-voting",
+    "contracts/real-estate",
+    "contracts/real-estate-oracle",
+    "contracts/reentrancy-guard",
+    "contracts/registry-integration",
+    "contracts/reit",
+    "contracts/reputation",
+    "contracts/reputation-system",
+    "contracts/royalty",
+    "contracts/simulation-engine",
+    "contracts/social-media",
+    "contracts/sports-betting",
+    "contracts/sports-prediction",
+    "contracts/sports-prediction-market",
+    "contracts/sports-results-oracle",
+    "contracts/stablecoin",
+    "contracts/staking",
+    "contracts/staking-derivatives",
+    "contracts/storage-demo",
+    "contracts/storage-utils",
+    "contracts/subscription",
+    "contracts/subscription-manager",
+    "contracts/subscription_manager",
+    "contracts/supply-chain",
+    "contracts/supply-chain-data-oracle",
+    "contracts/supply-chain-oracle",
+    "contracts/synthetic-assets",
+    "contracts/testing-framework",
+    "contracts/token-burn",
+    "contracts/token-gated-access",
+    "contracts/token-vesting",
+    "contracts/token_contract",
+    "contracts/tokenized-reit",
+    "contracts/twap-oracle",
+    "contracts/upgradeable",
+    "contracts/vc-vesting",
+    "contracts/versioned",
+    "contracts/vesting",
+    "contracts/vesting_pool",
+    "contracts/voting",
+    "contracts/warranty-management",
+    "contracts/weather-data-oracle",
+    "contracts/weather-oracle",
+    "contracts/yield-farming",
+    "contracts/yield-optimizer",
+    "contracts/zk-verifier",
+    "crates/common-security",
+    "crates/common-math",
+    "crates/common-ttl",
 ]
+
+# Dependencies shared by the root crate and the `indexer` service. Declaring
+# them once keeps the cryptographic (sha2/hex) and runtime (tokio/sqlx) stacks
+# on identical versions across both crates.
+[workspace.dependencies]
+async-trait = "0.1"
+chrono = "0.4"
+dotenv = "0.15"
+hex = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+sqlx = { version = "0.7", features = ["runtime-tokio", "tls-rustls", "macros"] }
+tokio = { version = "1", features = ["full"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+overflow-checks = true
+debug = 0
+debug-assertions = false
+# `release` above is tuned for Soroban WASM (size-optimised, panic = abort).
+# Long-running native services such as the indexer build with this profile
+# instead so a panic inside one tokio task unwinds rather than aborting the
+# whole process.
+[profile.release-server]
+inherits = "release"
+opt-level = 3
+panic = "unwind"
+strip = "debuginfo"

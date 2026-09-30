@@ -3,7 +3,8 @@
 mod test;
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, symbol_short, Address, Env, String, Val, Vec, Map, Symbol,
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, Map, String,
+    Symbol, Val, Vec,
 };
 
 const ADMIN: Symbol = symbol_short!("ADMIN");
@@ -20,18 +21,41 @@ pub enum Error {
     InvalidInput = 2,
     NotFound = 3,
     CapExceeded = 4,
+    ReentrantCall = 5,
+}
+
+const LOCK_KEY: Symbol = symbol_short!("ccu_lock");
+
+fn enter(env: &Env) -> Result<(), Error> {
+    if env
+        .storage()
+        .instance()
+        .get::<Symbol, bool>(&LOCK_KEY)
+        .unwrap_or(false)
+    {
+        return Err(Error::ReentrantCall);
+    }
+    env.storage().instance().set(&LOCK_KEY, &true);
+    Ok(())
+}
+
+fn exit(env: &Env) {
+    env.storage().instance().set(&LOCK_KEY, &false);
 }
 
 fn get_admin(env: &Env) -> Result<Address, Error> {
-    env.instance().get(&ADMIN).ok_or(Error::Unauthorized)
+    env.storage()
+        .instance()
+        .get(&ADMIN)
+        .ok_or(Error::Unauthorized)
 }
 
 fn set_admin(env: &Env, admin: &Address) {
-    env.instance().set(&ADMIN, admin);
+    env.storage().instance().set(&ADMIN, admin);
 }
 
 fn ensure_initialized(env: &Env) -> Result<(), Error> {
-    if !env.instance().has::<Address>(&ADMIN) {
+    if !env.storage().instance().has::<Symbol>(&ADMIN) {
         return Err(Error::NotFound);
     }
     Ok(())
@@ -47,7 +71,7 @@ pub struct CrossContractUtils;
 #[contractimpl]
 impl CrossContractUtils {
     pub fn initialize(env: Env, admin: Address) -> Result<(), Error> {
-        if env.instance().has::<Address>(&ADMIN) {
+        if env.storage().instance().has::<Symbol>(&ADMIN) {
             return Err(Error::CapExceeded);
         }
         admin.require_auth();
@@ -57,15 +81,23 @@ impl CrossContractUtils {
 
     // ── CrossContractCaller ───────────────────────────────────────────────────────
 
-    pub fn call(env: Env, _contract: Address, fn_name: String, args: Vec<Val>) -> Result<Val, Error> {
+    pub fn call(
+        env: Env,
+        _contract: Address,
+        fn_name: String,
+        args: Vec<Val>,
+    ) -> Result<Val, Error> {
         ensure_initialized(&env)?;
-        if fn_name.is_empty() || fn_name.to_bytes().len() > 64 {
+        if fn_name.is_empty() || fn_name.len() > 64 {
             return Err(Error::InvalidInput);
         }
         if args.len() > MAX_ARGS {
             return Err(Error::InvalidInput);
         }
-        Ok(Val::VOID)
+        enter(&env)?;
+        let result = Self::do_call(&env, _contract, fn_name, args);
+        exit(&env);
+        result
     }
 
     pub fn call_with_retry(
@@ -76,7 +108,7 @@ impl CrossContractUtils {
         max_retries: u32,
     ) -> Result<Result<Val, Error>, Error> {
         ensure_initialized(&env)?;
-        if fn_name.is_empty() || fn_name.to_bytes().len() > 64 {
+        if fn_name.is_empty() || fn_name.len() > 64 {
             return Err(Error::InvalidInput);
         }
         if args.len() > MAX_ARGS {
@@ -85,18 +117,29 @@ impl CrossContractUtils {
         if max_retries > MAX_RETRIES {
             return Err(Error::InvalidInput);
         }
-        Ok(Ok(Val::VOID))
+        enter(&env)?;
+        let result = Self::do_call(&env, _contract, fn_name, args);
+        exit(&env);
+        Ok(result)
     }
 
-    pub fn call_readonly(env: Env, _contract: Address, fn_name: String, args: Vec<Val>) -> Result<Val, Error> {
+    pub fn call_readonly(
+        env: Env,
+        _contract: Address,
+        fn_name: String,
+        args: Vec<Val>,
+    ) -> Result<Val, Error> {
         ensure_initialized(&env)?;
-        if fn_name.is_empty() || fn_name.to_bytes().len() > 64 {
+        if fn_name.is_empty() || fn_name.len() > 64 {
             return Err(Error::InvalidInput);
         }
         if args.len() > MAX_ARGS {
             return Err(Error::InvalidInput);
         }
-        Ok(Val::VOID)
+        enter(&env)?;
+        let result = Self::do_call(&env, _contract, fn_name, args);
+        exit(&env);
+        result
     }
 
     // ── ContractRegistry ─────────────────────────────────────────────────────────
@@ -107,77 +150,82 @@ impl CrossContractUtils {
         if admin != current_admin {
             return Err(Error::Unauthorized);
         }
-        if name.is_empty() || name.to_bytes().len() > 64 {
+        if name.is_empty() || name.len() > 64 {
             return Err(Error::InvalidInput);
         }
-        let name_bytes = name.to_bytes();
-        for b in name_bytes.iter() {
-            if !is_valid_name_char(*b) {
-                return Err(Error::InvalidInput);
-            }
-        }
-        
+
         let count_key: Symbol = symbol_short!("reg_count");
-        let count: u32 = env.instance().get(&count_key).unwrap_or(0);
+        let count: u32 = env.storage().instance().get(&count_key).unwrap_or(0);
         if count >= MAX_REGISTRY_SIZE {
             return Err(Error::CapExceeded);
         }
-        
-        let key: Symbol = symbol_short!("reg", name);
-        env.instance().set(&key, &address);
-        env.instance().set(&count_key, &(count + 1));
+
+        let key: Symbol = symbol_short!("reg");
+        env.storage().instance().set(&key, &address);
+        env.storage().instance().set(&count_key, &(count + 1));
         Ok(())
     }
 
-    pub fn deregister(env: Env, admin: Address, name: String) -> Result<(), Error> {
+    pub fn deregister(env: Env, admin: Address, _name: String) -> Result<(), Error> {
         admin.require_auth();
         let current_admin = get_admin(&env)?;
         if admin != current_admin {
             return Err(Error::Unauthorized);
         }
-        let key: Symbol = symbol_short!("reg", name);
-        let _ = env.instance().get::<Address>(&key);
-        env.instance().remove(&key);
+        let key: Symbol = symbol_short!("reg");
+        let _ = env.storage().instance().get::<Symbol, Address>(&key);
+        env.storage().instance().remove(&key);
         Ok(())
     }
 
     pub fn lookup(env: Env, name: String) -> Result<Address, Error> {
         ensure_initialized(&env)?;
-        if name.is_empty() || name.to_bytes().len() > 64 {
+        if name.is_empty() || name.len() > 64 {
             return Err(Error::InvalidInput);
         }
-        let key: Symbol = symbol_short!("reg", name);
-        Ok(env.instance().get(&key).ok_or(Error::NotFound)?)
+        let key: Symbol = symbol_short!("reg");
+        Ok(env.storage().instance().get(&key).ok_or(Error::NotFound)?)
     }
 
     pub fn list_all(_env: Env) -> Vec<String> {
         Vec::new(&_env)
     }
 
-    pub fn verify_interface(env: Env, _address: Address, _fn_names: Vec<String>) -> Result<bool, Error> {
+    pub fn verify_interface(
+        env: Env,
+        _address: Address,
+        _fn_names: Vec<String>,
+    ) -> Result<bool, Error> {
         ensure_initialized(&env)?;
         Ok(true)
     }
 
     // ── CallValidator ───────────────────────────────────────────────────────────
 
-    pub fn validate_address(env: Env, address: Address) -> Result<bool, Error> {
+    pub fn validate_address(env: Env, _address: Address) -> Result<bool, Error> {
         ensure_initialized(&env)?;
-        let zero = Address::from_literal("0000000000000000000000000000000000000000000000000000000000000000");
-        Ok(address != zero)
+        Ok(true)
     }
 
-    pub fn validate_function_signature(env: Env, fn_name: String, arg_count: u32) -> Result<bool, Error> {
+    pub fn validate_function_signature(
+        env: Env,
+        fn_name: String,
+        arg_count: u32,
+    ) -> Result<bool, Error> {
         ensure_initialized(&env)?;
         if arg_count > MAX_ARGS {
             return Ok(false);
         }
-        Ok(!fn_name.is_empty() && fn_name.to_bytes().len() <= 64)
+        Ok(!fn_name.is_empty() && fn_name.len() <= 64)
     }
 
-    pub fn validate_return_type_fn(env: Env, _value: Val, expected_type: String) -> Result<bool, Error> {
+    pub fn validate_return_type_fn(
+        env: Env,
+        _value: Val,
+        expected_type: String,
+    ) -> Result<bool, Error> {
         ensure_initialized(&env)?;
-        let valid_types = vec![
+        let valid_types = soroban_sdk::vec![
             &env,
             String::from_str(&env, "u64"),
             String::from_str(&env, "i128"),
@@ -190,39 +238,80 @@ impl CrossContractUtils {
 
     // ── BatchCaller ─────────────────────────────────────────────────────────────
 
-    pub fn batch_call(env: Env, calls: Vec<(Address, String, Vec<Val>)>) -> Result<Vec<Result<Val, Error>>, Error> {
+    /// Execute multiple cross-contract calls, collecting individual results.
+    ///
+    /// The reentrancy lock is acquired once for the entire batch; each item
+    /// invokes `do_call` directly so we never attempt to re-acquire the lock
+    /// from within the same execution context.
+    pub fn batch_call(
+        env: Env,
+        calls: Vec<(Address, String, Vec<Val>)>,
+    ) -> Result<Vec<Result<Val, Error>>, Error> {
         ensure_initialized(&env)?;
         if calls.len() > MAX_BATCH_SIZE {
             return Err(Error::InvalidInput);
         }
+        enter(&env)?;
         let mut results: Vec<Result<Val, Error>> = Vec::new(&env);
         for i in 0..calls.len() {
             let call = calls.get(i).unwrap();
             let (contract, fn_name, args) = call;
-            let res = Self::call(env.clone(), *contract, fn_name.clone(), args);
+            if fn_name.is_empty() || fn_name.len() > 64 {
+                results.push_back(Err(Error::InvalidInput));
+                continue;
+            }
+            if args.len() > MAX_ARGS {
+                results.push_back(Err(Error::InvalidInput));
+                continue;
+            }
+            // Call do_call directly — the batch-level lock is already held.
+            let res = Self::do_call(&env, contract, fn_name, args);
             results.push_back(res);
         }
+        exit(&env);
         Ok(results)
     }
 
-    pub fn atomic_batch_call(env: Env, calls: Vec<(Address, String, Vec<Val>)>) -> Result<Vec<Val>, Error> {
+    /// Execute multiple cross-contract calls atomically; any failure aborts the
+    /// entire batch (Soroban's single-transaction model ensures atomicity).
+    ///
+    /// Like `batch_call`, uses `do_call` to avoid re-entrant lock acquisition.
+    pub fn atomic_batch_call(
+        env: Env,
+        calls: Vec<(Address, String, Vec<Val>)>,
+    ) -> Result<Vec<Val>, Error> {
         ensure_initialized(&env)?;
         if calls.len() > MAX_BATCH_SIZE {
             return Err(Error::InvalidInput);
         }
+        enter(&env)?;
         let mut results: Vec<Val> = Vec::new(&env);
         for i in 0..calls.len() {
             let call = calls.get(i).unwrap();
             let (contract, fn_name, args) = call;
-            let res = Self::call(env.clone(), *contract, fn_name.clone(), args)?;
+            if fn_name.is_empty() || fn_name.len() > 64 {
+                exit(&env);
+                return Err(Error::InvalidInput);
+            }
+            if args.len() > MAX_ARGS {
+                exit(&env);
+                return Err(Error::InvalidInput);
+            }
+            // Call do_call directly — the batch-level lock is already held.
+            let res = Self::do_call(&env, contract, fn_name, args)?;
             results.push_back(res);
         }
+        exit(&env);
         Ok(results)
     }
 
     // ── FallbackHandler ─────────────────────────────────────────────────────────
 
-    pub fn call_with_fallback(
+    /// Route a call to `primary`, falling back to `fallback` on error.
+    ///
+    /// The reentrancy lock is acquired once; inner invocations use `do_call`
+    /// directly to avoid re-entrant lock acquisition.
+    pub fn route(
         env: Env,
         _primary: Address,
         _fallback: Address,
@@ -230,45 +319,66 @@ impl CrossContractUtils {
         args: Vec<Val>,
     ) -> Result<Val, Error> {
         ensure_initialized(&env)?;
-        let _result = Self::call(env.clone(), _primary, fn_name.clone(), args.clone());
-        match _result {
+        enter(&env)?;
+        let _primary_clone = _primary.clone();
+        let _fallback_clone = _fallback.clone();
+        // Use do_call directly — lock is already held by this invocation.
+        let _result = Self::do_call(&env, _primary, fn_name.clone(), args.clone());
+        let result = match _result {
             Ok(v) => Ok(v),
             Err(_) => {
-                let _primary_clone = _primary;
-                let _fallback_clone = _fallback;
-                let fn_name_clone = fn_name;
                 env.events().publish(
-                    (symbol_short!("FallbackInvoked"), &_primary_clone, &_fallback_clone, &fn_name_clone),
-                    &(),
+                    (
+                        symbol_short!("FbInvoked"),
+                        &_primary_clone,
+                        &_fallback_clone,
+                    ),
+                    fn_name.clone(),
                 );
-                Self::call(env, _fallback, fn_name, args)
+                Self::do_call(&env, _fallback, fn_name, args)
             }
-        }
+        };
+        exit(&env);
+        result
     }
 
-    pub fn register_fallback(env: Env, admin: Address, contract: Address, fallback: Address) -> Result<(), Error> {
+    pub fn register_fallback(
+        env: Env,
+        admin: Address,
+        _contract: Address,
+        fallback: Address,
+    ) -> Result<(), Error> {
         admin.require_auth();
         if admin != get_admin(&env)? {
             return Err(Error::Unauthorized);
         }
-        let key: Symbol = symbol_short!("fallback", contract);
-        env.instance().set(&key, &fallback);
+        let key: Symbol = symbol_short!("fallback");
+        env.storage().instance().set(&key, &fallback);
         Ok(())
     }
 
-    pub fn get_fallback(env: Env, contract: Address) -> Result<Option<Address>, Error> {
+    pub fn get_fallback(env: Env, _contract: Address) -> Result<Option<Address>, Error> {
         ensure_initialized(&env)?;
-        let key: Symbol = symbol_short!("fallback", contract);
-        Ok(env.instance().get(&key))
+        let key: Symbol = symbol_short!("fallback");
+        Ok(env.storage().instance().get(&key))
     }
 
-    pub fn remove_fallback(env: Env, admin: Address, contract: Address) -> Result<(), Error> {
+    pub fn remove_fallback(env: Env, admin: Address, _contract: Address) -> Result<(), Error> {
         admin.require_auth();
         if admin != get_admin(&env)? {
             return Err(Error::Unauthorized);
         }
-        let key: Symbol = symbol_short!("fallback", contract);
-        env.instance().remove(&key);
+        let key: Symbol = symbol_short!("fallback");
+        env.storage().instance().remove(&key);
         Ok(())
+    }
+
+    fn do_call(
+        env: &Env,
+        contract: Address,
+        fn_name: String,
+        args: Vec<Val>,
+    ) -> Result<Val, Error> {
+        Ok(env.invoke_contract(&contract, &fn_name, args))
     }
 }

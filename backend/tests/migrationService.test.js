@@ -1,7 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import { fileURLToPath } from 'url';
 import { getDatabase, closeDatabase } from '../src/services/dbService.js';
 import {
   initializeMigrationService,
@@ -12,9 +11,6 @@ import {
   validateMigrations,
   getAppliedMigrations,
 } from '../src/services/migrationService.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const createTempEnvironment = async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'migration-test-'));
@@ -87,22 +83,19 @@ describe('Migration Service', () => {
     expect(applyResults[0].status).toBe('applied');
 
     const db = await getDatabase();
-    const row = db
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='users';"
-      )
-      .get();
-    expect(row).toBeTruthy();
+    const hasUsers = () => {
+      const r = db.exec(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
+      );
+      return r.length > 0 && r[0].values.length > 0;
+    };
+
+    expect(hasUsers()).toBe(true);
 
     const rollbackResult = await rollbackMigration(1, { dryRun: false });
     expect(rollbackResult.status).toBe('rolled_back');
 
-    const afterRow = db
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='users';"
-      )
-      .get();
-    expect(afterRow).toBeUndefined();
+    expect(hasUsers()).toBe(false);
   });
 
   it('does not persist changes during dry-run', async () => {
@@ -119,12 +112,14 @@ describe('Migration Service', () => {
     expect(result.status).toBe('dry_run_success');
 
     const db = await getDatabase();
-    const row = db
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='users';"
-      )
-      .get();
-    expect(row).toBeUndefined();
+    const hasUsers = () => {
+      const r = db.exec(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
+      );
+      return r.length > 0 && r[0].values.length > 0;
+    };
+
+    expect(hasUsers()).toBe(false);
 
     const applied = await getAppliedMigrations();
     expect(applied).toHaveLength(0);

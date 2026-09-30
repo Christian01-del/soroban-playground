@@ -1,9 +1,9 @@
 ---
 name: Feature request
 about: Suggest an idea for this project
-title: ''
+title: ""
 labels: enhancement
-assignees: ''
+assignees: ""
 ---
 
 **Is your feature request related to a problem? Please describe.**
@@ -18,6 +18,7 @@ A clear and concise description of any alternative solutions or features you've 
 **Additional context**
 Add any other context or screenshots about the feature request here.
 ---
+
 name: Feature Request
 about: Suggest an idea for this project
 title: "[FEATURE] "
@@ -53,17 +54,18 @@ UI changes, API changes, or new components involved. -->
 - [ ] Contract Interaction
 - [ ] UI/UX
 - [ ] Documentation
-- [ ]  Other: <!-- describe -->
+- [ ] Other: <!-- describe -->
 
 ## 📊 Impact & Priority (your assessment)
 
-| Dimension | Assessment |
-|-----------|------------|
-| Who benefits? | e.g. All users / Smart contract beginners / Power users |
-| Effort estimate | e.g. Small / Medium / Large |
-| Breaking change? | Yes / No |
+| Dimension        | Assessment                                              |
+| ---------------- | ------------------------------------------------------- |
+| Who benefits?    | e.g. All users / Smart contract beginners / Power users |
+| Effort estimate  | e.g. Small / Medium / Large                             |
+| Breaking change? | Yes / No                                                |
 
 ## 🔗 Related Issues or References
+
 <!-- Link any related issues or external references -->
 
 ## ✅ Checklist for you to follow as a contributor.

@@ -1,19 +1,21 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  "https://soroban-playground.onrender.com/api";
 
 class SearchService {
   // Main search function
   async searchProjects(query, filters = {}, pagination = {}) {
     try {
       const response = await fetch(`${API_BASE_URL}/search/projects`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           query,
           filters,
-          pagination
-        })
+          pagination,
+        }),
       });
 
       if (!response.ok) {
@@ -23,7 +25,7 @@ class SearchService {
       const data = await response.json();
       return data.data;
     } catch (error) {
-      console.error('Search API error:', error);
+      console.error("Search API error:", error);
       throw error;
     }
   }
@@ -33,11 +35,13 @@ class SearchService {
     try {
       const params = new URLSearchParams({
         q: query,
-        limit: limit.toString()
+        limit: limit.toString(),
       });
 
-      const response = await fetch(`${API_BASE_URL}/search/autocomplete?${params}`);
-      
+      const response = await fetch(
+        `${API_BASE_URL}/search/autocomplete?${params}`,
+      );
+
       if (!response.ok) {
         throw new Error(`Autocomplete failed: ${response.statusText}`);
       }
@@ -45,17 +49,17 @@ class SearchService {
       const data = await response.json();
       return data.data.suggestions;
     } catch (error) {
-      console.error('Autocomplete API error:', error);
+      console.error("Autocomplete API error:", error);
       return [];
     }
   }
 
   // Get faceted filter counts
-  async getFacetCounts(query = '') {
+  async getFacetCounts(query = "") {
     try {
       const params = new URLSearchParams({ q: query });
       const response = await fetch(`${API_BASE_URL}/search/facets?${params}`);
-      
+
       if (!response.ok) {
         throw new Error(`Facets failed: ${response.statusText}`);
       }
@@ -63,7 +67,7 @@ class SearchService {
       const data = await response.json();
       return data.data;
     } catch (error) {
-      console.error('Facets API error:', error);
+      console.error("Facets API error:", error);
       return {};
     }
   }
@@ -73,7 +77,7 @@ class SearchService {
     try {
       const params = new URLSearchParams({ limit: limit.toString() });
       const response = await fetch(`${API_BASE_URL}/search/popular?${params}`);
-      
+
       if (!response.ok) {
         throw new Error(`Popular searches failed: ${response.statusText}`);
       }
@@ -81,7 +85,7 @@ class SearchService {
       const data = await response.json();
       return data.data;
     } catch (error) {
-      console.error('Popular searches API error:', error);
+      console.error("Popular searches API error:", error);
       return [];
     }
   }
@@ -90,8 +94,10 @@ class SearchService {
   async getSearchAnalytics(days = 7) {
     try {
       const params = new URLSearchParams({ days: days.toString() });
-      const response = await fetch(`${API_BASE_URL}/search/analytics?${params}`);
-      
+      const response = await fetch(
+        `${API_BASE_URL}/search/analytics?${params}`,
+      );
+
       if (!response.ok) {
         throw new Error(`Analytics failed: ${response.statusText}`);
       }
@@ -99,7 +105,7 @@ class SearchService {
       const data = await response.json();
       return data.data;
     } catch (error) {
-      console.error('Analytics API error:', error);
+      console.error("Analytics API error:", error);
       return [];
     }
   }
@@ -108,7 +114,7 @@ class SearchService {
   async healthCheck() {
     try {
       const response = await fetch(`${API_BASE_URL}/search/health`);
-      
+
       if (!response.ok) {
         throw new Error(`Health check failed: ${response.statusText}`);
       }
@@ -116,8 +122,8 @@ class SearchService {
       const data = await response.json();
       return data;
     } catch (error) {
-      console.error('Health check API error:', error);
-      return { success: false, status: 'error' };
+      console.error("Health check API error:", error);
+      return { success: false, status: "error" };
     }
   }
 }

@@ -9,21 +9,21 @@ import request from 'supertest';
 import { jest } from '@jest/globals';
 
 // ── Mock invokeService ────────────────────────────────────────────────────────
-jest.mock('../../src/services/invokeService.js', () => ({
+jest.mock('../src/services/invokeService.js', () => ({
   invokeSorobanContract: jest.fn(),
 }));
 
 // ── Mock rateLimiter (pass-through) ──────────────────────────────────────────
-jest.mock('../../src/middleware/rateLimiter.js', () => ({
+jest.mock('../src/middleware/rateLimiter.js', () => ({
   rateLimitMiddleware: () => (_req, _res, next) => next(),
 }));
 
-import { invokeSorobanContract } from '../../src/services/invokeService.js';
-import tokenizedReitRoute from '../../src/routes/tokenizedReit.js';
+import { invokeSorobanContract } from '../src/services/invokeService.js';
+import tokenizedReitRoute from '../src/routes/tokenizedReit.js';
 import {
   notFoundHandler,
   errorHandler,
-} from '../../src/middleware/errorHandler.js';
+} from '../src/middleware/errorHandler.js';
 
 // ── Test app ──────────────────────────────────────────────────────────────────
 function buildApp() {
@@ -37,7 +37,7 @@ function buildApp() {
 
 const VALID_CONTRACT =
   'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-const VALID_ADMIN = 'GDEMO4MV6L6QY6P4UQBW5SC4R6X4P7WALLETDEMO4MV6L6QY6P4UQBW';
+const VALID_ADMIN = 'GDEMO4MV6L6QY6P4UQBW5SC4R6X4P7WALLETDEMO4MV6L6QY6P4UQBWA';
 const VALID_INVESTOR =
   'GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
 

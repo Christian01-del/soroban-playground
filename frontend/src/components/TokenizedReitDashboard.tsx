@@ -36,7 +36,9 @@ export interface Holding {
 // ── API client ────────────────────────────────────────────────────────────────
 
 const API_BASE = (
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5000"
+  process.env.NEXT_PUBLIC_API_BASE_URL ??
+  (process.env.NEXT_PUBLIC_BACKEND_URL ||
+    "https://soroban-playground.onrender.com")
 ).replace(/\/$/, "");
 
 async function apiPost(path: string, body: unknown) {
@@ -85,7 +87,11 @@ function StatusBadge({ active }: { active: boolean }) {
           : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
       }`}
     >
-      {active ? <CheckCircle2 className="w-3 h-3" /> : <PauseCircle className="w-3 h-3" />}
+      {active ? (
+        <CheckCircle2 className="w-3 h-3" />
+      ) : (
+        <PauseCircle className="w-3 h-3" />
+      )}
       {active ? "Active" : "Inactive"}
     </span>
   );
@@ -133,7 +139,10 @@ function TrustCard({
         />
       </div>
       <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
-        <span>{trust.sharesSold.toLocaleString()} / {trust.totalShares.toLocaleString()} shares sold</span>
+        <span>
+          {trust.sharesSold.toLocaleString()} /{" "}
+          {trust.totalShares.toLocaleString()} shares sold
+        </span>
         <span>{sold}%</span>
       </div>
     </button>
@@ -142,7 +151,13 @@ function TrustCard({
 
 // ── ErrorBanner ───────────────────────────────────────────────────────────────
 
-function ErrorBanner({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+function ErrorBanner({
+  message,
+  onDismiss,
+}: {
+  message: string;
+  onDismiss: () => void;
+}) {
   return (
     <div
       role="alert"
@@ -150,14 +165,26 @@ function ErrorBanner({ message, onDismiss }: { message: string; onDismiss: () =>
     >
       <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
       <span className="flex-1">{message}</span>
-      <button onClick={onDismiss} aria-label="Dismiss error" className="text-red-400 hover:text-red-600">✕</button>
+      <button
+        onClick={onDismiss}
+        aria-label="Dismiss error"
+        className="text-red-400 hover:text-red-600"
+      >
+        ✕
+      </button>
     </div>
   );
 }
 
 // ── SuccessBanner ─────────────────────────────────────────────────────────────
 
-function SuccessBanner({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+function SuccessBanner({
+  message,
+  onDismiss,
+}: {
+  message: string;
+  onDismiss: () => void;
+}) {
   return (
     <div
       role="status"
@@ -165,7 +192,13 @@ function SuccessBanner({ message, onDismiss }: { message: string; onDismiss: () 
     >
       <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
       <span className="flex-1">{message}</span>
-      <button onClick={onDismiss} aria-label="Dismiss" className="text-green-400 hover:text-green-600">✕</button>
+      <button
+        onClick={onDismiss}
+        aria-label="Dismiss"
+        className="text-green-400 hover:text-green-600"
+      >
+        ✕
+      </button>
     </div>
   );
 }
@@ -197,9 +230,12 @@ function CreateTrustForm({
     const shares = parseInt(totalShares, 10);
     const price = parseInt(pricePerShare, 10);
     const yieldBps = parseInt(annualYieldBps, 10);
-    if (isNaN(shares) || shares <= 0) return setError("Total shares must be a positive integer");
-    if (isNaN(price) || price <= 0) return setError("Price per share must be positive");
-    if (isNaN(yieldBps) || yieldBps < 0 || yieldBps > 10000) return setError("Annual yield must be 0–10000 bps");
+    if (isNaN(shares) || shares <= 0)
+      return setError("Total shares must be a positive integer");
+    if (isNaN(price) || price <= 0)
+      return setError("Price per share must be positive");
+    if (isNaN(yieldBps) || yieldBps < 0 || yieldBps > 10000)
+      return setError("Annual yield must be 0–10000 bps");
 
     setLoading(true);
     try {
@@ -222,11 +258,20 @@ function CreateTrustForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3" aria-label="Create REIT Trust">
+    <form
+      onSubmit={handleSubmit}
+      className="space-y-3"
+      aria-label="Create REIT Trust"
+    >
       {error && <ErrorBanner message={error} onDismiss={() => setError("")} />}
-      {success && <SuccessBanner message={success} onDismiss={() => setSuccess("")} />}
+      {success && (
+        <SuccessBanner message={success} onDismiss={() => setSuccess("")} />
+      )}
       <div>
-        <label htmlFor="trust-name" className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+        <label
+          htmlFor="trust-name"
+          className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1"
+        >
           Trust Name
         </label>
         <input
@@ -241,7 +286,10 @@ function CreateTrustForm({
       </div>
       <div className="grid grid-cols-3 gap-2">
         <div>
-          <label htmlFor="total-shares" className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+          <label
+            htmlFor="total-shares"
+            className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1"
+          >
             Total Shares
           </label>
           <input
@@ -254,7 +302,10 @@ function CreateTrustForm({
           />
         </div>
         <div>
-          <label htmlFor="price-per-share" className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+          <label
+            htmlFor="price-per-share"
+            className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1"
+          >
             Price (stroops)
           </label>
           <input
@@ -267,7 +318,10 @@ function CreateTrustForm({
           />
         </div>
         <div>
-          <label htmlFor="yield-bps" className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+          <label
+            htmlFor="yield-bps"
+            className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1"
+          >
             Yield (bps)
           </label>
           <input
@@ -286,7 +340,11 @@ function CreateTrustForm({
         disabled={loading}
         className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
       >
-        {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+        {loading ? (
+          <RefreshCw className="w-4 h-4 animate-spin" />
+        ) : (
+          <Plus className="w-4 h-4" />
+        )}
         {loading ? "Creating…" : "Create Trust"}
       </button>
     </form>
@@ -317,8 +375,12 @@ function InvestorPanel({
     if (!investorAddress || !contractId) return;
     try {
       const [hData, cData] = await Promise.all([
-        apiGet(`/api/reit/trusts/${trust.id}/holding/${investorAddress}`, { contractId }),
-        apiGet(`/api/reit/trusts/${trust.id}/claimable/${investorAddress}`, { contractId }),
+        apiGet(`/api/reit/trusts/${trust.id}/holding/${investorAddress}`, {
+          contractId,
+        }),
+        apiGet(`/api/reit/trusts/${trust.id}/claimable/${investorAddress}`, {
+          contractId,
+        }),
       ]);
       setHolding(hData.holding);
       setClaimable(cData.claimable);
@@ -329,17 +391,23 @@ function InvestorPanel({
     }
   }, [trust.id, contractId, investorAddress]);
 
-  useEffect(() => { loadHolding(); }, [loadHolding]);
+  useEffect(() => {
+    loadHolding();
+  }, [loadHolding]);
 
   async function handleBuy(e: React.FormEvent) {
     e.preventDefault();
-    setError(""); setSuccess("");
+    setError("");
+    setSuccess("");
     const n = parseInt(shares, 10);
-    if (isNaN(n) || n <= 0) return setError("Shares must be a positive integer");
+    if (isNaN(n) || n <= 0)
+      return setError("Shares must be a positive integer");
     setLoading(true);
     try {
       const data = await apiPost(`/api/reit/trusts/${trust.id}/buy`, {
-        contractId, investor: investorAddress, shares: n,
+        contractId,
+        investor: investorAddress,
+        shares: n,
       });
       setSuccess(`Purchased ${n} shares. Cost: ${stroopsToXlm(data.cost)} XLM`);
       onRefresh();
@@ -352,11 +420,13 @@ function InvestorPanel({
   }
 
   async function handleClaim() {
-    setError(""); setSuccess("");
+    setError("");
+    setSuccess("");
     setLoading(true);
     try {
       const data = await apiPost(`/api/reit/trusts/${trust.id}/claim`, {
-        contractId, investor: investorAddress,
+        contractId,
+        investor: investorAddress,
       });
       setSuccess(`Claimed ${stroopsToXlm(data.amount)} XLM in dividends`);
       loadHolding();
@@ -370,18 +440,24 @@ function InvestorPanel({
   return (
     <div className="space-y-4">
       {error && <ErrorBanner message={error} onDismiss={() => setError("")} />}
-      {success && <SuccessBanner message={success} onDismiss={() => setSuccess("")} />}
+      {success && (
+        <SuccessBanner message={success} onDismiss={() => setSuccess("")} />
+      )}
 
       {/* Holding summary */}
       <div className="grid grid-cols-2 gap-3">
         <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700">
-          <div className="text-xs text-slate-500 dark:text-slate-400 mb-1">Your Shares</div>
+          <div className="text-xs text-slate-500 dark:text-slate-400 mb-1">
+            Your Shares
+          </div>
           <div className="text-xl font-bold text-slate-900 dark:text-white">
             {holding ? holding.shares.toLocaleString() : "—"}
           </div>
         </div>
         <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700">
-          <div className="text-xs text-slate-500 dark:text-slate-400 mb-1">Claimable Dividends</div>
+          <div className="text-xs text-slate-500 dark:text-slate-400 mb-1">
+            Claimable Dividends
+          </div>
           <div className="text-xl font-bold text-green-600 dark:text-green-400">
             {claimable !== null ? `${stroopsToXlm(claimable)} XLM` : "—"}
           </div>
@@ -403,7 +479,11 @@ function InvestorPanel({
           disabled={loading || !trust.isActive}
           className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
         >
-          {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Coins className="w-4 h-4" />}
+          {loading ? (
+            <RefreshCw className="w-4 h-4 animate-spin" />
+          ) : (
+            <Coins className="w-4 h-4" />
+          )}
           Buy
         </button>
       </form>
@@ -415,7 +495,11 @@ function InvestorPanel({
         className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
         aria-label="Claim dividends"
       >
-        {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <BadgeDollarSign className="w-4 h-4" />}
+        {loading ? (
+          <RefreshCw className="w-4 h-4 animate-spin" />
+        ) : (
+          <BadgeDollarSign className="w-4 h-4" />
+        )}
         Claim Dividends
       </button>
     </div>
@@ -463,8 +547,8 @@ export default function TokenizedReitDashboard({
             totalDividendsDeposited: d.trust?.total_dividends_deposited ?? 0,
             annualYieldBps: d.trust?.annual_yield_bps ?? 0,
             isActive: d.trust?.is_active ?? false,
-          }))
-        )
+          })),
+        ),
       );
       setTrusts(results);
       if (selectedTrust) {
@@ -478,10 +562,13 @@ export default function TokenizedReitDashboard({
     }
   }, [contractId, selectedTrust]);
 
-  useEffect(() => { loadTrusts(); }, [loadTrusts]);
+  useEffect(() => {
+    loadTrusts();
+  }, [loadTrusts]);
 
   async function handlePauseToggle() {
-    setError(""); setSuccess("");
+    setError("");
+    setSuccess("");
     try {
       const endpoint = paused ? "/api/reit/unpause" : "/api/reit/pause";
       await apiPost(endpoint, { contractId, admin: adminAddress });
@@ -495,12 +582,16 @@ export default function TokenizedReitDashboard({
   async function handleDepositDividends(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedTrust) return;
-    setError(""); setSuccess("");
+    setError("");
+    setSuccess("");
     const amount = parseInt(dividendAmount, 10);
-    if (isNaN(amount) || amount <= 0) return setError("Amount must be positive");
+    if (isNaN(amount) || amount <= 0)
+      return setError("Amount must be positive");
     try {
       await apiPost(`/api/reit/trusts/${selectedTrust.id}/dividends`, {
-        contractId, admin: adminAddress, amount,
+        contractId,
+        admin: adminAddress,
+        amount,
       });
       setSuccess(`Deposited ${stroopsToXlm(amount)} XLM in dividends`);
       loadTrusts();
@@ -511,10 +602,12 @@ export default function TokenizedReitDashboard({
 
   async function handleDeactivate() {
     if (!selectedTrust) return;
-    setError(""); setSuccess("");
+    setError("");
+    setSuccess("");
     try {
       await apiPost(`/api/reit/trusts/${selectedTrust.id}/deactivate`, {
-        contractId, admin: adminAddress,
+        contractId,
+        admin: adminAddress,
       });
       setSuccess("Trust deactivated");
       loadTrusts();
@@ -532,7 +625,9 @@ export default function TokenizedReitDashboard({
             <Building2 className="w-6 h-6 text-blue-600 dark:text-blue-400" />
           </div>
           <div>
-            <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Tokenized REIT</h2>
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
+              Tokenized REIT
+            </h2>
             <p className="text-sm text-slate-500 dark:text-slate-400">
               Fractional real estate investment with dividend distribution
             </p>
@@ -550,13 +645,17 @@ export default function TokenizedReitDashboard({
             aria-label="Refresh trusts"
             className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
           >
-            <RefreshCw className={`w-4 h-4 text-slate-500 ${loading ? "animate-spin" : ""}`} />
+            <RefreshCw
+              className={`w-4 h-4 text-slate-500 ${loading ? "animate-spin" : ""}`}
+            />
           </button>
         </div>
       </div>
 
       {error && <ErrorBanner message={error} onDismiss={() => setError("")} />}
-      {success && <SuccessBanner message={success} onDismiss={() => setSuccess("")} />}
+      {success && (
+        <SuccessBanner message={success} onDismiss={() => setSuccess("")} />
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg w-fit">
@@ -590,7 +689,9 @@ export default function TokenizedReitDashboard({
           </div>
           {trusts.length === 0 ? (
             <div className="text-center py-8 text-slate-400 dark:text-slate-500 text-sm">
-              {contractId ? "No trusts found" : "Enter a contract ID to load trusts"}
+              {contractId
+                ? "No trusts found"
+                : "Enter a contract ID to load trusts"}
             </div>
           ) : (
             trusts.map((t) => (
@@ -616,30 +717,40 @@ export default function TokenizedReitDashboard({
               {/* Trust details */}
               <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-semibold text-slate-900 dark:text-white">{selectedTrust.name}</h3>
+                  <h3 className="font-semibold text-slate-900 dark:text-white">
+                    {selectedTrust.name}
+                  </h3>
                   <StatusBadge active={selectedTrust.isActive} />
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
                   <div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400">Price/Share</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                      Price/Share
+                    </div>
                     <div className="font-semibold text-slate-900 dark:text-white">
                       {stroopsToXlm(selectedTrust.pricePerShare)} XLM
                     </div>
                   </div>
                   <div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400">Annual Yield</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                      Annual Yield
+                    </div>
                     <div className="font-semibold text-green-600 dark:text-green-400">
                       {yieldLabel(selectedTrust.annualYieldBps)}
                     </div>
                   </div>
                   <div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400">Total Dividends</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                      Total Dividends
+                    </div>
                     <div className="font-semibold text-slate-900 dark:text-white">
                       {stroopsToXlm(selectedTrust.totalDividendsDeposited)} XLM
                     </div>
                   </div>
                   <div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400">Shares Sold</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                      Shares Sold
+                    </div>
                     <div className="font-semibold text-slate-900 dark:text-white">
                       {pctSold(selectedTrust)}%
                     </div>
@@ -666,7 +777,10 @@ export default function TokenizedReitDashboard({
                       <Wallet className="w-4 h-4 text-green-500" />
                       Deposit Dividends
                     </h4>
-                    <form onSubmit={handleDepositDividends} className="flex gap-2">
+                    <form
+                      onSubmit={handleDepositDividends}
+                      className="flex gap-2"
+                    >
                       <input
                         type="number"
                         min="1"
@@ -723,9 +837,13 @@ export default function TokenizedReitDashboard({
                         }`}
                       >
                         {paused ? (
-                          <><PlayCircle className="w-4 h-4" /> Unpause Contract</>
+                          <>
+                            <PlayCircle className="w-4 h-4" /> Unpause Contract
+                          </>
                         ) : (
-                          <><PauseCircle className="w-4 h-4" /> Pause Contract</>
+                          <>
+                            <PauseCircle className="w-4 h-4" /> Pause Contract
+                          </>
                         )}
                       </button>
                     </div>

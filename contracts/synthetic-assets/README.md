@@ -5,6 +5,7 @@ A comprehensive Soroban smart contract enabling synthetic asset creation, price 
 ## Features
 
 ### Core Functionality
+
 - **Synthetic Asset Minting**: Create synthetic assets backed by collateral
 - **Price Oracle Integration**: Real-time price feeds with confidence scores
 - **Collateralization Management**: Automated ratio tracking and health monitoring
@@ -12,6 +13,7 @@ A comprehensive Soroban smart contract enabling synthetic asset creation, price 
 - **Derivatives Trading**: Long/short leveraged trading positions
 
 ### Protocol Parameters
+
 - Minimum Collateral Ratio: 150% (configurable)
 - Liquidation Threshold: 120% (configurable)
 - Liquidation Bonus: 5% (configurable)
@@ -32,6 +34,7 @@ collateral.rs   - Collateral ratio calculations
 ## Usage
 
 ### Initialize Contract
+
 ```rust
 contract.initialize(
     admin,
@@ -45,6 +48,7 @@ contract.initialize(
 ```
 
 ### Register Synthetic Asset
+
 ```rust
 contract.register_synthetic_asset(
     symbol!("sUSD"),
@@ -55,6 +59,7 @@ contract.register_synthetic_asset(
 ```
 
 ### Mint Synthetic Assets
+
 ```rust
 contract.mint_synthetic(
     user,
@@ -65,6 +70,7 @@ contract.mint_synthetic(
 ```
 
 ### Open Trading Position
+
 ```rust
 contract.open_trade(
     user,
@@ -78,11 +84,13 @@ contract.open_trade(
 ## Testing
 
 Run tests with coverage:
+
 ```bash
 cargo test
 ```
 
 Build optimized WASM:
+
 ```bash
 cargo build --release --target wasm32-unknown-unknown
 ```

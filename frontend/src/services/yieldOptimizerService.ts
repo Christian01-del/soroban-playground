@@ -1,6 +1,6 @@
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
-  "http://localhost:5000/api";
+  "https://soroban-playground.onrender.com/api";
 
 export type OptimizerPosition = {
   user: string;
@@ -100,7 +100,7 @@ class YieldOptimizerService {
 
   getHealth() {
     return request<{ status: string; strategies: number; totalTvl: number }>(
-      "/optimizer/health"
+      "/optimizer/health",
     );
   }
 
@@ -129,7 +129,7 @@ class YieldOptimizerService {
       feeBps: number;
       compoundInterval: number;
       isActive: boolean;
-    }
+    },
   ) {
     return request<OptimizerStrategy>(`/optimizer/strategies/${strategyId}`, {
       method: "PATCH",

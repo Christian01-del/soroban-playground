@@ -21,17 +21,13 @@ fn setup() -> (Env, Address, InsuranceProtocolClient<'static>) {
     (env, admin, client)
 }
 
-fn add_product(
-    env: &Env,
-    client: &InsuranceProtocolClient,
-    admin: &Address,
-) -> u32 {
+fn add_product(env: &Env, client: &InsuranceProtocolClient, admin: &Address) -> u32 {
     client.list_product(
         admin,
         &String::from_str(env, "Smart Contract Cover"),
-        &1_000_000,   // premium
-        &50_000_000,  // coverage
-        &30,          // risk score
+        &1_000_000,  // premium
+        &50_000_000, // coverage
+        &30,         // risk score
     )
 }
 
@@ -230,11 +226,7 @@ fn test_file_claim_non_holder_fails() {
     let holder = Address::generate(&env);
     let stranger = Address::generate(&env);
     let policy_id = client.buy_policy(&holder, &product_id);
-    let result = client.try_file_claim(
-        &stranger,
-        &policy_id,
-        &String::from_str(&env, "fraud"),
-    );
+    let result = client.try_file_claim(&stranger, &policy_id, &String::from_str(&env, "fraud"));
     assert_eq!(result, Err(Ok(Error::Unauthorized)));
 }
 
@@ -245,12 +237,9 @@ fn test_file_claim_expired_policy_fails() {
     let holder = Address::generate(&env);
     let policy_id = client.buy_policy(&holder, &product_id);
     // Advance past expiry
-    env.ledger().with_mut(|l| l.timestamp += POLICY_TERM_SECS + 1);
-    let result = client.try_file_claim(
-        &holder,
-        &policy_id,
-        &String::from_str(&env, "late claim"),
-    );
+    env.ledger()
+        .with_mut(|l| l.timestamp += POLICY_TERM_SECS + 1);
+    let result = client.try_file_claim(&holder, &policy_id, &String::from_str(&env, "late claim"));
     assert_eq!(result, Err(Ok(Error::PolicyInactive)));
 }
 
@@ -289,7 +278,8 @@ fn test_vote_on_finalised_claim_fails() {
         client.vote_claim(&v, &claim_id, &true);
     }
     // Advance past voting window
-    env.ledger().with_mut(|l| l.timestamp += VOTING_WINDOW_SECS + 1);
+    env.ledger()
+        .with_mut(|l| l.timestamp += VOTING_WINDOW_SECS + 1);
     client.finalise_claim(&claim_id);
 
     let voter = Address::generate(&env);
@@ -307,7 +297,8 @@ fn test_finalise_claim_approved() {
         let v = Address::generate(&env);
         client.vote_claim(&v, &claim_id, &true);
     }
-    env.ledger().with_mut(|l| l.timestamp += VOTING_WINDOW_SECS + 1);
+    env.ledger()
+        .with_mut(|l| l.timestamp += VOTING_WINDOW_SECS + 1);
     let status = client.finalise_claim(&claim_id);
     assert_eq!(status, ClaimStatus::Approved);
 }
@@ -320,7 +311,8 @@ fn test_finalise_claim_rejected() {
         let v = Address::generate(&env);
         client.vote_claim(&v, &claim_id, &false);
     }
-    env.ledger().with_mut(|l| l.timestamp += VOTING_WINDOW_SECS + 1);
+    env.ledger()
+        .with_mut(|l| l.timestamp += VOTING_WINDOW_SECS + 1);
     let status = client.finalise_claim(&claim_id);
     assert_eq!(status, ClaimStatus::Rejected);
 }
@@ -347,7 +339,8 @@ fn test_finalise_insufficient_votes_fails() {
         let v = Address::generate(&env);
         client.vote_claim(&v, &claim_id, &true);
     }
-    env.ledger().with_mut(|l| l.timestamp += VOTING_WINDOW_SECS + 1);
+    env.ledger()
+        .with_mut(|l| l.timestamp += VOTING_WINDOW_SECS + 1);
     let result = client.try_finalise_claim(&claim_id);
     assert_eq!(result, Err(Ok(Error::InsufficientVotes)));
 }
@@ -360,7 +353,8 @@ fn test_finalise_twice_fails() {
         let v = Address::generate(&env);
         client.vote_claim(&v, &claim_id, &true);
     }
-    env.ledger().with_mut(|l| l.timestamp += VOTING_WINDOW_SECS + 1);
+    env.ledger()
+        .with_mut(|l| l.timestamp += VOTING_WINDOW_SECS + 1);
     client.finalise_claim(&claim_id);
     let result = client.try_finalise_claim(&claim_id);
     assert_eq!(result, Err(Ok(Error::ClaimAlreadyFinalised)));
@@ -378,4 +372,33 @@ fn test_counters_increment() {
     let holder = Address::generate(&env);
     client.buy_policy(&holder, &1);
     assert_eq!(client.policy_count(), 1);
+}
+
+// ── enhanced error handling tests ─────────────────────────────────────────────
+
+#[test]
+fn test_file_claim_empty_description_fails() {
+    let (env, admin, client) = setup();
+    let product_id = add_product(&env, &client, &admin);
+    let holder = Address::generate(&env);
+    let policy_id = client.buy_policy(&holder, &product_id);
+    let result = client.try_file_claim(&holder, &policy_id, &String::from_str(&env, ""));
+    assert_eq!(result, Err(Ok(Error::EmptyDescription)));
+}
+
+#[test]
+fn test_claimant_cannot_vote_on_own_claim_fails() {
+    let (env, admin, client) = setup();
+    let (claimant, _policy_id, claim_id) = buy_and_claim(&env, &client, &admin);
+    let result = client.try_vote_claim(&claimant, &claim_id, &true);
+    assert_eq!(result, Err(Ok(Error::ClaimantCannotVote)));
+}
+
+#[test]
+fn test_deactivate_product_already_inactive_fails() {
+    let (env, admin, client) = setup();
+    let id = add_product(&env, &client, &admin);
+    client.deactivate_product(&admin, &id);
+    let result = client.try_deactivate_product(&admin, &id);
+    assert_eq!(result, Err(Ok(Error::ProductAlreadyInactive)));
 }

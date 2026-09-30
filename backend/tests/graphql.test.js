@@ -3,20 +3,38 @@ import express from 'express';
 import request from 'supertest';
 
 // Mock the services BEFORE importing setupGraphQL
-jest.unstable_mockModule('../src/services/compileService.js', () => ({
+jest.mock('../src/services/compileService.js', () => ({
+  __esModule: true,
   getCompileStats: jest.fn(),
   getCompileSnapshot: jest.fn(),
 }));
 
-jest.unstable_mockModule('../src/services/deployService.js', () => ({
+jest.mock('../src/services/deployService.js', () => ({
+  __esModule: true,
   getDeploymentState: jest.fn(),
 }));
 
+jest.mock('../src/services/authService.js', () => ({
+  __esModule: true,
+  default: {
+    authenticate: jest.fn().mockReturnValue({
+      id: 1,
+      username: 'admin',
+      role: 'admin',
+      permissions: ['project:read'],
+    }),
+    hasPermission: () => true,
+    hasRole: () => true,
+  },
+}));
+
 // Now import the things we want to test
-const { setupGraphQL } = await import('../src/graphql/index.js');
-const { getCompileStats, getCompileSnapshot } =
-  await import('../src/services/compileService.js');
-const { getDeploymentState } = await import('../src/services/deployService.js');
+const { setupGraphQL } = require('../src/graphql/index.js');
+const {
+  getCompileStats,
+  getCompileSnapshot,
+} = require('../src/services/compileService.js');
+const { getDeploymentState } = require('../src/services/deployService.js');
 
 describe('GraphQL API Layer', () => {
   let app;
@@ -40,6 +58,15 @@ describe('GraphQL API Layer', () => {
       cacheHitRate: 80,
     });
 
+    getCompileSnapshot.mockResolvedValue({
+      activeWorkers: 2,
+      maxWorkers: 4,
+      queueLength: 0,
+      totalCompiles: 10,
+      cacheHits: 8, // hit rate = 80%
+      history: new Array(10).fill({}),
+    });
+
     const query = `
       query {
         compileStats {
@@ -52,7 +79,6 @@ describe('GraphQL API Layer', () => {
     `;
 
     const res = await request(app).post('/graphql').send({ query });
-
     expect(res.status).toBe(200);
     expect(res.body.data.compileStats).toEqual({
       activeWorkers: 2,

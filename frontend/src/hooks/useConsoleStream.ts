@@ -78,7 +78,10 @@ function appendToRenderState(prev: StreamState, lines: string[]): StreamState {
 }
 
 export function useConsoleStream(): ConsoleStreamApi {
-  const [streamState, setStreamState] = useState<StreamState>({ lines: [], baseLineNumber: 0 });
+  const [streamState, setStreamState] = useState<StreamState>({
+    lines: [],
+    baseLineNumber: 0,
+  });
   const [droppedMessages, setDroppedMessages] = useState(0);
   const [isIngestionPaused, setIsIngestionPaused] = useState(false);
 
@@ -110,10 +113,17 @@ export function useConsoleStream(): ConsoleStreamApi {
     }
 
     let readCursor = Atomics.load(header, ConsoleRingHeaderIndex.READ_CURSOR);
-    const writeCursor = Atomics.load(header, ConsoleRingHeaderIndex.WRITE_CURSOR);
+    const writeCursor = Atomics.load(
+      header,
+      ConsoleRingHeaderIndex.WRITE_CURSOR,
+    );
 
     if (writeCursor <= readCursor) {
-      const droppedNow = Atomics.exchange(header, ConsoleRingHeaderIndex.DROPPED_MESSAGES, 0);
+      const droppedNow = Atomics.exchange(
+        header,
+        ConsoleRingHeaderIndex.DROPPED_MESSAGES,
+        0,
+      );
 
       if (droppedNow > 0) {
         setDroppedMessages((prev) => prev + droppedNow);
@@ -156,7 +166,11 @@ export function useConsoleStream(): ConsoleStreamApi {
 
     Atomics.store(header, ConsoleRingHeaderIndex.READ_CURSOR, readCursor);
 
-    const droppedNow = Atomics.exchange(header, ConsoleRingHeaderIndex.DROPPED_MESSAGES, 0);
+    const droppedNow = Atomics.exchange(
+      header,
+      ConsoleRingHeaderIndex.DROPPED_MESSAGES,
+      0,
+    );
     if (droppedNow > 0) {
       setDroppedMessages((prev) => prev + droppedNow);
     }
@@ -171,17 +185,22 @@ export function useConsoleStream(): ConsoleStreamApi {
 
     let disposed = false;
 
-    const worker = new Worker(new URL("../workers/consoleStream.worker.ts", import.meta.url), {
-      type: "module",
-      name: "console-stream-worker",
-    });
+    const worker = new Worker(
+      new URL("../workers/consoleStream.worker.ts", import.meta.url),
+      {
+        type: "module",
+        name: "console-stream-worker",
+      },
+    );
 
     workerRef.current = worker;
 
     const supportsSharedMemory = typeof SharedArrayBuffer !== "undefined";
 
     if (supportsSharedMemory) {
-      const headerBuffer = new SharedArrayBuffer(CONSOLE_RING_HEADER_INTS * Int32Array.BYTES_PER_ELEMENT);
+      const headerBuffer = new SharedArrayBuffer(
+        CONSOLE_RING_HEADER_INTS * Int32Array.BYTES_PER_ELEMENT,
+      );
       const dataBuffer = new SharedArrayBuffer(CONSOLE_RING_DEFAULT_CAPACITY);
       headerRef.current = new Int32Array(headerBuffer);
       ringRef.current = new Uint8Array(dataBuffer);

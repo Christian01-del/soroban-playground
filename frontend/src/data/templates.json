@@ -1,0 +1,23 @@
+[
+  {
+    "id": "counter",
+    "name": "Counter",
+    "category": "Basics",
+    "path": "contracts/counter",
+    "description": "Simple counter contract"
+  },
+  {
+    "id": "escrow",
+    "name": "Escrow",
+    "category": "Finance",
+    "path": "contracts/escrow",
+    "description": "Escrow contract example"
+  },
+  {
+    "id": "token_contract",
+    "name": "Token",
+    "category": "Token",
+    "path": "contracts/token_contract",
+    "description": "ERC-like token contract"
+  }
+]

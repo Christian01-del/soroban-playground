@@ -12,16 +12,16 @@ A Soroban smart contract providing a decentralized insurance marketplace with ri
 
 ## Contract Interface
 
-| Function | Description |
-|---|---|
-| `initialize(admin)` | One-time setup |
-| `list_product(admin, name, premium, coverage, risk)` | Add a coverage product |
-| `deactivate_product(admin, id)` | Remove product from marketplace |
-| `buy_policy(holder, product_id)` | Purchase a 1-year policy |
-| `file_claim(claimant, policy_id, description)` | File a claim |
-| `vote_claim(voter, claim_id, approve)` | Vote on a pending claim |
-| `finalise_claim(claim_id)` | Finalise after voting window |
-| `get_product(id)` / `get_policy(id)` / `get_claim(id)` | Read data |
+| Function                                               | Description                     |
+| ------------------------------------------------------ | ------------------------------- |
+| `initialize(admin)`                                    | One-time setup                  |
+| `list_product(admin, name, premium, coverage, risk)`   | Add a coverage product          |
+| `deactivate_product(admin, id)`                        | Remove product from marketplace |
+| `buy_policy(holder, product_id)`                       | Purchase a 1-year policy        |
+| `file_claim(claimant, policy_id, description)`         | File a claim                    |
+| `vote_claim(voter, claim_id, approve)`                 | Vote on a pending claim         |
+| `finalise_claim(claim_id)`                             | Finalise after voting window    |
+| `get_product(id)` / `get_policy(id)` / `get_claim(id)` | Read data                       |
 
 ## Build & Test
 

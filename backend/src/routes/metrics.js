@@ -71,6 +71,85 @@ export const requestLatency = new client.Histogram({
 });
 register.registerMetric(requestLatency);
 
+export const requestCount = new client.Counter({
+  name: 'http_requests_total',
+  help: 'Total number of HTTP requests processed by the backend',
+  labelNames: ['method', 'route', 'status'],
+});
+register.registerMetric(requestCount);
+
+export const requestRate = new client.Gauge({
+  name: 'http_request_rate_per_second',
+  help: 'Average HTTP request rate per second over the last minute',
+});
+register.registerMetric(requestRate);
+
+export const activeCompilationJobs = new client.Gauge({
+  name: 'active_compilation_jobs',
+  help: 'Number of active compilation jobs currently running',
+});
+register.registerMetric(activeCompilationJobs);
+
+export const httpErrorsTotal = new client.Counter({
+  name: 'http_errors_total',
+  help: 'Total number of HTTP error responses',
+  labelNames: ['method', 'route', 'status'],
+});
+register.registerMetric(httpErrorsTotal);
+
+export const processCpuSecondsTotal =
+  register.getSingleMetric('process_cpu_seconds_total') ||
+  new client.Gauge({
+    name: 'process_cpu_seconds_total',
+    help: 'Total CPU time consumed by this process in seconds',
+  });
+if (!register.getSingleMetric('process_cpu_seconds_total')) {
+  register.registerMetric(processCpuSecondsTotal);
+}
+
+export const processMemoryRssBytes =
+  register.getSingleMetric('process_memory_rss_bytes') ||
+  new client.Gauge({
+    name: 'process_memory_rss_bytes',
+    help: 'Resident memory usage in bytes',
+  });
+if (!register.getSingleMetric('process_memory_rss_bytes')) {
+  register.registerMetric(processMemoryRssBytes);
+}
+
+const requestTimestamps = [];
+const REQUEST_RATE_WINDOW_MS = 60_000;
+
+export function recordHttpRequest(method, route, status) {
+  requestCount.inc({ method, route, status });
+  if (status >= 400) {
+    httpErrorsTotal.inc({ method, route, status });
+  }
+  const now = Date.now();
+  requestTimestamps.push(now);
+  const cutoff = now - REQUEST_RATE_WINDOW_MS;
+  while (requestTimestamps.length > 0 && requestTimestamps[0] < cutoff) {
+    requestTimestamps.shift();
+  }
+  requestRate.set(requestTimestamps.length / (REQUEST_RATE_WINDOW_MS / 1000));
+}
+
+export function updateSystemMetrics() {
+  const usage = process.cpuUsage();
+  if (
+    processCpuSecondsTotal &&
+    typeof processCpuSecondsTotal.set === 'function'
+  ) {
+    processCpuSecondsTotal.set((usage.user + usage.system) / 1e6);
+  }
+  if (
+    processMemoryRssBytes &&
+    typeof processMemoryRssBytes.set === 'function'
+  ) {
+    processMemoryRssBytes.set(process.memoryUsage().rss);
+  }
+}
+
 // Oracle Queue Metrics
 export const oracleTasksEnqueued = new client.Counter({
   name: 'oracle_tasks_enqueued_total',
@@ -115,21 +194,21 @@ register.registerMetric(eventSchemaBreakingChangesTotal);
 export const eventSchemaDetectionAlertsTotal = new client.Counter({
   name: 'event_schema_detection_alerts_total',
   help: 'Total number of schema detection alerts fired',
-  labelNames: ['severity'],
+  labelNames: ['event_type', 'severity'],
 });
 register.registerMetric(eventSchemaDetectionAlertsTotal);
 
 export const eventSchemaVersionEventsTotal = new client.Counter({
   name: 'event_schema_version_events_total',
   help: 'Total number of schema version events',
-  labelNames: ['event_type', 'version'],
+  labelNames: ['event_type', 'schema_version'],
 });
 register.registerMetric(eventSchemaVersionEventsTotal);
 
 export const eventValidationTotal = new client.Counter({
   name: 'event_validation_total',
   help: 'Total number of event validation attempts',
-  labelNames: ['status'],
+  labelNames: ['event_type', 'schema_version', 'outcome'],
 });
 register.registerMetric(eventValidationTotal);
 
@@ -184,8 +263,41 @@ export const oracleProofWorkerHeartbeats = new client.Counter({
 });
 register.registerMetric(oracleProofWorkerHeartbeats);
 
+// Database Query Metrics
+export const dbQueryDuration = new client.Histogram({
+  name: 'db_query_duration_seconds',
+  help: 'Duration of database queries in seconds',
+  labelNames: ['operation', 'status'],
+  buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2],
+});
+register.registerMetric(dbQueryDuration);
+
+export const dbQueriesTotal = new client.Counter({
+  name: 'db_queries_total',
+  help: 'Total number of database queries executed',
+  labelNames: ['operation', 'status'],
+});
+register.registerMetric(dbQueriesTotal);
+
+// Soroban RPC Call Metrics
+export const sorobanRpcCallDuration = new client.Histogram({
+  name: 'soroban_rpc_call_duration_seconds',
+  help: 'Duration of Soroban RPC calls in seconds',
+  labelNames: ['endpoint', 'status'],
+  buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+});
+register.registerMetric(sorobanRpcCallDuration);
+
+export const sorobanRpcCallsTotal = new client.Counter({
+  name: 'soroban_rpc_calls_total',
+  help: 'Total number of Soroban RPC calls',
+  labelNames: ['endpoint', 'status'],
+});
+register.registerMetric(sorobanRpcCallsTotal);
+
 router.get('/', async (req, res) => {
   try {
+    updateSystemMetrics();
     res.set('Content-Type', register.contentType);
     const merged = await client.Registry.merge([
       register,
@@ -193,7 +305,7 @@ router.get('/', async (req, res) => {
     ]).metrics();
     res.end(merged);
   } catch (ex) {
-    res.status(500).end(ex);
+    res.status(500).send(ex.toString());
   }
 });
 

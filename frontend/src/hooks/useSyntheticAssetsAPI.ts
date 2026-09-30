@@ -3,10 +3,10 @@
  * Provides functions to interact with the backend API
  */
 
-'use client';
+"use client";
 
-import { useState, useCallback } from 'react';
-import { useAuth } from '@/hooks/useAuth';
+import { useState, useCallback } from "react";
+import { useAuth } from "@/hooks/useAuth";
 
 interface ApiError {
   message: string;
@@ -18,14 +18,10 @@ export const useSyntheticAssetsAPI = () => {
   const [error, setError] = useState<ApiError | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
 
   const callApi = useCallback(
-    async (
-      method: string,
-      endpoint: string,
-      data?: any
-    ) => {
+    async (method: string, endpoint: string, data?: any) => {
       try {
         setIsLoading(true);
         setError(null);
@@ -33,7 +29,7 @@ export const useSyntheticAssetsAPI = () => {
         const options: RequestInit = {
           method,
           headers: {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
             ...(token && { Authorization: `Bearer ${token}` }),
           },
         };
@@ -44,7 +40,7 @@ export const useSyntheticAssetsAPI = () => {
 
         const response = await fetch(
           `${apiUrl}/v1/synthetic-assets${endpoint}`,
-          options
+          options,
         );
 
         if (!response.ok) {
@@ -55,7 +51,7 @@ export const useSyntheticAssetsAPI = () => {
         return await response.json();
       } catch (err) {
         const apiError = {
-          message: err instanceof Error ? err.message : 'Unknown error',
+          message: err instanceof Error ? err.message : "Unknown error",
         };
         setError(apiError);
         throw apiError;
@@ -63,46 +59,42 @@ export const useSyntheticAssetsAPI = () => {
         setIsLoading(false);
       }
     },
-    [token, apiUrl]
+    [token, apiUrl],
   );
 
   return {
     isLoading,
     error,
-    
+
     // Asset Management
-    registerAsset: (asset: any) =>
-      callApi('POST', '/register', asset),
-    
+    registerAsset: (asset: any) => callApi("POST", "/register", asset),
+
     // Minting & Burning
     mintSynthetic: (data: {
       assetSymbol: string;
       collateralAmount: number;
       mintAmount: number;
     }) =>
-      callApi('POST', '/mint', {
-        userAddress: 'current-user', // Will be resolved from wallet
+      callApi("POST", "/mint", {
+        userAddress: "current-user", // Will be resolved from wallet
         ...data,
       }),
-    
-    burnSynthetic: (data: {
-      positionId: number;
-      burnAmount: number;
-    }) =>
-      callApi('POST', '/burn', {
-        userAddress: 'current-user',
+
+    burnSynthetic: (data: { positionId: number; burnAmount: number }) =>
+      callApi("POST", "/burn", {
+        userAddress: "current-user",
         ...data,
       }),
-    
+
     addCollateral: (data: {
       positionId: number;
       additionalCollateral: number;
     }) =>
-      callApi('POST', '/add-collateral', {
-        userAddress: 'current-user',
+      callApi("POST", "/add-collateral", {
+        userAddress: "current-user",
         ...data,
       }),
-    
+
     // Trading
     openTrade: (data: {
       assetSymbol: string;
@@ -110,54 +102,52 @@ export const useSyntheticAssetsAPI = () => {
       margin: number;
       leverage: number;
     }) =>
-      callApi('POST', '/open-trade', {
-        userAddress: 'current-user',
+      callApi("POST", "/open-trade", {
+        userAddress: "current-user",
         ...data,
       }),
-    
+
     closeTrade: (positionId: number) =>
-      callApi('POST', '/close-trade', {
-        userAddress: 'current-user',
+      callApi("POST", "/close-trade", {
+        userAddress: "current-user",
         positionId,
       }),
-    
+
     updatePrice: (data: {
       assetSymbol: string;
       newPrice: number;
       confidence: number;
-    }) =>
-      callApi('POST', '/price', data),
-    
+    }) => callApi("POST", "/price", data),
+
     // Queries
     getPosition: (positionId: number) =>
-      callApi('GET', `/position/${positionId}`),
-    
+      callApi("GET", `/position/${positionId}`),
+
     getTradingPosition: (positionId: number) =>
-      callApi('GET', `/trade/${positionId}`),
-    
-    getAssetPrice: (symbol: string) =>
-      callApi('GET', `/price/${symbol}`),
-    
+      callApi("GET", `/trade/${positionId}`),
+
+    getAssetPrice: (symbol: string) => callApi("GET", `/price/${symbol}`),
+
     getCollateralRatio: (positionId: number) =>
-      callApi('GET', `/ratio/${positionId}`),
-    
+      callApi("GET", `/ratio/${positionId}`),
+
     getHealthFactor: (positionId: number) =>
-      callApi('GET', `/health/${positionId}`),
-    
+      callApi("GET", `/health/${positionId}`),
+
     isLiquidatable: (positionId: number) =>
-      callApi('GET', `/liquidatable/${positionId}`),
-    
-    getProtocolParams: () =>
-      callApi('GET', '/params'),
-    
-    getRegisteredAssets: () =>
-      callApi('GET', '/assets'),
-    
+      callApi("GET", `/liquidatable/${positionId}`),
+
+    getProtocolParams: () => callApi("GET", "/params"),
+
+    getRegisteredAssets: () => callApi("GET", "/assets"),
+
     getMaxMintable: (assetSymbol: string, collateralAmount: number) =>
-      callApi('GET', `/max-mintable?assetSymbol=${assetSymbol}&collateralAmount=${collateralAmount}`),
-    
-    getTradingPnL: (positionId: number) =>
-      callApi('GET', `/pnl/${positionId}`),
+      callApi(
+        "GET",
+        `/max-mintable?assetSymbol=${assetSymbol}&collateralAmount=${collateralAmount}`,
+      ),
+
+    getTradingPnL: (positionId: number) => callApi("GET", `/pnl/${positionId}`),
   };
 };
 

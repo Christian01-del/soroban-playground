@@ -56,6 +56,7 @@ impl LendingProtocol {
         if is_initialized(&env) {
             return Err(Error::AlreadyInitialized);
         }
+        admin.require_auth();
         set_admin(&env, &admin);
         set_initialized(&env);
         Ok(())
@@ -70,17 +71,23 @@ impl LendingProtocol {
     pub fn deposit(env: Env, user: Address, amount: i128) -> Result<(), Error> {
         ensure_initialized(&env)?;
         user.require_auth();
-        if amount <= 0 {
-            return Err(Error::InvalidAmount);
-        }
+        validate_amount(amount)?;
 
         let mut pos = get_position(&env, &user);
-        pos.deposited += amount;
+        pos.deposited = pos
+            .deposited
+            .checked_add(amount)
+            .ok_or(Error::InvalidAmount)?;
         pos.last_updated = env.ledger().timestamp();
         set_position(&env, &user, &pos);
-        set_total_deposited(&env, get_total_deposited(&env) + amount);
 
-        env.events().publish((symbol_short!("deposit"), user), amount);
+        let new_total = get_total_deposited(&env)
+            .checked_add(amount)
+            .ok_or(Error::InvalidAmount)?;
+        set_total_deposited(&env, new_total);
+
+        env.events()
+            .publish((symbol_short!("deposit"), user), amount);
         Ok(())
     }
 
@@ -95,29 +102,34 @@ impl LendingProtocol {
     pub fn withdraw(env: Env, user: Address, amount: i128) -> Result<(), Error> {
         ensure_initialized(&env)?;
         user.require_auth();
-        if amount <= 0 {
-            return Err(Error::InvalidAmount);
-        }
+        validate_amount(amount)?;
 
         let mut pos = get_position(&env, &user);
         if pos.deposited < amount {
             return Err(Error::InsufficientBalance);
         }
 
-        // Ensure the remaining collateral still covers outstanding borrows.
-        let remaining_deposit = pos.deposited - amount;
-        if pos.borrowed > 0
-            && remaining_deposit * COLLATERAL_RATIO_DEN < pos.borrowed * COLLATERAL_RATIO_NUM
-        {
-            return Err(Error::InsufficientCollateral);
+        let remaining_deposit = pos
+            .deposited
+            .checked_sub(amount)
+            .ok_or(Error::InvalidAmount)?;
+
+        // Ensure remaining collateral still covers outstanding borrows.
+        if pos.borrowed > 0 {
+            check_collateral_ratio(remaining_deposit, pos.borrowed)?;
         }
 
-        pos.deposited -= amount;
+        pos.deposited = remaining_deposit;
         pos.last_updated = env.ledger().timestamp();
         set_position(&env, &user, &pos);
-        set_total_deposited(&env, get_total_deposited(&env) - amount);
 
-        env.events().publish((symbol_short!("withdraw"), user), amount);
+        let new_total = get_total_deposited(&env)
+            .checked_sub(amount)
+            .ok_or(Error::InvalidAmount)?;
+        set_total_deposited(&env, new_total);
+
+        env.events()
+            .publish((symbol_short!("withdraw"), user), amount);
         Ok(())
     }
 
@@ -131,24 +143,28 @@ impl LendingProtocol {
     pub fn borrow(env: Env, user: Address, amount: i128) -> Result<(), Error> {
         ensure_initialized(&env)?;
         user.require_auth();
-        if amount <= 0 {
-            return Err(Error::InvalidAmount);
-        }
+        validate_amount(amount)?;
 
         let mut pos = get_position(&env, &user);
-        let new_borrowed = pos.borrowed + amount;
+        let new_borrowed = pos
+            .borrowed
+            .checked_add(amount)
+            .ok_or(Error::InvalidAmount)?;
 
-        // (borrowed + amount) * 150 > deposited * 100  →  reject
-        if new_borrowed * COLLATERAL_RATIO_NUM > pos.deposited * COLLATERAL_RATIO_DEN {
-            return Err(Error::InsufficientCollateral);
-        }
+        // Check if collateral ratio is maintained: (borrowed + amount) * 150 <= deposited * 100
+        check_collateral_ratio(pos.deposited, new_borrowed)?;
 
         pos.borrowed = new_borrowed;
         pos.last_updated = env.ledger().timestamp();
         set_position(&env, &user, &pos);
-        set_total_borrowed(&env, get_total_borrowed(&env) + amount);
 
-        env.events().publish((symbol_short!("borrow"), user), amount);
+        let new_total = get_total_borrowed(&env)
+            .checked_add(amount)
+            .ok_or(Error::InvalidAmount)?;
+        set_total_borrowed(&env, new_total);
+
+        env.events()
+            .publish((symbol_short!("borrow"), user), amount);
         Ok(())
     }
 
@@ -160,16 +176,11 @@ impl LendingProtocol {
     /// may safely pass [`i128::MAX`] to repay everything.
     ///
     /// # Errors
-    /// - [`Error::InvalidAmount`] if `amount ≤ 0`.
-    /// - [`Error::RepayExceedsBorrow`] if `amount` is strictly greater than the
-    ///   outstanding borrow (strict mode — callers should use the capped variant
-    ///   if they want to repay-all).
+    /// - [`Error::InvalidAmount`] if `amount ≤ 0` or nothing outstanding.
     pub fn repay(env: Env, user: Address, amount: i128) -> Result<i128, Error> {
         ensure_initialized(&env)?;
         user.require_auth();
-        if amount <= 0 {
-            return Err(Error::InvalidAmount);
-        }
+        validate_amount(amount)?;
 
         let mut pos = get_position(&env, &user);
 
@@ -180,11 +191,21 @@ impl LendingProtocol {
             return Err(Error::InvalidAmount);
         }
 
-        pos.borrowed -= actual_repay;
-        pos.credit_score += CREDIT_SCORE_INCREMENT;
+        pos.borrowed = pos
+            .borrowed
+            .checked_sub(actual_repay)
+            .ok_or(Error::InvalidAmount)?;
+        pos.credit_score = pos
+            .credit_score
+            .checked_add(CREDIT_SCORE_INCREMENT)
+            .ok_or(Error::InvalidAmount)?;
         pos.last_updated = env.ledger().timestamp();
         set_position(&env, &user, &pos);
-        set_total_borrowed(&env, get_total_borrowed(&env) - actual_repay);
+
+        let new_total = get_total_borrowed(&env)
+            .checked_sub(actual_repay)
+            .ok_or(Error::InvalidAmount)?;
+        set_total_borrowed(&env, new_total);
 
         env.events().publish(
             (symbol_short!("repayment"), user.clone()),
@@ -216,6 +237,15 @@ impl LendingProtocol {
     ) -> Result<i128, Error> {
         ensure_initialized(&env)?;
         liquidator.require_auth();
+        validate_amount(amount)?;
+        if liquidator == user {
+            // Without this, a borrower could "liquidate" themselves: the
+            // collateral seized from `user` and the collateral credited to
+            // `liquidator` are the same storage slot when they're the same
+            // address, so the seizure nets to zero while the debt reduction
+            // is real — erasing debt for free with no actual repayment.
+            return Err(Error::SelfLiquidationNotAllowed);
+        }
         if amount <= 0 {
             return Err(Error::InvalidAmount);
         }
@@ -226,8 +256,17 @@ impl LendingProtocol {
             return Err(Error::NothingToLiquidate);
         }
 
-        // Position is healthy — cannot liquidate.
-        if pos.borrowed * LIQUIDATION_THRESHOLD_NUM <= pos.deposited * COLLATERAL_RATIO_DEN {
+        // Position is healthy — cannot liquidate if borrowed * 110 <= deposited * 100.
+        let liq_req = pos
+            .borrowed
+            .checked_mul(LIQUIDATION_THRESHOLD_NUM)
+            .ok_or(Error::InvalidAmount)?;
+        let dep_threshold = pos
+            .deposited
+            .checked_mul(COLLATERAL_RATIO_DEN)
+            .ok_or(Error::InvalidAmount)?;
+
+        if liq_req <= dep_threshold {
             return Err(Error::PositionNotUndercollateralized);
         }
 
@@ -236,26 +275,41 @@ impl LendingProtocol {
             return Err(Error::LiquidationExceedsBorrow);
         }
 
-        let collateral_to_seize =
-            (amount * LIQUIDATION_BONUS_NUM) / LIQUIDATION_BONUS_DEN;
+        let collateral_to_seize = calculate_liquidation_seizure(amount)?;
 
         // Ensure the borrower has enough collateral to cover the seizure.
         if collateral_to_seize > pos.deposited {
             return Err(Error::InsufficientBalance);
         }
 
-        pos.borrowed -= amount;
-        pos.deposited -= collateral_to_seize;
+        pos.borrowed = pos
+            .borrowed
+            .checked_sub(amount)
+            .ok_or(Error::InvalidAmount)?;
+        pos.deposited = pos
+            .deposited
+            .checked_sub(collateral_to_seize)
+            .ok_or(Error::InvalidAmount)?;
         pos.last_updated = env.ledger().timestamp();
         set_position(&env, &user, &pos);
 
         // Credit the liquidator with the seized collateral.
         let mut liq_pos = get_position(&env, &liquidator);
-        liq_pos.deposited += collateral_to_seize;
+        liq_pos.deposited = liq_pos
+            .deposited
+            .checked_add(collateral_to_seize)
+            .ok_or(Error::InvalidAmount)?;
         set_position(&env, &liquidator, &liq_pos);
 
-        set_total_borrowed(&env, get_total_borrowed(&env) - amount);
-        set_total_deposited(&env, get_total_deposited(&env) - collateral_to_seize);
+        let new_total_borrowed = get_total_borrowed(&env)
+            .checked_sub(amount)
+            .ok_or(Error::InvalidAmount)?;
+        set_total_borrowed(&env, new_total_borrowed);
+
+        let new_total_deposited = get_total_deposited(&env)
+            .checked_sub(collateral_to_seize)
+            .ok_or(Error::InvalidAmount)?;
+        set_total_deposited(&env, new_total_deposited);
 
         env.events().publish(
             (symbol_short!("liquidate"), user),
@@ -271,8 +325,7 @@ impl LendingProtocol {
     pub fn get_stats(env: Env) -> PoolStats {
         let total_d = get_total_deposited(&env);
         let total_b = get_total_borrowed(&env);
-        // Utilisation rate in basis points (0–10 000).
-        let rate = if total_d > 0 { (total_b * 10_000) / total_d } else { 0 };
+        let rate = calculate_utilization_rate(total_d, total_b);
         PoolStats {
             total_deposited: total_d,
             total_borrowed: total_b,
@@ -295,5 +348,51 @@ fn ensure_initialized(env: &Env) -> Result<(), Error> {
     Ok(())
 }
 
+fn validate_amount(amount: i128) -> Result<(), Error> {
+    if amount <= 0 {
+        return Err(Error::InvalidAmount);
+    }
+    Ok(())
+}
+
+fn check_collateral_ratio(deposited: i128, borrowed: i128) -> Result<(), Error> {
+    if borrowed == 0 {
+        return Ok(());
+    }
+    let req_collateral = borrowed
+        .checked_mul(COLLATERAL_RATIO_NUM)
+        .ok_or(Error::InvalidAmount)?;
+    let actual_collateral = deposited
+        .checked_mul(COLLATERAL_RATIO_DEN)
+        .ok_or(Error::InvalidAmount)?;
+
+    if req_collateral > actual_collateral {
+        return Err(Error::InsufficientCollateral);
+    }
+    Ok(())
+}
+
+fn calculate_liquidation_seizure(amount: i128) -> Result<i128, Error> {
+    let scaled = amount
+        .checked_mul(LIQUIDATION_BONUS_NUM)
+        .ok_or(Error::InvalidAmount)?;
+    let seized = scaled
+        .checked_div(LIQUIDATION_BONUS_DEN)
+        .ok_or(Error::InvalidAmount)?;
+    Ok(seized)
+}
+
+fn calculate_utilization_rate(total_deposited: i128, total_borrowed: i128) -> i128 {
+    if total_deposited <= 0 {
+        return 0;
+    }
+    total_borrowed
+        .checked_mul(10_000)
+        .and_then(|val| val.checked_div(total_deposited))
+        .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod proptest;
 #[cfg(test)]
 mod test;

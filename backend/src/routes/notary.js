@@ -3,16 +3,19 @@
 
 import express from 'express';
 import { asyncHandler, createHttpError } from '../middleware/errorHandler.js';
-import { validateNotaryInput } from '../middleware/validateNotaryInput.js';
 import { notaryRateLimiter } from '../middleware/notaryRateLimiter.js';
 import {
   notarizeFile,
   verifyFile,
   revokeNotarization,
   listNotarizations,
+  validateFileHash,
+  NotaryError,
 } from '../services/notaryService.js';
 
 const router = express.Router();
+
+const FILE_HASH_PARAM_REGEX = /^[0-9a-fA-F]{64}$/;
 
 /**
  * POST /api/notary/notarize
@@ -21,9 +24,16 @@ const router = express.Router();
 router.post(
   '/notarize',
   notaryRateLimiter,
-  validateNotaryInput,
   asyncHandler(async (req, res) => {
     const { fileHash, metadata, callerAddress = 'anonymous' } = req.body;
+
+    if (!fileHash || typeof fileHash !== 'string') {
+      throw createHttpError(400, 'fileHash is required and must be a string');
+    }
+    if (!metadata || typeof metadata !== 'string') {
+      throw createHttpError(400, 'metadata is required and must be a string');
+    }
+
     const result = await notarizeFile(fileHash, metadata, callerAddress);
     res.status(201).json({ success: true, data: result });
   })
@@ -36,7 +46,7 @@ router.get(
   '/verify/:fileHash',
   asyncHandler(async (req, res) => {
     const { fileHash } = req.params;
-    if (!/^[0-9a-fA-F]{64}$/.test(fileHash)) {
+    if (!FILE_HASH_PARAM_REGEX.test(fileHash)) {
       throw createHttpError(400, 'Invalid fileHash', [
         'fileHash must be a 64-char hex string',
       ]);
@@ -54,7 +64,7 @@ router.delete(
   '/revoke/:fileHash',
   asyncHandler(async (req, res) => {
     const { fileHash } = req.params;
-    if (!/^[0-9a-fA-F]{64}$/.test(fileHash)) {
+    if (!FILE_HASH_PARAM_REGEX.test(fileHash)) {
       throw createHttpError(400, 'Invalid fileHash', [
         'fileHash must be a 64-char hex string',
       ]);

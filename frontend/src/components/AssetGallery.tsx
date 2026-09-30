@@ -1,0 +1,361 @@
+// Copyright (c) 2026 StellarDevTools
+// SPDX-License-Identifier: MIT
+
+/**
+ * AssetGallery – Issue #949
+ *
+ * A responsive gallery component for displaying Soroban/Stellar asset cards.
+ * Features:
+ *  - Display a list of asset items in a grid layout
+ *  - Filter assets by search term (name / symbol / issuer)
+ *  - Loading state via LoadingSkeleton
+ *  - Error state with optional retry
+ *  - Empty / no-results states
+ *  - Item selection callback
+ *  - Accessible markup (listbox / option roles)
+ */
+
+import React, { useMemo, useState } from "react";
+import LoadingSkeleton from "./LoadingSkeleton";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface AssetItem {
+  /** Unique identifier (e.g. "XLM:native" or "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"). */
+  id: string;
+  /** Short ticker symbol (e.g. "XLM", "USDC"). */
+  symbol: string;
+  /** Human-readable name. */
+  name: string;
+  /** Issuer address (empty string for native). */
+  issuer?: string;
+  /** Optional image/logo URL. */
+  imageUrl?: string;
+  /** Optional description. */
+  description?: string;
+  /** Optional numeric balance / amount. */
+  balance?: number;
+  /** Optional arbitrary metadata. */
+  meta?: Record<string, unknown>;
+}
+
+export interface AssetGalleryProps {
+  /** Asset items to display. */
+  assets: AssetItem[];
+  /** Whether data is being fetched. */
+  isLoading?: boolean;
+  /** Error from the data layer. */
+  error?: Error | string | null;
+  /** Called when user clicks Retry in the error state. */
+  onRetry?: () => void;
+  /** Called when user selects (clicks) an asset card. */
+  onSelect?: (asset: AssetItem) => void;
+  /** Currently selected asset id. */
+  selectedId?: string | null;
+  /** Content rendered when there are no assets at all. */
+  emptyState?: React.ReactNode;
+  /** Content rendered when the search has no results. */
+  noResultsState?: React.ReactNode;
+  /** Whether to show the search/filter bar. Defaults to true. */
+  showSearch?: boolean;
+  /** Accessible label for the gallery region. */
+  ariaLabel?: string;
+  /** Optional CSS class on the root element. */
+  className?: string;
+  /** Number of skeleton cards to show while loading. Defaults to 6. */
+  skeletonCount?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+function AssetCard({
+  asset,
+  isSelected,
+  onSelect,
+}: {
+  asset: AssetItem;
+  isSelected: boolean;
+  onSelect?: (asset: AssetItem) => void;
+}): React.ReactElement {
+  const handleClick = (): void => onSelect?.(asset);
+  const handleKeyDown = (e: React.KeyboardEvent): void => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onSelect?.(asset);
+    }
+  };
+
+  return (
+    <li
+      role="option"
+      aria-selected={isSelected}
+      data-testid={`asset-card-${asset.id}`}
+      onClick={handleClick}
+      onKeyDown={handleKeyDown}
+      tabIndex={0}
+      style={{
+        padding: "16px",
+        borderRadius: "8px",
+        border: isSelected ? "2px solid #6366f1" : "1px solid #e5e7eb",
+        background: isSelected ? "#eef2ff" : "#fff",
+        cursor: onSelect ? "pointer" : "default",
+        display: "flex",
+        flexDirection: "column",
+        gap: "6px",
+        outline: "none",
+      }}
+    >
+      {/* Logo */}
+      {asset.imageUrl ? (
+        <img
+          src={asset.imageUrl}
+          alt={`${asset.symbol} logo`}
+          data-testid={`asset-image-${asset.id}`}
+          style={{
+            width: "40px",
+            height: "40px",
+            borderRadius: "50%",
+            objectFit: "cover",
+          }}
+        />
+      ) : (
+        <span
+          aria-hidden="true"
+          data-testid={`asset-placeholder-${asset.id}`}
+          style={{
+            display: "inline-flex",
+            width: "40px",
+            height: "40px",
+            borderRadius: "50%",
+            background: "#e0e7ff",
+            alignItems: "center",
+            justifyContent: "center",
+            fontWeight: 700,
+            color: "#6366f1",
+            fontSize: "14px",
+          }}
+        >
+          {asset.symbol.slice(0, 2).toUpperCase()}
+        </span>
+      )}
+
+      {/* Symbol + name */}
+      <div>
+        <span
+          data-testid={`asset-symbol-${asset.id}`}
+          style={{ fontWeight: 700, fontSize: "15px" }}
+        >
+          {asset.symbol}
+        </span>{" "}
+        <span
+          data-testid={`asset-name-${asset.id}`}
+          style={{ color: "#6b7280", fontSize: "13px" }}
+        >
+          {asset.name}
+        </span>
+      </div>
+
+      {/* Balance */}
+      {asset.balance !== undefined && (
+        <span
+          data-testid={`asset-balance-${asset.id}`}
+          style={{ fontSize: "13px", color: "#374151" }}
+        >
+          Balance: <strong>{asset.balance.toLocaleString()}</strong>
+        </span>
+      )}
+
+      {/* Issuer (truncated) */}
+      {asset.issuer && (
+        <span
+          data-testid={`asset-issuer-${asset.id}`}
+          style={{ fontSize: "11px", color: "#9ca3af", wordBreak: "break-all" }}
+        >
+          {asset.issuer}
+        </span>
+      )}
+
+      {/* Description */}
+      {asset.description && (
+        <p
+          data-testid={`asset-description-${asset.id}`}
+          style={{ margin: 0, fontSize: "12px", color: "#6b7280" }}
+        >
+          {asset.description}
+        </p>
+      )}
+    </li>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
+export function AssetGallery({
+  assets,
+  isLoading = false,
+  error = null,
+  onRetry,
+  onSelect,
+  selectedId = null,
+  emptyState,
+  noResultsState,
+  showSearch = true,
+  ariaLabel = "Asset gallery",
+  className = "",
+  skeletonCount = 6,
+}: AssetGalleryProps): React.ReactElement {
+  const [searchTerm, setSearchTerm] = useState("");
+
+  // --- Filter ---
+  const filtered = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return assets;
+    return assets.filter(
+      (a) =>
+        a.symbol.toLowerCase().includes(term) ||
+        a.name.toLowerCase().includes(term) ||
+        (a.issuer ?? "").toLowerCase().includes(term),
+    );
+  }, [assets, searchTerm]);
+
+  // --- Error state ---
+  if (error) {
+    return (
+      <LoadingSkeleton
+        error={error}
+        onRetry={onRetry}
+        isLoading={false}
+        className={className}
+      />
+    );
+  }
+
+  // --- Loading state ---
+  if (isLoading) {
+    return (
+      <LoadingSkeleton
+        isLoading={true}
+        rows={skeletonCount}
+        variant="card"
+        ariaLabel="Loading assets"
+        className={className}
+      />
+    );
+  }
+
+  // --- Empty data set ---
+  if (assets.length === 0) {
+    return (
+      <div
+        role="status"
+        aria-label="No assets"
+        data-testid="asset-gallery-empty"
+        className={className}
+      >
+        {emptyState ?? (
+          <p
+            style={{ textAlign: "center", color: "#6b7280", padding: "32px 0" }}
+          >
+            No assets found.
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <section
+      role="region"
+      aria-label={ariaLabel}
+      data-testid="asset-gallery-root"
+      className={className}
+    >
+      {/* Search bar */}
+      {showSearch && (
+        <div style={{ marginBottom: "16px" }}>
+          <label
+            htmlFor="asset-gallery-search"
+            style={{
+              display: "block",
+              marginBottom: "4px",
+              fontSize: "13px",
+              fontWeight: 600,
+            }}
+          >
+            Search assets
+          </label>
+          <input
+            id="asset-gallery-search"
+            type="search"
+            role="searchbox"
+            placeholder="Symbol, name or issuer…"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            data-testid="asset-gallery-search"
+            aria-label="Search assets"
+            style={{
+              width: "100%",
+              padding: "8px 12px",
+              borderRadius: "6px",
+              border: "1px solid #d1d5db",
+              fontSize: "14px",
+              boxSizing: "border-box",
+            }}
+          />
+        </div>
+      )}
+
+      {/* No-results state */}
+      {filtered.length === 0 ? (
+        <div
+          role="status"
+          aria-label="No results"
+          data-testid="asset-gallery-no-results"
+        >
+          {noResultsState ?? (
+            <p
+              style={{
+                textAlign: "center",
+                color: "#6b7280",
+                padding: "24px 0",
+              }}
+            >
+              No assets match your search.
+            </p>
+          )}
+        </div>
+      ) : (
+        <ul
+          role="listbox"
+          aria-label={ariaLabel}
+          data-testid="asset-gallery-list"
+          style={{
+            listStyle: "none",
+            margin: 0,
+            padding: 0,
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+            gap: "16px",
+          }}
+        >
+          {filtered.map((asset) => (
+            <AssetCard
+              key={asset.id}
+              asset={asset}
+              isSelected={selectedId === asset.id}
+              onSelect={onSelect}
+            />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+export default AssetGallery;

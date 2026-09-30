@@ -3,9 +3,9 @@
  * Displays protocol parameters and statistics
  */
 
-'use client';
+"use client";
 
-import React from 'react';
+import React from "react";
 
 interface ProtocolParams {
   minCollateralRatio: number;

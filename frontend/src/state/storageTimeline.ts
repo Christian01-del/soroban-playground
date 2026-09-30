@@ -1,4 +1,13 @@
-import type { LedgerState, TransactionCallNode } from "@/utils/transactionGraph";
+import { create } from "zustand";
+import type {
+  LedgerState,
+  TransactionCallNode,
+} from "@/utils/transactionGraph";
+import {
+  cloneValue,
+  deepFreeze,
+  immutableLedgerState,
+} from "@/utils/immutableState";
 
 export interface StorageSnapshot {
   id: string;
@@ -41,44 +50,6 @@ export type StorageTimelineAction =
       nodeId: string;
     };
 
-function cloneValue<T>(value: T): T {
-  if (value === null || typeof value !== "object") {
-    return value;
-  }
-
-  if (Array.isArray(value)) {
-    return value.map((entry) => cloneValue(entry)) as T;
-  }
-
-  const clone: Record<string, unknown> = {};
-  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
-    clone[key] = cloneValue(nested);
-  }
-  return clone as T;
-}
-
-function deepFreeze<T>(value: T): T {
-  if (value === null || typeof value !== "object") {
-    return value;
-  }
-
-  if (Array.isArray(value)) {
-    for (const entry of value) {
-      deepFreeze(entry);
-    }
-  } else {
-    for (const nested of Object.values(value as Record<string, unknown>)) {
-      deepFreeze(nested);
-    }
-  }
-
-  return Object.freeze(value);
-}
-
-function immutableLedgerState(state: LedgerState): LedgerState {
-  return deepFreeze(cloneValue(state));
-}
-
 function buildTransactionSnapshot(
   node: TransactionCallNode,
   index: number,
@@ -111,75 +82,173 @@ export function storageTimelineReducer(
   state: StorageTimelineState,
   action: StorageTimelineAction,
 ): StorageTimelineState {
-  switch (action.type) {
-    case "reset_with_deployment": {
-      const capturedAt = action.capturedAt ?? new Date().toISOString();
-      return {
-        snapshots: [
-          {
-            id: `deploy:${action.contractId}:${capturedAt}`,
-            label: "Deployment baseline",
-            contextLabel: "Deployment baseline snapshot",
-            state: immutableLedgerState(action.state),
-            capturedAt,
-            source: "deployment",
-            contractId: action.contractId,
-          },
-        ],
-        currentIndex: 0,
-        nodeToSnapshotIndex: {},
-      };
-    }
-
-    case "append_transaction_frames": {
-      if (action.nodes.length === 0) {
-        return state;
-      }
-
-      const nextSnapshots = [...state.snapshots];
-      const nextNodeMap = { ...state.nodeToSnapshotIndex };
-      const capturedAt = action.capturedAt ?? new Date().toISOString();
-
-      for (const node of action.nodes) {
-        const nextIndex = nextSnapshots.length;
-        const snapshot = buildTransactionSnapshot(node, nextIndex, action.txHash, capturedAt);
-        nextSnapshots.push(snapshot);
-        nextNodeMap[node.id] = nextIndex;
-      }
-
-      return {
-        snapshots: nextSnapshots,
-        currentIndex: nextSnapshots.length - 1,
-        nodeToSnapshotIndex: nextNodeMap,
-      };
-    }
-
-    case "select_snapshot_index": {
-      if (state.snapshots.length === 0) {
-        return state;
-      }
-
-      const clampedIndex = Math.max(0, Math.min(action.index, state.snapshots.length - 1));
-      return {
-        ...state,
-        currentIndex: clampedIndex,
-      };
-    }
-
-    case "select_snapshot_for_node": {
-      const index = state.nodeToSnapshotIndex[action.nodeId];
-      if (index === undefined) {
-        return state;
-      }
-
-      return {
-        ...state,
-        currentIndex: index,
-      };
-    }
-
-    default: {
-      return state;
-    }
-  }
+  return useStorageTimelineStore.getState().reduce(state, action);
 }
+
+interface StorageTimelineActions {
+  resetWithDeployment: (
+    contractId: string,
+    state: LedgerState,
+    capturedAt?: string,
+  ) => void;
+  appendTransactionFrames: (
+    nodes: TransactionCallNode[],
+    txHash?: string,
+    capturedAt?: string,
+  ) => void;
+  selectSnapshotIndex: (index: number) => void;
+  selectSnapshotForNode: (nodeId: string) => void;
+  reduce: (
+    state: StorageTimelineState,
+    action: StorageTimelineAction,
+  ) => StorageTimelineState;
+}
+
+export const useStorageTimelineStore = create<
+  StorageTimelineState & StorageTimelineActions
+>()((set, get) => ({
+  snapshots: [],
+  currentIndex: -1,
+  nodeToSnapshotIndex: {},
+
+  resetWithDeployment: (contractId, state, capturedAt) => {
+    const resolvedCapturedAt = capturedAt ?? new Date().toISOString();
+    set({
+      snapshots: [
+        {
+          id: `deploy:${contractId}:${resolvedCapturedAt}`,
+          label: "Deployment baseline",
+          contextLabel: "Deployment baseline snapshot",
+          state: immutableLedgerState(state),
+          capturedAt: resolvedCapturedAt,
+          source: "deployment",
+          contractId,
+        },
+      ],
+      currentIndex: 0,
+      nodeToSnapshotIndex: {},
+    });
+  },
+
+  appendTransactionFrames: (nodes, txHash, capturedAt) => {
+    if (nodes.length === 0) return;
+    const { snapshots, nodeToSnapshotIndex } = get();
+    const nextSnapshots = [...snapshots];
+    const nextNodeMap = { ...nodeToSnapshotIndex };
+    const resolvedCapturedAt = capturedAt ?? new Date().toISOString();
+
+    for (const node of nodes) {
+      const nextIndex = nextSnapshots.length;
+      const snapshot = buildTransactionSnapshot(
+        node,
+        nextIndex,
+        txHash,
+        resolvedCapturedAt,
+      );
+      nextSnapshots.push(snapshot);
+      nextNodeMap[node.id] = nextIndex;
+    }
+
+    set({
+      snapshots: nextSnapshots,
+      currentIndex: nextSnapshots.length - 1,
+      nodeToSnapshotIndex: nextNodeMap,
+    });
+  },
+
+  selectSnapshotIndex: (index) => {
+    const { snapshots } = get();
+    if (snapshots.length === 0) return;
+    const clampedIndex = Math.max(0, Math.min(index, snapshots.length - 1));
+    set({ currentIndex: clampedIndex });
+  },
+
+  selectSnapshotForNode: (nodeId) => {
+    const { nodeToSnapshotIndex } = get();
+    const index = nodeToSnapshotIndex[nodeId];
+    if (index === undefined) return;
+    set({ currentIndex: index });
+  },
+
+  reduce: (state, action) => {
+    switch (action.type) {
+      case "reset_with_deployment": {
+        const capturedAt = action.capturedAt ?? new Date().toISOString();
+        return {
+          snapshots: [
+            {
+              id: `deploy:${action.contractId}:${capturedAt}`,
+              label: "Deployment baseline",
+              contextLabel: "Deployment baseline snapshot",
+              state: immutableLedgerState(action.state),
+              capturedAt,
+              source: "deployment",
+              contractId: action.contractId,
+            },
+          ],
+          currentIndex: 0,
+          nodeToSnapshotIndex: {},
+        };
+      }
+
+      case "append_transaction_frames": {
+        if (action.nodes.length === 0) {
+          return state;
+        }
+
+        const nextSnapshots = [...state.snapshots];
+        const nextNodeMap = { ...state.nodeToSnapshotIndex };
+        const capturedAt = action.capturedAt ?? new Date().toISOString();
+
+        for (const node of action.nodes) {
+          const nextIndex = nextSnapshots.length;
+          const snapshot = buildTransactionSnapshot(
+            node,
+            nextIndex,
+            action.txHash,
+            capturedAt,
+          );
+          nextSnapshots.push(snapshot);
+          nextNodeMap[node.id] = nextIndex;
+        }
+
+        return {
+          snapshots: nextSnapshots,
+          currentIndex: nextSnapshots.length - 1,
+          nodeToSnapshotIndex: nextNodeMap,
+        };
+      }
+
+      case "select_snapshot_index": {
+        if (state.snapshots.length === 0) {
+          return state;
+        }
+
+        const clampedIndex = Math.max(
+          0,
+          Math.min(action.index, state.snapshots.length - 1),
+        );
+        return {
+          ...state,
+          currentIndex: clampedIndex,
+        };
+      }
+
+      case "select_snapshot_for_node": {
+        const index = state.nodeToSnapshotIndex[action.nodeId];
+        if (index === undefined) {
+          return state;
+        }
+
+        return {
+          ...state,
+          currentIndex: index,
+        };
+      }
+
+      default: {
+        return state;
+      }
+    }
+  },
+}));

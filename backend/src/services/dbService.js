@@ -3,10 +3,10 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import initSqlJs from 'sql.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const _filename = fileURLToPath(import.meta.url);
+const _dirname = path.dirname(_filename);
 const DEFAULT_DB_PATH = path.join(
-  __dirname,
+  _dirname,
   '../../data/soroban_playground.sqlite'
 );
 
@@ -18,7 +18,7 @@ export async function getDatabase() {
 
   const SQL = await initSqlJs({
     locateFile: (file) =>
-      path.join(__dirname, '../../node_modules/sql.js/dist', file),
+      path.join(_dirname, '../../node_modules/sql.js/dist', file),
   });
 
   dbPath = process.env.MIGRATION_DB_PATH || DEFAULT_DB_PATH;
@@ -32,6 +32,8 @@ export async function getDatabase() {
   }
 
   db = databaseBytes ? new SQL.Database(databaseBytes) : new SQL.Database();
+  const { withCacheBusting } = await import('../database/cacheInterceptor.js');
+  db = withCacheBusting(db);
   db.run('PRAGMA foreign_keys = ON;');
   return db;
 }

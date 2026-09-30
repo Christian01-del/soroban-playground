@@ -66,7 +66,8 @@ function stringifyValue(value: unknown): string {
   if (value === undefined) return "undefined";
   if (value === null) return "null";
   if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
 
   try {
     return JSON.stringify(value);
@@ -85,7 +86,9 @@ function cloneForSnapshot<T>(value: T): T {
   }
 
   const clone: Record<string, unknown> = {};
-  for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+  for (const [key, nestedValue] of Object.entries(
+    value as Record<string, unknown>,
+  )) {
     clone[key] = cloneForSnapshot(nestedValue);
   }
 
@@ -101,7 +104,10 @@ function truncate(text: string, maxLength: number): string {
   return `${text.slice(0, maxLength - 1)}…`;
 }
 
-function pickString(source: Record<string, unknown>, keys: string[]): string | undefined {
+function pickString(
+  source: Record<string, unknown>,
+  keys: string[],
+): string | undefined {
   for (const key of keys) {
     const value = source[key];
     if (typeof value === "string" && value.trim().length > 0) {
@@ -210,7 +216,9 @@ function summarizeResult(result: unknown): string | undefined {
   return truncate(stringifyValue(result), 90);
 }
 
-export function parseTransactionInvocationPayload(payload: unknown): TransactionCallGraph {
+export function parseTransactionInvocationPayload(
+  payload: unknown,
+): TransactionCallGraph {
   const root = findInvocationRoot(payload);
 
   if (!isRecord(root)) {
@@ -239,16 +247,32 @@ export function parseTransactionInvocationPayload(payload: unknown): Transaction
     visited.add(current);
 
     const currentId =
-      pickString(current, ["id", "nodeId", "invocationId"]) ?? `call-${idCounter++}`;
+      pickString(current, ["id", "nodeId", "invocationId"]) ??
+      `call-${idCounter++}`;
     const contractId =
-      pickString(current, ["contractId", "contract", "contract_id", "address"]) ?? "unknown-contract";
+      pickString(current, [
+        "contractId",
+        "contract",
+        "contract_id",
+        "address",
+      ]) ?? "unknown-contract";
     const functionName =
-      pickString(current, ["function", "func", "fn", "method", "entrypoint", "symbol"]) ?? "unknown_fn";
+      pickString(current, [
+        "function",
+        "func",
+        "fn",
+        "method",
+        "entrypoint",
+        "symbol",
+      ]) ?? "unknown_fn";
     const args = pickUnknown(current, ["args", "arguments", "params", "input"]);
     const result = pickUnknown(current, ["result", "returnValue", "output"]);
 
     const ledgerPatch = normalizeLedgerState(pickUnknown(current, LEDGER_KEYS));
-    const mergedLedger = cloneLedgerState({ ...inheritedLedger, ...ledgerPatch });
+    const mergedLedger = cloneLedgerState({
+      ...inheritedLedger,
+      ...ledgerPatch,
+    });
 
     const indexInDepth = depthCounters.get(depth) ?? 0;
     depthCounters.set(depth, indexInDepth + 1);

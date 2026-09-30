@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   AlertCircle,
@@ -18,50 +18,51 @@ import {
   ShieldCheck,
   UploadCloud,
   Users,
-} from 'lucide-react';
+} from "lucide-react";
 
 const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, '') ||
-  'http://localhost:5000';
+  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ||
+  process.env.NEXT_PUBLIC_BACKEND_URL ||
+  "https://soroban-playground.onrender.com";
 
 const DEMO_EVENT = {
-  eventType: 'pifp.payment',
-  schemaVersion: '1.0.0',
+  eventType: "pifp.payment",
+  schemaVersion: "1.0.0",
   payload: {
-    paymentId: 'pay-1001',
-    payer: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-    payee: 'GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
+    paymentId: "pay-1001",
+    payer: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    payee: "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
     amount: 25,
-    asset: 'XLM',
-    createdAt: '2026-04-25T12:00:00.000Z',
-    status: 'settled',
+    asset: "XLM",
+    createdAt: "2026-04-25T12:00:00.000Z",
+    status: "settled",
   },
 };
 
 const SCHEMA_DRAFT = {
-  eventType: 'pifp.payment',
-  version: '2.1.0',
+  eventType: "pifp.payment",
+  version: "2.1.0",
   fields: {
-    paymentId: { type: 'string', required: true },
-    sourceAccount: { type: 'address', required: true },
-    destinationAccount: { type: 'address', required: true },
-    amount: { type: 'number', required: true, min: 0 },
-    asset: { type: 'string', required: true },
-    network: { type: 'string', required: true, default: 'testnet' },
-    createdAt: { type: 'iso_datetime', required: true },
+    paymentId: { type: "string", required: true },
+    sourceAccount: { type: "address", required: true },
+    destinationAccount: { type: "address", required: true },
+    amount: { type: "number", required: true, min: 0 },
+    asset: { type: "string", required: true },
+    network: { type: "string", required: true, default: "testnet" },
+    createdAt: { type: "iso_datetime", required: true },
     status: {
-      type: 'string',
+      type: "string",
       required: true,
-      enum: ['pending', 'settled', 'failed'],
+      enum: ["pending", "settled", "failed"],
     },
-    memo: { type: 'string', required: false, maxLength: 280 },
-    channel: { type: 'string', required: false },
+    memo: { type: "string", required: false, maxLength: 280 },
+    channel: { type: "string", required: false },
   },
   additionalProperties: false,
 };
 
 type Notification = {
-  type: 'success' | 'error';
+  type: "success" | "error";
   message: string;
 };
 
@@ -157,7 +158,7 @@ type ApiPayload<T> = {
 };
 
 function metricNumber(value: unknown) {
-  return Number.parseInt(String(value || '0'), 10) || 0;
+  return Number.parseInt(String(value || "0"), 10) || 0;
 }
 
 function safeJson(value: string) {
@@ -166,7 +167,7 @@ function safeJson(value: string) {
   } catch (error) {
     return {
       ok: false as const,
-      message: error instanceof Error ? error.message : 'Invalid JSON',
+      message: error instanceof Error ? error.message : "Invalid JSON",
     };
   }
 }
@@ -227,7 +228,7 @@ function VersionDistribution({
               {Object.entries(versions).map(([version, count], index) => (
                 <div
                   key={version}
-                  className={index % 2 === 0 ? 'bg-emerald-400' : 'bg-cyan-400'}
+                  className={index % 2 === 0 ? "bg-emerald-400" : "bg-cyan-400"}
                   style={{ width: `${(count / total) * 100}%` }}
                   title={`${version}: ${count}`}
                 />
@@ -252,15 +253,23 @@ export default function AdminDashboard() {
   const [config, setConfig] = useState<Record<string, number>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [notification, setNotification] = useState<Notification | null>(null);
-  const [history, setHistory] = useState<Array<{ time: string; hits: number }>>([]);
+  const [history, setHistory] = useState<Array<{ time: string; hits: number }>>(
+    [],
+  );
   const [eventMetrics, setEventMetrics] = useState<EventMetrics>({});
   const [schemas, setSchemas] = useState<EventSchema[]>([]);
   const [quarantine, setQuarantine] = useState<QuarantineItem[]>([]);
   const [alerts, setAlerts] = useState<SchemaAlert[]>([]);
-  const [eventJson, setEventJson] = useState(JSON.stringify(DEMO_EVENT, null, 2));
-  const [schemaJson, setSchemaJson] = useState(JSON.stringify(SCHEMA_DRAFT, null, 2));
-  const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
-  const [detectionResult, setDetectionResult] = useState<DetectionResult | null>(null);
+  const [eventJson, setEventJson] = useState(
+    JSON.stringify(DEMO_EVENT, null, 2),
+  );
+  const [schemaJson, setSchemaJson] = useState(
+    JSON.stringify(SCHEMA_DRAFT, null, 2),
+  );
+  const [validationResult, setValidationResult] =
+    useState<ValidationResult | null>(null);
+  const [detectionResult, setDetectionResult] =
+    useState<DetectionResult | null>(null);
 
   const showNotification = useCallback((next: Notification) => {
     setNotification(next);
@@ -268,12 +277,13 @@ export default function AdminDashboard() {
   }, []);
 
   const fetchEventDashboard = useCallback(async () => {
-    const [metricsRes, schemasRes, quarantineRes, alertsRes] = await Promise.all([
-      fetch(`${API_BASE_URL}/api/events/metrics`),
-      fetch(`${API_BASE_URL}/api/events/schemas`),
-      fetch(`${API_BASE_URL}/api/events/quarantine?status=open`),
-      fetch(`${API_BASE_URL}/api/events/schemas/alerts`),
-    ]);
+    const [metricsRes, schemasRes, quarantineRes, alertsRes] =
+      await Promise.all([
+        fetch(`${API_BASE_URL}/api/events/metrics`),
+        fetch(`${API_BASE_URL}/api/events/schemas`),
+        fetch(`${API_BASE_URL}/api/events/quarantine?status=open`),
+        fetch(`${API_BASE_URL}/api/events/schemas/alerts`),
+      ]);
 
     const [metricsData, schemasData, quarantineData, alertsData] =
       await Promise.all([
@@ -295,17 +305,17 @@ export default function AdminDashboard() {
       .then((data: ApiPayload<never>) => {
         setConfig(data.config || {});
       })
-      .catch((err) => console.error('Failed to fetch config:', err));
+      .catch((err) => console.error("Failed to fetch config:", err));
 
     fetchEventDashboard().catch((err) =>
-      console.error('Failed to fetch event dashboard:', err),
+      console.error("Failed to fetch event dashboard:", err),
     );
 
-    const ws = new WebSocket(`${API_BASE_URL.replace(/^http/, 'ws')}/ws`);
+    const ws = new WebSocket(`${API_BASE_URL.replace(/^http/, "ws")}/ws`);
 
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data) as RateLimitAnalytics;
-      if (data.type === 'rate-limit-analytics') {
+      if (data.type === "rate-limit-analytics") {
         setAnalytics(data);
         setHistory((prev) => [
           ...prev.slice(-29),
@@ -336,39 +346,42 @@ export default function AdminDashboard() {
     setIsSaving(true);
     try {
       const res = await fetch(`${API_BASE_URL}/api/admin/rate-limits`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ endpoint, limit }),
       });
       const data = (await res.json()) as ApiPayload<never>;
       if (data.success) {
         showNotification({
-          type: 'success',
+          type: "success",
           message: `Updated ${endpoint} limit to ${limit}`,
         });
         setConfig({ ...config, [endpoint]: limit });
       } else {
         showNotification({
-          type: 'error',
-          message: data.error || 'Failed to update',
+          type: "error",
+          message: data.error || "Failed to update",
         });
       }
     } catch {
-      showNotification({ type: 'error', message: 'Network error' });
+      showNotification({ type: "error", message: "Network error" });
     } finally {
       setIsSaving(false);
     }
   };
 
-  const postJson = async <T,>(path: string, body: unknown): Promise<ApiPayload<T>> => {
+  const postJson = async <T,>(
+    path: string,
+    body: unknown,
+  ): Promise<ApiPayload<T>> => {
     const res = await fetch(`${API_BASE_URL}${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
     const data = (await res.json()) as ApiPayload<T>;
     if (!res.ok && !data.data) {
-      throw new Error(data.message || 'Request failed');
+      throw new Error(data.message || "Request failed");
     }
     return data;
   };
@@ -376,25 +389,28 @@ export default function AdminDashboard() {
   const handleValidateEvent = async () => {
     const parsed = safeJson(eventJson);
     if (!parsed.ok) {
-      showNotification({ type: 'error', message: parsed.message });
+      showNotification({ type: "error", message: parsed.message });
       return;
     }
 
     try {
-      const data = await postJson<ValidationResult>('/api/events/validate', parsed.data);
+      const data = await postJson<ValidationResult>(
+        "/api/events/validate",
+        parsed.data,
+      );
       if (!data.data) {
-        throw new Error(data.message || 'Validation failed');
+        throw new Error(data.message || "Validation failed");
       }
       setValidationResult(data.data);
       showNotification({
-        type: data.data.valid ? 'success' : 'error',
-        message: data.message || 'Validation completed',
+        type: data.data.valid ? "success" : "error",
+        message: data.message || "Validation completed",
       });
       await fetchEventDashboard();
     } catch (error) {
       showNotification({
-        type: 'error',
-        message: error instanceof Error ? error.message : 'Validation failed',
+        type: "error",
+        message: error instanceof Error ? error.message : "Validation failed",
       });
     }
   };
@@ -402,24 +418,27 @@ export default function AdminDashboard() {
   const handleIngestEvent = async () => {
     const parsed = safeJson(eventJson);
     if (!parsed.ok) {
-      showNotification({ type: 'error', message: parsed.message });
+      showNotification({ type: "error", message: parsed.message });
       return;
     }
 
     try {
-      const data = await postJson<IngestResult>('/api/events/ingest', parsed.data);
+      const data = await postJson<IngestResult>(
+        "/api/events/ingest",
+        parsed.data,
+      );
       if (!data.data) {
-        throw new Error(data.message || 'Event ingest failed');
+        throw new Error(data.message || "Event ingest failed");
       }
       setValidationResult(data.data.validation);
       showNotification({
-        type: data.data.accepted ? 'success' : 'error',
-        message: data.message || 'Event ingest completed',
+        type: data.data.accepted ? "success" : "error",
+        message: data.message || "Event ingest completed",
       });
     } catch (error) {
       showNotification({
-        type: 'error',
-        message: error instanceof Error ? error.message : 'Event ingest failed',
+        type: "error",
+        message: error instanceof Error ? error.message : "Event ingest failed",
       });
     } finally {
       await fetchEventDashboard();
@@ -429,24 +448,27 @@ export default function AdminDashboard() {
   const handleDetectSchema = async () => {
     const parsed = safeJson(eventJson);
     if (!parsed.ok) {
-      showNotification({ type: 'error', message: parsed.message });
+      showNotification({ type: "error", message: parsed.message });
       return;
     }
 
     try {
-      const data = await postJson<DetectionResult>('/api/events/schemas/detect', parsed.data);
+      const data = await postJson<DetectionResult>(
+        "/api/events/schemas/detect",
+        parsed.data,
+      );
       if (!data.data) {
-        throw new Error(data.message || 'Detection failed');
+        throw new Error(data.message || "Detection failed");
       }
       setDetectionResult(data.data);
       showNotification({
-        type: data.data.compatible ? 'success' : 'error',
-        message: data.message || 'Schema detection completed',
+        type: data.data.compatible ? "success" : "error",
+        message: data.message || "Schema detection completed",
       });
     } catch (error) {
       showNotification({
-        type: 'error',
-        message: error instanceof Error ? error.message : 'Detection failed',
+        type: "error",
+        message: error instanceof Error ? error.message : "Detection failed",
       });
     } finally {
       await fetchEventDashboard();
@@ -456,21 +478,21 @@ export default function AdminDashboard() {
   const handleRegisterSchema = async () => {
     const parsed = safeJson(schemaJson);
     if (!parsed.ok) {
-      showNotification({ type: 'error', message: parsed.message });
+      showNotification({ type: "error", message: parsed.message });
       return;
     }
 
     try {
-      const data = await postJson<unknown>('/api/events/schemas', parsed.data);
+      const data = await postJson<unknown>("/api/events/schemas", parsed.data);
       showNotification({
-        type: 'success',
-        message: data.message || 'Event schema registered',
+        type: "success",
+        message: data.message || "Event schema registered",
       });
     } catch (error) {
       showNotification({
-        type: 'error',
+        type: "error",
         message:
-          error instanceof Error ? error.message : 'Schema registration failed',
+          error instanceof Error ? error.message : "Schema registration failed",
       });
     } finally {
       await fetchEventDashboard();
@@ -484,17 +506,17 @@ export default function AdminDashboard() {
         {},
       );
       if (!data.data) {
-        throw new Error(data.message || 'Reprocess request failed');
+        throw new Error(data.message || "Reprocess request failed");
       }
       showNotification({
-        type: data.data.result.accepted ? 'success' : 'error',
-        message: data.message || 'Reprocess completed',
+        type: data.data.result.accepted ? "success" : "error",
+        message: data.message || "Reprocess completed",
       });
     } catch (error) {
       showNotification({
-        type: 'error',
+        type: "error",
         message:
-          error instanceof Error ? error.message : 'Reprocess request failed',
+          error instanceof Error ? error.message : "Reprocess request failed",
       });
     } finally {
       await fetchEventDashboard();
@@ -503,19 +525,20 @@ export default function AdminDashboard() {
 
   const exportCSV = () => {
     const rows = [
-      ['Metric', 'Value'],
-      ['Accepted Events', eventMetrics.validations?.accepted || 0],
-      ['Quarantined Events', eventMetrics.validations?.quarantined || 0],
-      ['Rejected Events', eventMetrics.validations?.rejected || 0],
-      ['Open Quarantine', eventMetrics.quarantine?.open || 0],
-      ['Breaking Alerts', eventMetrics.alerts?.breaking || 0],
-      ['Blocked Requests', blockedRequests],
+      ["Metric", "Value"],
+      ["Accepted Events", eventMetrics.validations?.accepted || 0],
+      ["Quarantined Events", eventMetrics.validations?.quarantined || 0],
+      ["Rejected Events", eventMetrics.validations?.rejected || 0],
+      ["Open Quarantine", eventMetrics.quarantine?.open || 0],
+      ["Breaking Alerts", eventMetrics.alerts?.breaking || 0],
+      ["Blocked Requests", blockedRequests],
     ];
     const csvContent =
-      'data:text/csv;charset=utf-8,' + rows.map((row) => row.join(',')).join('\n');
-    const link = document.createElement('a');
-    link.setAttribute('href', encodeURI(csvContent));
-    link.setAttribute('download', 'admin_data_quality.csv');
+      "data:text/csv;charset=utf-8," +
+      rows.map((row) => row.join(",")).join("\n");
+    const link = document.createElement("a");
+    link.setAttribute("href", encodeURI(csvContent));
+    link.setAttribute("download", "admin_data_quality.csv");
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -523,28 +546,32 @@ export default function AdminDashboard() {
 
   const statCards = [
     {
-      label: 'Total Hits',
+      label: "Total Hits",
       value: history.reduce((a, b) => a + b.hits, 0),
       icon: Activity,
-      color: 'text-cyan-400',
+      color: "text-cyan-400",
     },
     {
-      label: 'Redis Status',
-      value: analytics ? (analytics.fallback ? 'FALLBACK' : 'CONNECTED') : 'PENDING',
+      label: "Redis Status",
+      value: analytics
+        ? analytics.fallback
+          ? "FALLBACK"
+          : "CONNECTED"
+        : "PENDING",
       icon: BarChart3,
-      color: analytics?.fallback ? 'text-orange-400' : 'text-emerald-400',
+      color: analytics?.fallback ? "text-orange-400" : "text-emerald-400",
     },
     {
-      label: 'Accepted Events',
+      label: "Accepted Events",
       value: eventMetrics.validations?.accepted || 0,
       icon: Database,
-      color: 'text-emerald-400',
+      color: "text-emerald-400",
     },
     {
-      label: 'Open Quarantine',
+      label: "Open Quarantine",
       value: eventMetrics.quarantine?.open || 0,
       icon: FileWarning,
-      color: 'text-red-400',
+      color: "text-red-400",
     },
   ];
 
@@ -579,12 +606,12 @@ export default function AdminDashboard() {
       {notification && (
         <div
           className={`flex items-center gap-3 rounded-lg border p-4 ${
-            notification.type === 'success'
-              ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-300'
-              : 'border-red-500/50 bg-red-500/10 text-red-300'
+            notification.type === "success"
+              ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300"
+              : "border-red-500/50 bg-red-500/10 text-red-300"
           }`}
         >
-          {notification.type === 'success' ? (
+          {notification.type === "success" ? (
             <CheckCircle2 className="h-5 w-5" />
           ) : (
             <AlertCircle className="h-5 w-5" />
@@ -595,10 +622,15 @@ export default function AdminDashboard() {
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-4">
         {statCards.map((stat) => (
-          <div key={stat.label} className="rounded-lg border border-gray-800 bg-gray-900/60 p-5">
+          <div
+            key={stat.label}
+            className="rounded-lg border border-gray-800 bg-gray-900/60 p-5"
+          >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-sm font-medium text-gray-400">{stat.label}</p>
+                <p className="text-sm font-medium text-gray-400">
+                  {stat.label}
+                </p>
                 <h3 className="mt-1 text-2xl font-bold">{stat.value}</h3>
               </div>
               <stat.icon className={`${stat.color} h-6 w-6`} />
@@ -618,7 +650,9 @@ export default function AdminDashboard() {
             <div>
               <div className="flex justify-between text-sm text-gray-400">
                 <span>Validation success</span>
-                <span>{percent(eventMetrics.validations?.successRate ?? 1)}</span>
+                <span>
+                  {percent(eventMetrics.validations?.successRate ?? 1)}
+                </span>
               </div>
               <div className="mt-2 h-3 rounded bg-gray-800">
                 <div
@@ -629,14 +663,18 @@ export default function AdminDashboard() {
                 />
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-3 text-center text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-center text-sm">
               <div className="rounded-lg bg-gray-800 p-3">
                 <p className="text-gray-500">Schemas</p>
-                <p className="mt-1 font-semibold">{eventMetrics.schemas?.versions || 0}</p>
+                <p className="mt-1 font-semibold">
+                  {eventMetrics.schemas?.versions || 0}
+                </p>
               </div>
               <div className="rounded-lg bg-gray-800 p-3">
                 <p className="text-gray-500">Alerts</p>
-                <p className="mt-1 font-semibold">{eventMetrics.alerts?.total || 0}</p>
+                <p className="mt-1 font-semibold">
+                  {eventMetrics.alerts?.total || 0}
+                </p>
               </div>
               <div className="rounded-lg bg-gray-800 p-3">
                 <p className="text-gray-500">Blocked</p>
@@ -653,7 +691,7 @@ export default function AdminDashboard() {
             <Settings className="h-5 w-5" /> Dynamic Rate Limits
           </h3>
           <div className="space-y-5">
-            {['compile', 'invoke', 'deploy', 'global'].map((endpoint) => (
+            {["compile", "invoke", "deploy", "global"].map((endpoint) => (
               <div key={endpoint} className="space-y-3">
                 <div className="flex justify-between">
                   <span className="font-medium capitalize text-gray-300">
@@ -678,7 +716,9 @@ export default function AdminDashboard() {
                 />
                 <div className="flex justify-end">
                   <button
-                    onClick={() => handleUpdateLimit(endpoint, config[endpoint] || 10)}
+                    onClick={() =>
+                      handleUpdateLimit(endpoint, config[endpoint] || 10)
+                    }
                     disabled={isSaving}
                     className="flex items-center gap-2 rounded bg-cyan-600 px-3 py-1 text-xs transition-colors hover:bg-cyan-500 disabled:opacity-50"
                   >
@@ -740,7 +780,7 @@ export default function AdminDashboard() {
                   <AlertTriangle className="h-4 w-4 text-red-400" />
                 )}
                 <span className="font-semibold">
-                  {validationResult.valid ? 'Valid event' : 'Validation errors'}
+                  {validationResult.valid ? "Valid event" : "Validation errors"}
                 </span>
               </div>
               <pre className="mt-3 max-h-44 overflow-auto whitespace-pre-wrap text-xs text-gray-400">
@@ -776,7 +816,10 @@ export default function AdminDashboard() {
           />
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             {schemas.slice(0, 4).map((schema) => (
-              <div key={`${schema.eventType}-${schema.version}`} className="rounded-lg bg-gray-950 p-4">
+              <div
+                key={`${schema.eventType}-${schema.version}`}
+                className="rounded-lg bg-gray-950 p-4"
+              >
                 <div className="flex items-center justify-between gap-3">
                   <span className="font-mono text-sm text-gray-200">
                     {schema.eventType}
@@ -822,9 +865,11 @@ export default function AdminDashboard() {
                       <td className="py-4 font-mono text-gray-300">
                         {item.eventType}
                       </td>
-                      <td className="py-4 text-gray-400">{item.schemaVersion}</td>
+                      <td className="py-4 text-gray-400">
+                        {item.schemaVersion}
+                      </td>
                       <td className="py-4 text-red-300">
-                        {item.errors?.[0]?.message || 'Validation failed'}
+                        {item.errors?.[0]?.message || "Validation failed"}
                       </td>
                       <td className="py-4">
                         <button
@@ -848,7 +893,11 @@ export default function AdminDashboard() {
           </h3>
           {detectionResult ? (
             <pre className="max-h-96 overflow-auto rounded-lg bg-gray-950 p-4 text-xs text-gray-300">
-              {JSON.stringify(detectionResult.alert || detectionResult, null, 2)}
+              {JSON.stringify(
+                detectionResult.alert || detectionResult,
+                null,
+                2,
+              )}
             </pre>
           ) : alerts.length > 0 ? (
             <div className="space-y-3">
@@ -860,9 +909,9 @@ export default function AdminDashboard() {
                     </span>
                     <span
                       className={`rounded px-2 py-1 text-xs ${
-                        alert.severity === 'breaking'
-                          ? 'bg-red-500/20 text-red-300'
-                          : 'bg-emerald-500/20 text-emerald-300'
+                        alert.severity === "breaking"
+                          ? "bg-red-500/20 text-red-300"
+                          : "bg-emerald-500/20 text-emerald-300"
                       }`}
                     >
                       {alert.severity}
@@ -895,20 +944,20 @@ export default function AdminDashboard() {
               {analytics?.topIps && analytics.topIps.length > 0 ? (
                 (() => {
                   const ips = analytics.topIps;
-                  return Array.from({ length: ips.length / 2 }).map((_, index) => (
-                    <tr key={ips[index * 2]}>
-                      <td className="py-4 font-mono text-gray-300">
-                        {ips[index * 2]}
-                      </td>
-                      <td className="py-4 font-bold">
-                        {ips[index * 2 + 1]}
-                      </td>
-                      <td className="flex items-center gap-2 py-4 text-emerald-400">
-                        <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                        Active
-                      </td>
-                    </tr>
-                  ));
+                  return Array.from({ length: ips.length / 2 }).map(
+                    (_, index) => (
+                      <tr key={ips[index * 2]}>
+                        <td className="py-4 font-mono text-gray-300">
+                          {ips[index * 2]}
+                        </td>
+                        <td className="py-4 font-bold">{ips[index * 2 + 1]}</td>
+                        <td className="flex items-center gap-2 py-4 text-emerald-400">
+                          <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                          Active
+                        </td>
+                      </tr>
+                    ),
+                  );
                 })()
               ) : (
                 <tr>

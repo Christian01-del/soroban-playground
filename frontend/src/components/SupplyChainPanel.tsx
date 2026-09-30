@@ -1,7 +1,16 @@
 "use client";
 
 import React, { useState } from "react";
-import { Package, MapPin, ShieldCheck, AlertTriangle, Plus, CheckCircle, XCircle, Clock } from "lucide-react";
+import {
+  Package,
+  MapPin,
+  ShieldCheck,
+  AlertTriangle,
+  Plus,
+  CheckCircle,
+  XCircle,
+  Clock,
+} from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -49,8 +58,16 @@ interface Props {
   products: ProductData[];
   isLoading: boolean;
   onRegisterProduct: (name: string, metadataHash: number) => Promise<void>;
-  onAddCheckpoint: (productId: number, locationHash: number, notesHash: number) => Promise<void>;
-  onSubmitQualityReport: (productId: number, result: QualityResult, reportHash: number) => Promise<void>;
+  onAddCheckpoint: (
+    productId: number,
+    locationHash: number,
+    notesHash: number,
+  ) => Promise<void>;
+  onSubmitQualityReport: (
+    productId: number,
+    result: QualityResult,
+    reportHash: number,
+  ) => Promise<void>;
   onRecallProduct: (productId: number) => Promise<void>;
   onUpdateStatus: (productId: number, status: ProductStatus) => Promise<void>;
 }
@@ -96,7 +113,9 @@ export default function SupplyChainPanel({
   onRecallProduct,
   onUpdateStatus,
 }: Props) {
-  const [tab, setTab] = useState<"products" | "register" | "checkpoint" | "quality">("products");
+  const [tab, setTab] = useState<
+    "products" | "register" | "checkpoint" | "quality"
+  >("products");
 
   // Register form
   const [regName, setRegName] = useState("");
@@ -123,7 +142,11 @@ export default function SupplyChainPanel({
 
   const handleCheckpoint = async () => {
     if (!cpProductId) return;
-    await onAddCheckpoint(parseInt(cpProductId), parseInt(cpLocation) || 0, parseInt(cpNotes) || 0);
+    await onAddCheckpoint(
+      parseInt(cpProductId),
+      parseInt(cpLocation) || 0,
+      parseInt(cpNotes) || 0,
+    );
     setCpProductId("");
     setCpLocation("");
     setCpNotes("");
@@ -131,7 +154,11 @@ export default function SupplyChainPanel({
 
   const handleQuality = async () => {
     if (!qaProductId) return;
-    await onSubmitQualityReport(parseInt(qaProductId), qaResult, parseInt(qaHash) || 0);
+    await onSubmitQualityReport(
+      parseInt(qaProductId),
+      qaResult,
+      parseInt(qaHash) || 0,
+    );
     setQaProductId("");
     setQaHash("");
   };
@@ -151,7 +178,9 @@ export default function SupplyChainPanel({
           <Package size={14} />
           Supply Chain
         </p>
-        <span className="text-xs text-slate-500">{products.length} products</span>
+        <span className="text-xs text-slate-500">
+          {products.length} products
+        </span>
       </div>
 
       {!contractId && (
@@ -181,7 +210,9 @@ export default function SupplyChainPanel({
       {tab === "products" && (
         <div className="space-y-2">
           {products.length === 0 && (
-            <p className="text-xs text-slate-500">No products registered yet.</p>
+            <p className="text-xs text-slate-500">
+              No products registered yet.
+            </p>
           )}
           {products.map((p) => (
             <div
@@ -192,7 +223,9 @@ export default function SupplyChainPanel({
                 <span className="font-semibold text-slate-100">
                   #{p.id} {p.name}
                 </span>
-                <span className={`flex items-center gap-1 ${STATUS_COLOR[p.status]}`}>
+                <span
+                  className={`flex items-center gap-1 ${STATUS_COLOR[p.status]}`}
+                >
                   {STATUS_ICON[p.status]}
                   {p.status}
                 </span>

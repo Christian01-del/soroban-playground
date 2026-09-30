@@ -41,6 +41,12 @@ pub enum Error {
     PolicyAlreadyExists = 16,
     /// Voting period has not ended yet.
     VotingPeriodActive = 17,
+    /// Claim description cannot be empty.
+    EmptyDescription = 18,
+    /// Claimant cannot vote on their own claim.
+    ClaimantCannotVote = 19,
+    /// Product is already inactive.
+    ProductAlreadyInactive = 20,
 }
 
 /// Status of a claim.

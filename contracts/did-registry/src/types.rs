@@ -19,12 +19,12 @@ pub enum Error {
 }
 
 #[contracttype]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Identity {
     pub owner: Address,
-    pub did: String,          // e.g. "did:soroban:<address>"
-    pub metadata_hash: u64,   // hash of off-chain metadata (IPFS CID etc.)
-    pub reputation: i32,      // cumulative score
+    pub did: String,        // e.g. "did:soroban:<address>"
+    pub metadata_hash: u64, // hash of off-chain metadata (IPFS CID etc.)
+    pub reputation: i32,    // cumulative score
     pub active: bool,
     pub created_at: u64,
     pub updated_at: u64,
@@ -39,22 +39,21 @@ pub enum CredentialStatus {
 }
 
 #[contracttype]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Credential {
     pub id: u32,
-    pub subject: Address,     // identity that holds this credential
-    pub issuer: Address,      // who issued it
-    pub schema_hash: u64,     // hash of credential schema/type
-    pub data_hash: u64,       // hash of credential data
+    pub subject: Address, // identity that holds this credential
+    pub issuer: Address,  // who issued it
+    pub schema_hash: u64, // hash of credential schema/type
+    pub data_hash: u64,   // hash of credential data
     pub status: CredentialStatus,
     pub issued_at: u64,
-    pub expires_at: u64,      // 0 = no expiry
+    pub expires_at: u64, // 0 = no expiry
 }
-
 
 /// Verification record for tracking credential verifications
 #[contracttype]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct VerificationRecord {
     pub credential_id: u32,
     pub verifier: Address,
@@ -66,9 +65,9 @@ pub struct VerificationRecord {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ReputationTier {
-    Unverified,  // < 0
-    Novice,      // 0-100
-    Trusted,     // 100-500
-    Verified,    // 500-1000
-    Expert,      // > 1000
+    Unverified, // < 0
+    Novice,     // 0-100
+    Trusted,    // 100-500
+    Verified,   // 500-1000
+    Expert,     // > 1000
 }

@@ -20,9 +20,9 @@ pub mod soroban_sdk {
 `;
 
 export function getVFSFiles() {
-    return {
-        "/src/contract.rs": "", // The user's active editor file
-        "/Cargo.toml": "...",   // A mocked Cargo.toml linking the SDK
-        "/soroban-sdk/src/lib.rs": SOROBAN_SDK_MOCK,
-    };
+  return {
+    "/src/contract.rs": "", // The user's active editor file
+    "/Cargo.toml": "...", // A mocked Cargo.toml linking the SDK
+    "/soroban-sdk/src/lib.rs": SOROBAN_SDK_MOCK,
+  };
 }

@@ -1,0 +1,610 @@
+
+> frontend@0.1.0 lint
+> eslint
+
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/__tests__/components/FavoritesSearchBar.test.tsx
+  1:37  warning  'waitFor' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/__tests__/components/FavoritesSyncManager.test.tsx
+  62:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  67:28  error  A `require()` style import is forbidden   @typescript-eslint/no-require-imports
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/__tests__/components/ResponsiveNav.test.tsx
+  12:10  error  Component definition is missing display name  react/display-name
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/app/PlaygroundClient.tsx
+  265:27  warning  'setDroppedMessages' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  393:26  warning  'setGovVotingPower' is assigned a value but never used   @typescript-eslint/no-unused-vars
+  571:16  warning  'err' is defined but never used                          @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/app/audit/page.tsx
+  10:10  warning  'isLoading' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/app/bug-bounty/page.tsx
+  19:69  error  Comments inside children section of tag should be placed inside braces  react/jsx-no-comment-textnodes
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/app/bug-bounty/submit/page.tsx
+  30:72  error  Comments inside children section of tag should be placed inside braces  react/jsx-no-comment-textnodes
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/app/compile-dashboard/page.tsx
+   63:11  warning  'CompileHistoryItem' is defined but never used  @typescript-eslint/no-unused-vars
+  275:68  error    Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+  314:66  error    Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+  331:49  warning  'trend' is defined but never used               @typescript-eslint/no-unused-vars
+  331:67  error    Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/app/docs/page.tsx
+    5:3   warning  'Code2' is defined but never used         @typescript-eslint/no-unused-vars
+   13:3   warning  'ChevronDown' is defined but never used   @typescript-eslint/no-unused-vars
+  129:71  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  141:68  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/app/migration/page.tsx
+   6:3  warning  'Terminal' is defined but never used                    @typescript-eslint/no-unused-vars
+  22:9  error    'transformed' is never reassigned. Use 'const' instead  prefer-const
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/app/nft-amm/page.tsx
+  11:3  warning  'DollarSign' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/app/page.tsx
+     2:8   warning  'WarrantyPanel' is defined but never used                                                                                                                                                                                                         @typescript-eslint/no-unused-vars
+   618:5   error    React Hook "useEffect" is called in function "runAction" that is neither a React function component nor a custom React Hook function. React component names must start with an uppercase letter. React Hook names must start with the word "use"  react-hooks/rules-of-hooks
+   628:8   warning  React Hook useEffect has a missing dependency: 'options.title'. Either include it or remove the dependency array. Outer scope values like 'wallet.address' aren't valid dependencies because mutating them doesn't re-render the component        react-hooks/exhaustive-deps
+   632:7   error    React Hook "useEffect" is called in function "runAction" that is neither a React function component nor a custom React Hook function. React component names must start with an uppercase letter. React Hook names must start with the word "use"  react-hooks/rules-of-hooks
+   639:10  warning  React Hook useEffect has a missing dependency: 'options.functionName'. Either include it or remove the dependency array. Outer scope values like 'contractId' aren't valid dependencies because mutating them doesn't re-render the component     react-hooks/exhaustive-deps
+   654:7   error    React Hook "useEffect" is called in function "runAction" that is neither a React function component nor a custom React Hook function. React component names must start with an uppercase letter. React Hook names must start with the word "use"  react-hooks/rules-of-hooks
+   663:7   error    React Hook "useEffect" is called in function "runAction" that is neither a React function component nor a custom React Hook function. React component names must start with an uppercase letter. React Hook names must start with the word "use"  react-hooks/rules-of-hooks
+   675:5   error    React Hook "useEffect" is called in function "failFast" that is neither a React function component nor a custom React Hook function. React component names must start with an uppercase letter. React Hook names must start with the word "use"   react-hooks/rules-of-hooks
+  1242:19  error    React Hook "useEffect" cannot be called inside a callback. React Hooks must be called in a React function component or a custom React Hook function                                                                                               react-hooks/rules-of-hooks
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/app/quadratic-voting/page.tsx
+  17:25  warning  'setIsWhitelisted' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/app/rate-limits/page.tsx
+    7:3   warning  'BarChart3' is defined but never used                            @typescript-eslint/no-unused-vars
+    9:3   warning  'Eye' is defined but never used                                  @typescript-eslint/no-unused-vars
+   10:3   warning  'EyeOff' is defined but never used                               @typescript-eslint/no-unused-vars
+   16:3   warning  'Clock' is defined but never used                                @typescript-eslint/no-unused-vars
+   18:3   warning  'XCircle' is defined but never used                              @typescript-eslint/no-unused-vars
+   72:10  warning  'showRevealedKey' is assigned a value but never used             @typescript-eslint/no-unused-vars
+   72:27  warning  'setShowRevealedKey' is assigned a value but never used          @typescript-eslint/no-unused-vars
+  229:46  error    `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`  react/no-unescaped-entities
+  285:87  error    Unexpected any. Specify a different type                         @typescript-eslint/no-explicit-any
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/app/storage-browser/page.tsx
+  7:8  warning  'DataTypeFormatter' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/app/template-library/page.tsx
+  122:5  error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/app/template-library/page.tsx:122:5
+  120 |
+  121 |   useEffect(() => {
+> 122 |     setFavorites(loadFavorites());
+      |     ^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  123 |   }, []);
+  124 |
+  125 |   const toggleFavorite = (id: string) => {  react-hooks/set-state-in-effect
+  128:7  warning  Expected an assignment or function call and instead saw an expression                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            @typescript-eslint/no-unused-expressions
+  174:9  warning  'previewTemplate' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/app/token-gated-access/page.tsx
+  16:7  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/app/token-gated-access/page.tsx:16:7
+  14 |   useEffect(() => {
+  15 |     if (process.env.NEXT_PUBLIC_API_URL) {
+> 16 |       setApiBase(process.env.NEXT_PUBLIC_API_URL);
+     |       ^^^^^^^^^^ Avoid calling setState() directly within an effect
+  17 |     }
+  18 |   }, []);
+  19 |  react-hooks/set-state-in-effect
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/AccountSwitcher.tsx
+  4:29  warning  'ChevronDown' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/AmmPoolPanel.tsx
+  53:3  warning  'walletAddress' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/AuditExplorer.tsx
+  10:3   warning  'Filter' is defined but never used      @typescript-eslint/no-unused-vars
+  16:3   warning  'ArrowRight' is defined but never used  @typescript-eslint/no-unused-vars
+  96:35  warning  'index' is defined but never used       @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/BridgeDashboard.tsx
+  65:3  warning  'walletAddress' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/CallPanel.tsx
+  16:5  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/CallPanel.tsx:16:5
+  14 |
+  15 |   useEffect(() => {
+> 16 |     setParseError("");
+     |     ^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  17 |   }, [argsRaw, funcName, contractId]);
+  18 |
+  19 |   useEffect(() => {                   react-hooks/set-state-in-effect
+  21:7  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/CallPanel.tsx:21:7
+  19 |   useEffect(() => {
+  20 |     if (!contractId) {
+> 21 |       setFuncName("");
+     |       ^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  22 |       setArgsRaw("");
+  23 |       setParseError("");
+  24 |     }  react-hooks/set-state-in-effect
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/CloudStoragePanel.tsx
+  2:36  warning  'Share2' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/DexAggregatorPanel.tsx
+  11:3  warning  'RefreshCw' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/EscrowDashboard.tsx
+   11:3   warning  'Clock' is defined but never used                                @typescript-eslint/no-unused-vars
+   23:3   warning  'XCircle' is defined but never used                              @typescript-eslint/no-unused-vars
+  639:58  error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`  react/no-unescaped-entities
+  639:69  error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`  react/no-unescaped-entities
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/FavoritesManager.tsx
+  21:16  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/FavoritesManager.tsx:21:16
+  19 |     try {
+  20 |       const raw = localStorage.getItem(STORAGE_KEY);
+> 21 |       if (raw) setFavorites(JSON.parse(raw));
+     |                ^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  22 |     } catch {
+  23 |       setFavorites([]);
+  24 |     }  react-hooks/set-state-in-effect
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/FavoritesSearchBar.tsx
+  42:5  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/FavoritesSearchBar.tsx:42:5
+  40 |
+  41 |   useEffect(() => {
+> 42 |     setHistory(loadHistory());
+     |     ^^^^^^^^^^ Avoid calling setState() directly within an effect
+  43 |   }, []);
+  44 |
+  45 |   useEffect(() => {  react-hooks/set-state-in-effect
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/FavoritesSyncManager.tsx
+  84:7  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/FavoritesSyncManager.tsx:84:7
+  82 |   useEffect(() => {
+  83 |     if (!isAuthenticated || !walletAddress) {
+> 84 |       setSyncStatus('offline');
+     |       ^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  85 |       return;
+  86 |     }
+  87 |  react-hooks/set-state-in-effect
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/FlashLoanPanel.tsx
+  2:15  warning  'Activity' is defined but never used    @typescript-eslint/no-unused-vars
+  2:25  warning  'DollarSign' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/GovernancePortal.tsx
+  274:26  error  Error: Cannot call impure function during render
+
+`Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/GovernancePortal.tsx:274:26
+  272 |   const qPct = quorumPct(p);
+  273 |   const qReq = quorumRequired(p);
+> 274 |   const now = Math.floor(Date.now() / 1000);
+      |                          ^^^^^^^^^^ Cannot call impure function
+  275 |   const canFinalise = p.status === "Active" && now > p.voteEnd;
+  276 |   const canExecute = p.status === "Passed" && now >= p.executeAfter;
+  277 |  react-hooks/purity
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/IdentityPortal.tsx
+  61:3  warning  'onUpdateMetadata' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/LendingDashboard.tsx
+  7:25  warning  'setCreditScore' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/LimitOrderBookPanel.tsx
+  63:10  warning  'statusBadge' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/LotteryDashboard.tsx
+  527:56  error  `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`  react/no-unescaped-entities
+  527:66  error  `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`  react/no-unescaped-entities
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/MultisigWalletDashboard.tsx
+  324:3  warning  'walletAddress' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/PatentRegistryDashboard.tsx
+    8:37  warning  'License' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             @typescript-eslint/no-unused-vars
+  435:21  error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/PatentRegistryDashboard.tsx:435:21
+  433 |   };
+  434 |
+> 435 |   useEffect(() => { refresh(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+      |                     ^^^^^^^ Avoid calling setState() directly within an effect
+  436 |
+  437 |   return (
+  438 |     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 p-4 sm:p-8">  react-hooks/set-state-in-effect
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/PriceAggregatorDashboard.tsx
+   94:3  warning  'contractId' is defined but never used   @typescript-eslint/no-unused-vars
+  102:3  warning  'onSetWeight' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/QuorumTracker.tsx
+  58:9  warning  'progress' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/RecentTemplates.tsx
+  16:16  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/RecentTemplates.tsx:16:16
+  14 |     try {
+  15 |       const raw = localStorage.getItem(STORAGE_KEY);
+> 16 |       if (raw) setRecents(JSON.parse(raw));
+     |                ^^^^^^^^^^ Avoid calling setState() directly within an effect
+  17 |     } catch {
+  18 |       setRecents([]);
+  19 |     }  react-hooks/set-state-in-effect
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/SocialFeedInterface.tsx
+  55:10  warning  'showRegModal' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      @typescript-eslint/no-unused-vars
+  55:24  warning  'setShowRegModal' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   @typescript-eslint/no-unused-vars
+  58:33  error    Error: Cannot call impure function during render
+
+`Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/SocialFeedInterface.tsx:58:33
+  56 |
+  57 |   const formatDistance = (timestamp: number) => {
+> 58 |     const seconds = Math.floor((Date.now() / 1000) - timestamp);
+     |                                 ^^^^^^^^^^ Cannot call impure function
+  59 |     if (seconds < 60) return "just now";
+  60 |     if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  61 |     if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;  react-hooks/purity
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/SocialMediaDashboard.tsx
+    9:3   warning  'ChevronDown' is defined but never used  @typescript-eslint/no-unused-vars
+   10:3   warning  'ChevronUp' is defined but never used    @typescript-eslint/no-unused-vars
+  108:27  warning  'caller' is defined but never used       @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/StablecoinDashboard.tsx
+    3:27  warning  'useEffect' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               @typescript-eslint/no-unused-vars
+  135:3   warning  'walletAddress' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           @typescript-eslint/no-unused-vars
+  164:26  error    Error: Cannot call impure function during render
+
+`Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/StablecoinDashboard.tsx:164:26
+  162 |     targetPrice: 1.0,
+  163 |     priceDeviation: 0,
+> 164 |     lastRebase: new Date(Date.now() - 3600000).toISOString(),
+      |                          ^^^^^^^^^^ Cannot call impure function
+  165 |     rebaseCount: 24,
+  166 |     holders: 1543,
+  167 |     volume24h: "50000000000",  react-hooks/purity
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/StorageSearchBar.tsx
+  27:5  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/StorageSearchBar.tsx:27:5
+  25 |
+  26 |   useEffect(() => {
+> 27 |     setLocalQuery(value.query);
+     |     ^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  28 |   }, [value.query]);
+  29 |
+  30 |   const handleQueryChange = (q: string) => {  react-hooks/set-state-in-effect
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/StorageTree.tsx
+  5:29  warning  'detectType' is defined but never used   @typescript-eslint/no-unused-vars
+  6:15  warning  'LedgerState' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/SupplyChainPanel.tsx
+  90:3  warning  'walletAddress' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/SyntheticAssetsDashboard.tsx
+  16:38  warning  'useCallback' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/TemplateDocumentation.tsx
+    9:3   warning  'Tag' is defined but never used                                  @typescript-eslint/no-unused-vars
+  219:37  error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`  react/no-unescaped-entities
+  219:44  error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`  react/no-unescaped-entities
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/TemplateLibraryDashboard.tsx
+  11:3  warning  'filterTemplatesByCategory' is defined but never used    @typescript-eslint/no-unused-vars
+  12:3  warning  'filterTemplatesByDifficulty' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/TemplateSearchBar.tsx
+  3:35  warning  'useEffect' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/TransactionSigner.tsx
+   4:24  warning  'AlertTriangle' is defined but never used   @typescript-eslint/no-unused-vars
+   4:39  warning  'CheckCircle2' is defined but never used    @typescript-eslint/no-unused-vars
+  15:36  warning  'error' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/WalletConnect.tsx
+  4:10  warning  'ExternalLink' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/YieldOptimizerDashboard.tsx
+   90:6   warning  React Hook useEffect has a missing dependency: 'refreshDashboard'. Either include it or remove the dependency array                                    react-hooks/exhaustive-deps
+  119:13  error    Do not use an `<a>` element to navigate to `/`. Use `<Link />` from `next/link` instead. See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/expert-contracts/AlgorithmicStablecoin.tsx
+  4:19  warning  'setPrice' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/expert-contracts/JobMarketplace.tsx
+   4:18  warning  'setJobs' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  20:39  error    Unexpected any. Specify a different type      @typescript-eslint/no-explicit-any
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/expert-contracts/NftMarketplace.tsx
+   4:22  warning  'setListings' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  20:43  error    Unexpected any. Specify a different type          @typescript-eslint/no-explicit-any
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/expert-contracts/QuadraticVoting.tsx
+   4:23  warning  'setProposals' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  23:44  error    Unexpected any. Specify a different type           @typescript-eslint/no-explicit-any
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/providers/WalletProvider.tsx
+   44:9  error  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     @typescript-eslint/ban-ts-comment
+   71:9  error  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     @typescript-eslint/ban-ts-comment
+   74:9  error  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     @typescript-eslint/ban-ts-comment
+  130:7  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/providers/WalletProvider.tsx:130:7
+  128 |     const preferred = localStorage.getItem("preferred_wallet") as WalletType | null;
+  129 |     if (preferred && isWalletDetected(preferred)) {
+> 130 |       connect(preferred);
+      |       ^^^^^^^ Avoid calling setState() directly within an effect
+  131 |     }
+  132 |   }, [connect, isWalletDetected]);
+  133 |  react-hooks/set-state-in-effect
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/search/SearchFilters.tsx
+  45:5   error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/search/SearchFilters.tsx:45:5
+  43 |
+  44 |   useEffect(() => {
+> 45 |     setTempFundingRange({
+     |     ^^^^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  46 |       min: filters.fundingMin?.toString() || '',
+  47 |       max: filters.fundingMax?.toString() || ''
+  48 |     });  react-hooks/set-state-in-effect
+  51:69  error  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         @typescript-eslint/no-explicit-any
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/search/SearchInput.tsx
+   1:46  warning  'useCallback' is defined but never used   @typescript-eslint/no-unused-vars
+  82:42  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/search/SearchPage.tsx
+   3:18  warning  'Filter' is defined but never used                                                                                  @typescript-eslint/no-unused-vars
+  46:6   warning  React Hook useEffect has a missing dependency: 'loadFacetCounts'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  53:6   warning  React Hook useEffect has a missing dependency: 'performSearch'. Either include it or remove the dependency array    react-hooks/exhaustive-deps
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/synthetic-assets/LiquidationMonitor.tsx
+  31:3  warning  'prices' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/synthetic-assets/PositionManager.tsx
+  61:56  warning  'getMaxMintable' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/synthetic-assets/PriceChart.tsx
+   8:27  warning  'useEffect' is defined but never used              @typescript-eslint/no-unused-vars
+  15:63  warning  'onPriceUpdate' is defined but never used          @typescript-eslint/no-unused-vars
+  17:21  warning  'setIsLoading' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/synthetic-assets/TradingInterface.tsx
+  30:3  warning  'userAddress' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/treasury/Dashboard.tsx
+  73:59  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/components/treasury/TransactionList.tsx
+  28:32  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/hooks/useAuth.ts
+  12:16  warning  'setUser' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  12:36  error    Unexpected any. Specify a different type      @typescript-eslint/no-explicit-any
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/hooks/useFavorites.ts
+  60:5  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/hooks/useFavorites.ts:60:5
+  58 |
+  59 |   useEffect(() => {
+> 60 |     setState(load());
+     |     ^^^^^^^^ Avoid calling setState() directly within an effect
+  61 |   }, []);
+  62 |
+  63 |   const persist = useCallback((next: FavoritesState) => {  react-hooks/set-state-in-effect
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/hooks/useSyntheticAssets.ts
+   8:33  warning  'useEffect' is defined but never used             @typescript-eslint/no-unused-vars
+  48:5   warning  'getPosition' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/hooks/useSyntheticAssetsAPI.ts
+  27:14  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  74:28  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/hooks/useTemplateFilter.ts
+  3:10  warning  'useCallback' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/hooks/useTreasuryWebSocket.ts
+   5:9   error  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              @typescript-eslint/no-explicit-any
+  35:18  error  Error: Cannot access variable before it is declared
+
+`connect` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/hooks/useTreasuryWebSocket.ts:35:18
+  33 |       console.log('Disconnected from Treasury WS');
+  34 |       setIsConnected(false);
+> 35 |       setTimeout(connect, 3000); // Reconnect after 3s
+     |                  ^^^^^^^ `connect` accessed before it is declared
+  36 |     };
+  37 |
+  38 |     return ws;
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/hooks/useTreasuryWebSocket.ts:13:3
+  11 |   const [isConnected, setIsConnected] = useState(false);
+  12 |
+> 13 |   const connect = useCallback(() => {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 14 |     const ws = new WebSocket(url);
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 15 |
+     …
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 38 |     return ws;
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 39 |   }, [url]);
+     | ^^^^^^^^^^^^^ `connect` is declared here
+  40 |
+  41 |   useEffect(() => {
+  42 |     const ws = connect();  react-hooks/immutability
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/hooks/useWebSocket.ts
+   69:22  error  Error: Cannot access variable before it is declared
+
+`connect` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/hooks/useWebSocket.ts:69:22
+  67 |           reconnectAttempts.current += 1;
+  68 |           const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000);
+> 69 |           setTimeout(connect, delay);
+     |                      ^^^^^^^ `connect` accessed before it is declared
+  70 |         }
+  71 |       };
+  72 |     } catch (err) {
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/hooks/useWebSocket.ts:30:3
+  28 |   const wsUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/^http/, 'ws') || 'ws://localhost:3000';
+  29 |
+> 30 |   const connect = useCallback(() => {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 31 |     try {
+     | ^^^^^^^^^
+> 32 |       ws.current = new WebSocket(`${wsUrl}/ws`);
+     …
+     | ^^^^^^^^^
+> 74 |     }
+     | ^^^^^^^^^
+> 75 |   }, [wsUrl]);
+     | ^^^^^^^^^^^^^^^ `connect` is declared here
+  76 |
+  77 |   useEffect(() => {
+  78 |     connect();  react-hooks/immutability
+  109:38  error  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         @typescript-eslint/no-explicit-any
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/services/searchService.js
+  125:1  warning  Assign instance to a variable before exporting as module default  import/no-anonymous-default-export
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/services/templateService.ts
+  82:90  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/services/yieldOptimizerService.ts
+  201:1  warning  Assign instance to a variable before exporting as module default  import/no-anonymous-default-export
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/workers/eventStream.worker.ts
+  89:7  warning  'decoder' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/src/workers/rust-analyzer.worker.ts
+   4:32  error    Unexpected any. Specify a different type     @typescript-eslint/no-explicit-any
+   9:11  warning  'vfs' is assigned a value but never used     @typescript-eslint/no-unused-vars
+  22:7   warning  'writer' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  24:16  warning  'message' is defined but never used          @typescript-eslint/no-unused-vars
+
+/home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend/vendor/freighter-api/index.js
+  92:1  warning  Assign object to a variable before exporting as module default  import/no-anonymous-default-export
+
+✖ 151 problems (61 errors, 90 warnings)
+  1 error and 0 warnings potentially fixable with the `--fix` option.
+
+npm error Lifecycle script `lint` failed with error:
+npm error code 1
+npm error path /home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend
+npm error workspace frontend@0.1.0
+npm error location /home/knights/Documents/Drips Miantainer Project/soroban-playground/frontend
+npm error command failed
+npm error command sh -c eslint

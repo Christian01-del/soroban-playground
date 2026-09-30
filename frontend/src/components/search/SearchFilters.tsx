@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Filter, ChevronDown, ChevronUp, X } from 'lucide-react';
+import React, { useState, useEffect } from "react";
+import { Filter, ChevronDown, ChevronUp, X } from "lucide-react";
 
 interface SearchFiltersProps {
   filters: SearchFiltersState;
@@ -27,24 +27,24 @@ const SearchFilters: React.FC<SearchFiltersProps> = ({
   filters,
   onFiltersChange,
   facetCounts,
-  isLoading = false
+  isLoading = false,
 }) => {
   const [isExpanded, setIsExpanded] = useState({
     category: true,
     status: true,
     creator: false,
-    funding: false
+    funding: false,
   });
 
   const [tempFundingRange, setTempFundingRange] = useState({
-    min: '',
-    max: ''
+    min: "",
+    max: "",
   });
 
   useEffect(() => {
     setTempFundingRange({
-      min: filters.fundingMin?.toString() || '',
-      max: filters.fundingMax?.toString() || ''
+      min: filters.fundingMin?.toString() || "",
+      max: filters.fundingMax?.toString() || "",
     });
   }, [filters.fundingMin, filters.fundingMax]);
 
@@ -64,11 +64,15 @@ const SearchFilters: React.FC<SearchFiltersProps> = ({
   };
 
   const handleFundingRangeApply = () => {
-    const min = tempFundingRange.min ? parseFloat(tempFundingRange.min) : undefined;
-    const max = tempFundingRange.max ? parseFloat(tempFundingRange.max) : undefined;
-    
-    handleFilterChange('fundingMin', min);
-    handleFilterChange('fundingMax', max);
+    const min = tempFundingRange.min
+      ? parseFloat(tempFundingRange.min)
+      : undefined;
+    const max = tempFundingRange.max
+      ? parseFloat(tempFundingRange.max)
+      : undefined;
+
+    handleFilterChange("fundingMin", min);
+    handleFilterChange("fundingMax", max);
   };
 
   const getActiveFilterCount = () => {
@@ -77,16 +81,21 @@ const SearchFilters: React.FC<SearchFiltersProps> = ({
 
   const formatFundingRange = (name: string): [number, number] => {
     switch (name) {
-      case 'Under $10k': return [0, 9999];
-      case '$10k - $50k': return [10000, 49999];
-      case '$50k - $100k': return [50000, 99999];
-      case 'Over $100k': return [100000, Infinity];
-      default: return [0, Infinity];
+      case "Under $10k":
+        return [0, 9999];
+      case "$10k - $50k":
+        return [10000, 49999];
+      case "$50k - $100k":
+        return [50000, 99999];
+      case "Over $100k":
+        return [100000, Infinity];
+      default:
+        return [0, Infinity];
     }
   };
 
   const toggleExpanded = (section: keyof typeof isExpanded) => {
-    setIsExpanded(prev => ({ ...prev, [section]: !prev[section] }));
+    setIsExpanded((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
   return (
@@ -115,7 +124,7 @@ const SearchFilters: React.FC<SearchFiltersProps> = ({
       {/* Category Filter */}
       <div className="mb-6">
         <button
-          onClick={() => toggleExpanded('category')}
+          onClick={() => toggleExpanded("category")}
           className="w-full flex items-center justify-between py-2 text-left hover:bg-gray-50 rounded px-2 transition-colors"
         >
           <span className="font-medium text-gray-900">Category</span>
@@ -125,7 +134,7 @@ const SearchFilters: React.FC<SearchFiltersProps> = ({
             <ChevronDown className="w-4 h-4 text-gray-500" />
           )}
         </button>
-        
+
         {isExpanded.category && (
           <div className="mt-3 space-y-2">
             {facetCounts?.categories?.map((category) => (
@@ -139,7 +148,9 @@ const SearchFilters: React.FC<SearchFiltersProps> = ({
                     name="category"
                     value={category.name}
                     checked={filters.category === category.name}
-                    onChange={(e) => handleFilterChange('category', e.target.value)}
+                    onChange={(e) =>
+                      handleFilterChange("category", e.target.value)
+                    }
                     className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
                   />
                   <span className="text-sm text-gray-700">{category.name}</span>
@@ -149,14 +160,14 @@ const SearchFilters: React.FC<SearchFiltersProps> = ({
                 </span>
               </label>
             ))}
-            
+
             {filters.category && (
               <div className="flex items-center gap-2 pt-2 border-t">
                 <span className="text-sm text-blue-600 font-medium">
                   {filters.category}
                 </span>
                 <button
-                  onClick={() => handleClearFilter('category')}
+                  onClick={() => handleClearFilter("category")}
                   className="text-gray-400 hover:text-gray-600"
                 >
                   <X className="w-4 h-4" />
@@ -170,7 +181,7 @@ const SearchFilters: React.FC<SearchFiltersProps> = ({
       {/* Status Filter */}
       <div className="mb-6">
         <button
-          onClick={() => toggleExpanded('status')}
+          onClick={() => toggleExpanded("status")}
           className="w-full flex items-center justify-between py-2 text-left hover:bg-gray-50 rounded px-2 transition-colors"
         >
           <span className="font-medium text-gray-900">Status</span>
@@ -180,7 +191,7 @@ const SearchFilters: React.FC<SearchFiltersProps> = ({
             <ChevronDown className="w-4 h-4 text-gray-500" />
           )}
         </button>
-        
+
         {isExpanded.status && (
           <div className="mt-3 space-y-2">
             {facetCounts?.statuses?.map((status) => (
@@ -194,24 +205,28 @@ const SearchFilters: React.FC<SearchFiltersProps> = ({
                     name="status"
                     value={status.name}
                     checked={filters.status === status.name}
-                    onChange={(e) => handleFilterChange('status', e.target.value)}
+                    onChange={(e) =>
+                      handleFilterChange("status", e.target.value)
+                    }
                     className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
                   />
-                  <span className="text-sm text-gray-700 capitalize">{status.name}</span>
+                  <span className="text-sm text-gray-700 capitalize">
+                    {status.name}
+                  </span>
                 </div>
                 <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
                   {status.count}
                 </span>
               </label>
             ))}
-            
+
             {filters.status && (
               <div className="flex items-center gap-2 pt-2 border-t">
                 <span className="text-sm text-blue-600 font-medium capitalize">
                   {filters.status}
                 </span>
                 <button
-                  onClick={() => handleClearFilter('status')}
+                  onClick={() => handleClearFilter("status")}
                   className="text-gray-400 hover:text-gray-600"
                 >
                   <X className="w-4 h-4" />
@@ -225,7 +240,7 @@ const SearchFilters: React.FC<SearchFiltersProps> = ({
       {/* Creator Filter */}
       <div className="mb-6">
         <button
-          onClick={() => toggleExpanded('creator')}
+          onClick={() => toggleExpanded("creator")}
           className="w-full flex items-center justify-between py-2 text-left hover:bg-gray-50 rounded px-2 transition-colors"
         >
           <span className="font-medium text-gray-900">Creator</span>
@@ -235,21 +250,21 @@ const SearchFilters: React.FC<SearchFiltersProps> = ({
             <ChevronDown className="w-4 h-4 text-gray-500" />
           )}
         </button>
-        
+
         {isExpanded.creator && (
           <div className="mt-3">
             <input
               type="text"
               placeholder="Search creators..."
-              value={filters.creator || ''}
-              onChange={(e) => handleFilterChange('creator', e.target.value)}
+              value={filters.creator || ""}
+              onChange={(e) => handleFilterChange("creator", e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
             />
-            
+
             {facetCounts?.creators?.slice(0, 5).map((creator) => (
               <button
                 key={creator.name}
-                onClick={() => handleFilterChange('creator', creator.name)}
+                onClick={() => handleFilterChange("creator", creator.name)}
                 className="w-full text-left py-2 px-2 hover:bg-gray-50 rounded text-sm text-gray-700 mt-1"
               >
                 {creator.name}
@@ -258,14 +273,14 @@ const SearchFilters: React.FC<SearchFiltersProps> = ({
                 </span>
               </button>
             ))}
-            
+
             {filters.creator && (
               <div className="flex items-center gap-2 pt-2 border-t">
                 <span className="text-sm text-blue-600 font-medium">
                   {filters.creator}
                 </span>
                 <button
-                  onClick={() => handleClearFilter('creator')}
+                  onClick={() => handleClearFilter("creator")}
                   className="text-gray-400 hover:text-gray-600"
                 >
                   <X className="w-4 h-4" />
@@ -279,7 +294,7 @@ const SearchFilters: React.FC<SearchFiltersProps> = ({
       {/* Funding Range Filter */}
       <div className="mb-6">
         <button
-          onClick={() => toggleExpanded('funding')}
+          onClick={() => toggleExpanded("funding")}
           className="w-full flex items-center justify-between py-2 text-left hover:bg-gray-50 rounded px-2 transition-colors"
         >
           <span className="font-medium text-gray-900">Funding Range</span>
@@ -289,7 +304,7 @@ const SearchFilters: React.FC<SearchFiltersProps> = ({
             <ChevronDown className="w-4 h-4 text-gray-500" />
           )}
         </button>
-        
+
         {isExpanded.funding && (
           <div className="mt-3 space-y-3">
             {/* Preset ranges */}
@@ -299,8 +314,14 @@ const SearchFilters: React.FC<SearchFiltersProps> = ({
                   key={range.name}
                   onClick={() => {
                     const [min, max] = formatFundingRange(range.name);
-                    handleFilterChange('fundingMin', min === 0 ? undefined : min);
-                    handleFilterChange('fundingMax', max === Infinity ? undefined : max);
+                    handleFilterChange(
+                      "fundingMin",
+                      min === 0 ? undefined : min,
+                    );
+                    handleFilterChange(
+                      "fundingMax",
+                      max === Infinity ? undefined : max,
+                    );
                   }}
                   className="w-full text-left py-2 px-2 hover:bg-gray-50 rounded text-sm text-gray-700"
                 >
@@ -311,16 +332,23 @@ const SearchFilters: React.FC<SearchFiltersProps> = ({
                 </button>
               ))}
             </div>
-            
+
             {/* Custom range */}
             <div className="pt-3 border-t">
-              <p className="text-sm font-medium text-gray-700 mb-2">Custom Range</p>
+              <p className="text-sm font-medium text-gray-700 mb-2">
+                Custom Range
+              </p>
               <div className="flex gap-2 items-center">
                 <input
                   type="number"
                   placeholder="Min"
                   value={tempFundingRange.min}
-                  onChange={(e) => setTempFundingRange(prev => ({ ...prev, min: e.target.value }))}
+                  onChange={(e) =>
+                    setTempFundingRange((prev) => ({
+                      ...prev,
+                      min: e.target.value,
+                    }))
+                  }
                   className="w-24 px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
                 />
                 <span className="text-gray-500">-</span>
@@ -328,7 +356,12 @@ const SearchFilters: React.FC<SearchFiltersProps> = ({
                   type="number"
                   placeholder="Max"
                   value={tempFundingRange.max}
-                  onChange={(e) => setTempFundingRange(prev => ({ ...prev, max: e.target.value }))}
+                  onChange={(e) =>
+                    setTempFundingRange((prev) => ({
+                      ...prev,
+                      max: e.target.value,
+                    }))
+                  }
                   className="w-24 px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
                 />
                 <button
@@ -339,16 +372,18 @@ const SearchFilters: React.FC<SearchFiltersProps> = ({
                 </button>
               </div>
             </div>
-            
-            {(filters.fundingMin !== undefined || filters.fundingMax !== undefined) && (
+
+            {(filters.fundingMin !== undefined ||
+              filters.fundingMax !== undefined) && (
               <div className="flex items-center gap-2 pt-2 border-t">
                 <span className="text-sm text-blue-600 font-medium">
-                  ${filters.fundingMin?.toLocaleString() || '0'} - ${filters.fundingMax?.toLocaleString() || '∞'}
+                  ${filters.fundingMin?.toLocaleString() || "0"} - $
+                  {filters.fundingMax?.toLocaleString() || "∞"}
                 </span>
                 <button
                   onClick={() => {
-                    handleClearFilter('fundingMin');
-                    handleClearFilter('fundingMax');
+                    handleClearFilter("fundingMin");
+                    handleClearFilter("fundingMax");
                   }}
                   className="text-gray-400 hover:text-gray-600"
                 >

@@ -1,21 +1,20 @@
 import { jest } from '@jest/globals';
 
-jest.unstable_mockModule('../src/services/deployService.js', () => ({
+jest.mock('../src/services/deployService.js', () => ({
   deployBatchContracts: jest.fn(),
 }));
 
-const { deployBatchContracts } =
-  await import('../src/services/deployService.js');
+const { deployBatchContracts } = require('../src/services/deployService.js');
 
 import express from 'express';
 import request from 'supertest';
-const { default: deployRoute } = await import('../src/routes/v1/deploy.js');
-const { errorHandler } = await import('../src/middleware/errorHandler.js');
+const { default: deployRoute } = require('../src/routes/v1/deploy.js');
+const { errorHandler } = require('../src/middleware/errorHandler.js');
 const {
   normalizeBatchContract,
   topoSortContracts,
   validateBatchContractsInput,
-} = await import('../src/services/deployUtils.js');
+} = require('../src/services/deployUtils.js');
 
 const app = express();
 app.use(express.json());

@@ -1,11 +1,15 @@
+process.env.USE_REAL_DB = 'true';
+
+import { jest } from '@jest/globals';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import MigrationService from '../src/services/migrationService.js';
 import DatabaseService from '../src/services/databaseService.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { fileURLToPath } from 'url';
+
+const testFilename = fileURLToPath(import.meta.url);
+const testDirname = path.dirname(testFilename);
 
 describe('MigrationService', () => {
   let migrationService;
@@ -13,15 +17,15 @@ describe('MigrationService', () => {
   let testMigrationsPath;
 
   beforeAll(async () => {
-    testDbPath = path.join(__dirname, 'test_migrations.db');
-    testMigrationsPath = path.join(__dirname, 'test_migrations');
+    testDbPath = path.join(testDirname, 'test_migrations.db');
+    testMigrationsPath = path.join(testDirname, 'test_migrations');
 
     // Create test migrations directory
     if (!fs.existsSync(testMigrationsPath)) {
       fs.mkdirSync(testMigrationsPath, { recursive: true });
     }
 
-    migrationService = new MigrationService(testDbPath);
+    migrationService = new MigrationService(testDbPath, testMigrationsPath);
     await migrationService.initialize();
   });
 
@@ -36,14 +40,21 @@ describe('MigrationService', () => {
     if (fs.existsSync(testMigrationsPath)) {
       fs.rmSync(testMigrationsPath, { recursive: true, force: true });
     }
+
+    process.env.USE_REAL_DB = 'false';
   });
 
   beforeEach(async () => {
-    // Clean database before each test
-    const dbService = new DatabaseService(testDbPath);
-    await dbService.connect();
-    await dbService.run('DELETE FROM _schema_migrations');
-    await dbService.close();
+    // Close existing connection
+    await migrationService.close();
+
+    // Delete database file if exists
+    if (fs.existsSync(testDbPath)) {
+      fs.unlinkSync(testDbPath);
+    }
+
+    // Re-initialize
+    await migrationService.initialize();
 
     // Clean migrations directory
     if (fs.existsSync(testMigrationsPath)) {
@@ -267,7 +278,7 @@ describe('MigrationService', () => {
       expect(status.pendingMigrations).toBe(2);
 
       // Apply one migration
-      await migrationService.migrateUp();
+      await migrationService.migrateUp(false, 1);
 
       // Check updated status
       status = await migrationService.getMigrationStatus();

@@ -32,7 +32,7 @@ pub fn update_price_internal(
 
     // Check for excessive price deviation from previous price
     if let Ok(old_price_data) = get_price(env, asset_symbol) {
-        let deviation = calculate_price_deviation(old_price_data.price, new_price);
+        let deviation = calculate_price_deviation(old_price_data.price, new_price)?;
         if deviation > MAX_SINGLE_UPDATE_DEVIATION {
             return Err(Error::InvalidPrice);
         }
@@ -51,16 +51,26 @@ pub fn update_price_internal(
 /// Get validated price
 pub fn get_price_internal(env: &Env, asset_symbol: &Symbol) -> Result<i128, Error> {
     let price_data = get_price(env, asset_symbol)?;
-    
+
     // Check if price is stale
     let current_time = env.ledger().timestamp();
-    if current_time > price_data.timestamp + MAX_PRICE_AGE {
-        return Err(Error::StalePrice);
+    // Use checked_add to avoid overflow in timestamp arithmetic
+    match price_data.timestamp.checked_add(MAX_PRICE_AGE) {
+        Some(expiry) => {
+            if current_time > expiry {
+                return Err(Error::StalePrice);
+            }
+        }
+        None => return Err(Error::Overflow),
     }
 
-    // Check confidence
     if price_data.confidence < MIN_CONFIDENCE {
-        return Err(Error::StalePrice);
+        return Err(Error::LowConfidence);
+    }
+
+    // Reject invalid price values stored in oracle
+    if price_data.price <= 0 {
+        return Err(Error::InvalidPrice);
     }
 
     // Validate price is within acceptable bounds
@@ -87,36 +97,51 @@ pub fn validate_price(price: i128, confidence: u32) -> Result<(), Error> {
         return Err(Error::InvalidPrice);
     }
 
+    // Use explicit LowConfidence error for too-low oracle confidence
     if confidence < MIN_CONFIDENCE {
-        return Err(Error::InvalidPrice);
+        return Err(Error::LowConfidence);
     }
 
     Ok(())
 }
 
-/// Calculate price deviation between two prices (in basis points)
-pub fn calculate_price_deviation(old_price: i128, new_price: i128) -> u32 {
-    if old_price == 0 {
-        return 0;
+/// Calculate price deviation between two prices (in basis points).
+///
+/// Returns `Error::InvalidPrice` for non-positive prices and `Error::Overflow`
+/// when checked arithmetic fails.
+pub fn calculate_price_deviation(old_price: i128, new_price: i128) -> Result<u32, Error> {
+    if old_price <= 0 || new_price <= 0 {
+        return Err(Error::InvalidPrice);
     }
-    
-    let diff = if new_price > old_price {
-        new_price - old_price
+
+    // compute absolute difference using checked ops
+    let diff = if new_price >= old_price {
+        new_price.checked_sub(old_price).ok_or(Error::Overflow)?
     } else {
-        old_price - new_price
+        old_price.checked_sub(new_price).ok_or(Error::Overflow)?
     };
 
-    // Prevent overflow in calculation
-    if old_price > i128::MAX / 10000 {
-        return u32::MAX;
-    }
+    // Multiply then divide with checked ops to avoid overflow
+    let scaled = diff
+        .checked_mul(10000)
+        .ok_or(Error::Overflow)?
+        .checked_div(old_price)
+        .ok_or(Error::Overflow)?;
 
-    ((diff * 10000) / old_price) as u32
+    if scaled > u32::MAX as i128 {
+        Err(Error::Overflow)
+    } else {
+        Ok(scaled as u32)
+    }
 }
 
 /// Check if price deviation is within acceptable bounds
-pub fn is_price_valid_deviation(old_price: i128, new_price: i128, max_deviation: u32) -> bool {
-    calculate_price_deviation(old_price, new_price) <= max_deviation
+pub fn is_price_valid_deviation(
+    old_price: i128,
+    new_price: i128,
+    max_deviation: u32,
+) -> Result<bool, Error> {
+    Ok(calculate_price_deviation(old_price, new_price)? <= max_deviation)
 }
 
 /// Check if price is within acceptable range for the asset

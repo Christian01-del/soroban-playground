@@ -1,16 +1,16 @@
 "use client";
 
 import React, { useState } from "react";
-import { 
-  Leaf, 
-  ShieldCheck, 
-  Plus, 
-  ArrowRightLeft, 
-  Flame, 
-  TrendingDown, 
+import {
+  Leaf,
+  ShieldCheck,
+  Plus,
+  ArrowRightLeft,
+  Flame,
+  TrendingDown,
   Building2,
   CheckCircle2,
-  Clock
+  Clock,
 } from "lucide-react";
 
 export type IssuerData = {
@@ -63,17 +63,26 @@ const CarbonCreditDashboard: React.FC<CarbonCreditDashboardProps> = ({
             <div className="p-2 bg-emerald-500/20 rounded-lg text-emerald-400">
               <Leaf size={24} />
             </div>
-            <h3 className="text-lg font-semibold text-slate-100">Carbon Portfolio</h3>
+            <h3 className="text-lg font-semibold text-slate-100">
+              Carbon Portfolio
+            </h3>
           </div>
           <div className="space-y-2">
             <div className="flex justify-between items-end">
               <span className="text-sm text-slate-400">Current Balance</span>
-              <span className="text-2xl font-bold text-emerald-400">{assets.balance} MT</span>
+              <span className="text-2xl font-bold text-emerald-400">
+                {assets.balance} MT
+              </span>
             </div>
             <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-              <div 
-                className="h-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]" 
-                style={{ width: assets.totalOwned > 0 ? `${(assets.balance / assets.totalOwned) * 100}%` : '0%' }}
+              <div
+                className="h-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]"
+                style={{
+                  width:
+                    assets.totalOwned > 0
+                      ? `${(assets.balance / assets.totalOwned) * 100}%`
+                      : "0%",
+                }}
               />
             </div>
             <div className="flex justify-between text-xs text-slate-500">
@@ -88,11 +97,17 @@ const CarbonCreditDashboard: React.FC<CarbonCreditDashboardProps> = ({
             <div className="p-2 bg-orange-500/20 rounded-lg text-orange-400">
               <Flame size={24} />
             </div>
-            <h3 className="text-lg font-semibold text-slate-100">Retired Credits</h3>
+            <h3 className="text-lg font-semibold text-slate-100">
+              Retired Credits
+            </h3>
           </div>
           <div className="space-y-1">
-            <span className="text-2xl font-bold text-orange-400">{assets.totalRetired} MT</span>
-            <p className="text-sm text-slate-400">Carbon footprint neutralized</p>
+            <span className="text-2xl font-bold text-orange-400">
+              {assets.totalRetired} MT
+            </span>
+            <p className="text-sm text-slate-400">
+              Carbon footprint neutralized
+            </p>
             <div className="flex items-center gap-1.5 text-xs text-orange-400/70 mt-2">
               <TrendingDown size={14} />
               <span>Reduced impact this period</span>
@@ -105,7 +120,9 @@ const CarbonCreditDashboard: React.FC<CarbonCreditDashboardProps> = ({
             <div className="p-2 bg-blue-500/20 rounded-lg text-blue-400">
               <ShieldCheck size={24} />
             </div>
-            <h3 className="text-lg font-semibold text-slate-100">Verification Status</h3>
+            <h3 className="text-lg font-semibold text-slate-100">
+              Verification Status
+            </h3>
           </div>
           {issuer ? (
             <div className="space-y-3">
@@ -124,10 +141,14 @@ const CarbonCreditDashboard: React.FC<CarbonCreditDashboardProps> = ({
                   </span>
                 )}
               </div>
-              <p className="text-xs text-slate-500">Minted: {issuer.totalMinted} MT</p>
+              <p className="text-xs text-slate-500">
+                Minted: {issuer.totalMinted} MT
+              </p>
             </div>
           ) : (
-            <p className="text-sm text-slate-400">Not registered as a carbon credit issuer yet.</p>
+            <p className="text-sm text-slate-400">
+              Not registered as a carbon credit issuer yet.
+            </p>
           )}
         </div>
       </div>
@@ -141,7 +162,9 @@ const CarbonCreditDashboard: React.FC<CarbonCreditDashboardProps> = ({
           <div className="space-y-4">
             {!issuer && (
               <div className="space-y-2">
-                <label className="text-xs text-slate-500 uppercase font-medium">Register as Issuer</label>
+                <label className="text-xs text-slate-500 uppercase font-medium">
+                  Register as Issuer
+                </label>
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -160,9 +183,11 @@ const CarbonCreditDashboard: React.FC<CarbonCreditDashboardProps> = ({
                 </div>
               </div>
             )}
-            
+
             <div className="space-y-2">
-              <label className="text-xs text-slate-500 uppercase font-medium">Verify Issuer (Admin Only)</label>
+              <label className="text-xs text-slate-500 uppercase font-medium">
+                Verify Issuer (Admin Only)
+              </label>
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -183,7 +208,9 @@ const CarbonCreditDashboard: React.FC<CarbonCreditDashboardProps> = ({
 
             {issuer?.verified && (
               <div className="space-y-2 pt-2 border-t border-slate-800/50">
-                <label className="text-xs text-slate-500 uppercase font-medium">Mint Credits</label>
+                <label className="text-xs text-slate-500 uppercase font-medium">
+                  Mint Credits
+                </label>
                 <div className="grid grid-cols-2 gap-2 mb-2">
                   <input
                     type="text"
@@ -219,7 +246,9 @@ const CarbonCreditDashboard: React.FC<CarbonCreditDashboardProps> = ({
           </h4>
           <div className="space-y-6">
             <div className="space-y-2">
-              <label className="text-xs text-slate-500 uppercase font-medium">Transfer Credits</label>
+              <label className="text-xs text-slate-500 uppercase font-medium">
+                Transfer Credits
+              </label>
               <div className="grid grid-cols-2 gap-2 mb-2">
                 <input
                   type="text"
@@ -246,7 +275,9 @@ const CarbonCreditDashboard: React.FC<CarbonCreditDashboardProps> = ({
             </div>
 
             <div className="space-y-2 pt-4 border-t border-slate-800/50 text-center">
-              <label className="text-xs text-slate-500 uppercase font-medium block text-left">Offset Carbon Footprint</label>
+              <label className="text-xs text-slate-500 uppercase font-medium block text-left">
+                Offset Carbon Footprint
+              </label>
               <div className="flex flex-col items-center gap-4 py-2">
                 <div className="relative">
                   <input
@@ -256,14 +287,21 @@ const CarbonCreditDashboard: React.FC<CarbonCreditDashboardProps> = ({
                     value={retireAmount || ""}
                     onChange={(e) => setRetireAmount(Number(e.target.value))}
                   />
-                  <span className="absolute bottom-0 right-0 transform translate-x-3 translate-y-1 text-xs text-slate-500">MT</span>
+                  <span className="absolute bottom-0 right-0 transform translate-x-3 translate-y-1 text-xs text-slate-500">
+                    MT
+                  </span>
                 </div>
                 <p className="text-xs text-slate-500 italic max-w-[200px]">
-                  Retiring credits permanently removes them from circulation and claims the carbon offset.
+                  Retiring credits permanently removes them from circulation and
+                  claims the carbon offset.
                 </p>
                 <button
                   onClick={() => onRetire(retireAmount)}
-                  disabled={isLoading || retireAmount <= 0 || retireAmount > assets.balance}
+                  disabled={
+                    isLoading ||
+                    retireAmount <= 0 ||
+                    retireAmount > assets.balance
+                  }
                   className="w-full py-2.5 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 shadow-lg shadow-orange-900/30"
                 >
                   <Flame size={20} /> Retire Carbon Credits

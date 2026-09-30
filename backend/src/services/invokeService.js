@@ -1,4 +1,3 @@
-import { spawn } from 'child_process';
 import { EventEmitter } from 'events';
 import fs from 'fs';
 import path from 'path';
@@ -8,6 +7,8 @@ import {
   addSpanEvent,
   injectTraceContext,
 } from '../utils/tracing.js';
+import { recordTamperEvidentAuditLog } from './tamperEvidentAuditLogger.js';
+import { spawnTracked, terminateChildProcess } from './childProcessManager.js';
 
 const MAX_CONCURRENT = Number.parseInt(process.env.INVOKE_POOL_SIZE || '3', 10);
 const INVOKE_TIMEOUT_MS = Number.parseInt(
@@ -193,11 +194,15 @@ export async function invokeSorobanContract(request, { signal } = {}) {
       () =>
         new Promise((resolve, reject) => {
           const startedAt = new Date().toISOString();
-          const child = spawn(process.env.SOROBAN_CLI || 'soroban', cliArgs, {
-            shell: false,
-            windowsHide: true,
-            env: injectTraceContext(process.env),
-          });
+          const child = spawnTracked(
+            process.env.SOROBAN_CLI || 'soroban',
+            cliArgs,
+            {
+              shell: false,
+              windowsHide: true,
+              env: injectTraceContext(process.env),
+            }
+          );
 
           let stdout = '';
           let stderr = '';
@@ -250,7 +255,7 @@ export async function invokeSorobanContract(request, { signal } = {}) {
 
           const onAbort = () => {
             addSpanEvent(span, 'invoke.cancelled');
-            child.kill('SIGKILL');
+            terminateChildProcess(child);
             complete(new Error('Invocation cancelled'));
           };
 
@@ -263,7 +268,7 @@ export async function invokeSorobanContract(request, { signal } = {}) {
 
           timeout = setTimeout(() => {
             addSpanEvent(span, 'invoke.timeout');
-            child.kill('SIGKILL');
+            terminateChildProcess(child);
             complete(
               new Error(`Invocation timed out after ${INVOKE_TIMEOUT_MS}ms`)
             );
@@ -321,6 +326,16 @@ export async function invokeSorobanContract(request, { signal } = {}) {
             });
 
             if (code === 0) {
+              recordTamperEvidentAuditLog({
+                action: 'contract_invoke',
+                contractId: request.contractId,
+                functionName: request.functionName,
+                ledgerSequence: request.ledgerSequence || request.ledger_sequence || output.parsed?.ledgerSequence || 100,
+                sessionId: request.sessionId || request.session_id || request.requestId || 'sess-invoke',
+                userId: request.userId || request.user_id,
+                metadata: { args: request.args },
+              }).catch(() => {});
+
               emit('success', output.parsed ?? output.raw);
               complete(null, baseResult);
               return;

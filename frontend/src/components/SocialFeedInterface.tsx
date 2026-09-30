@@ -1,16 +1,16 @@
 "use client";
 
 import React, { useState } from "react";
-import { 
-  UserCircle2, 
-  MessageSquarePlus, 
-  Heart, 
-  Coins, 
-  Share2, 
+import {
+  UserCircle2,
+  MessageSquarePlus,
+  Heart,
+  Coins,
+  Share2,
   Clock,
   UserPlus,
   Verified,
-  Image as ImageIcon
+  Image as ImageIcon,
 } from "lucide-react";
 
 export type SocialProfile = {
@@ -55,7 +55,7 @@ const SocialFeedInterface: React.FC<SocialFeedInterfaceProps> = ({
   const [showRegModal, setShowRegModal] = useState(!profile);
 
   const formatDistance = (timestamp: number) => {
-    const seconds = Math.floor((Date.now() / 1000) - timestamp);
+    const seconds = Math.floor(Date.now() / 1000 - timestamp);
     if (seconds < 60) return "just now";
     if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
     if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
@@ -79,10 +79,14 @@ const SocialFeedInterface: React.FC<SocialFeedInterfaceProps> = ({
               <p className="text-sm text-slate-400">{profile.bio}</p>
               <div className="flex gap-4 mt-2">
                 <span className="text-xs font-medium text-slate-500">
-                  <span className="text-slate-200">{profile.followers}</span> Followers
+                  <span className="text-slate-200">{profile.followers}</span>{" "}
+                  Followers
                 </span>
                 <span className="text-xs font-medium text-slate-500">
-                  <span className="text-slate-200">{posts.filter(p => p.author === profile.address).length}</span> Posts
+                  <span className="text-slate-200">
+                    {posts.filter((p) => p.author === profile.address).length}
+                  </span>{" "}
+                  Posts
                 </span>
               </div>
             </div>
@@ -100,7 +104,9 @@ const SocialFeedInterface: React.FC<SocialFeedInterfaceProps> = ({
           </div>
           <div>
             <h3 className="text-lg font-bold text-white">Join the Network</h3>
-            <p className="text-sm text-slate-400">Create a web3 profile to start sharing and tipping.</p>
+            <p className="text-sm text-slate-400">
+              Create a web3 profile to start sharing and tipping.
+            </p>
           </div>
           <div className="max-w-xs mx-auto space-y-3">
             <input
@@ -171,11 +177,16 @@ const SocialFeedInterface: React.FC<SocialFeedInterfaceProps> = ({
       <div className="space-y-4">
         {posts.length === 0 ? (
           <div className="py-12 text-center">
-            <p className="text-slate-500">No posts yet. Be the first to share!</p>
+            <p className="text-slate-500">
+              No posts yet. Be the first to share!
+            </p>
           </div>
         ) : (
           posts.map((post) => (
-            <div key={post.id} className="bg-slate-900/30 border border-slate-800/50 rounded-3xl p-6 hover:bg-slate-900/50 transition-all group">
+            <div
+              key={post.id}
+              className="bg-slate-900/30 border border-slate-800/50 rounded-3xl p-6 hover:bg-slate-900/50 transition-all group"
+            >
               <div className="flex gap-4">
                 <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-blue-500/10 to-purple-500/10 flex-shrink-0 flex items-center justify-center text-slate-400 border border-white/5">
                   <UserCircle2 size={28} />
@@ -183,31 +194,47 @@ const SocialFeedInterface: React.FC<SocialFeedInterfaceProps> = ({
                 <div className="flex-1">
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-200">{post.nickname || `User...${post.author.slice(-4)}`}</span>
-                      <span className="text-xs text-slate-500 font-mono">@{post.author.slice(0, 6)}...</span>
-                      <span className="text-xs text-slate-600">• {formatDistance(post.timestamp)}</span>
+                      <span className="font-bold text-slate-200">
+                        {post.nickname || `User...${post.author.slice(-4)}`}
+                      </span>
+                      <span className="text-xs text-slate-500 font-mono">
+                        @{post.author.slice(0, 6)}...
+                      </span>
+                      <span className="text-xs text-slate-600">
+                        • {formatDistance(post.timestamp)}
+                      </span>
                     </div>
                     <button className="text-slate-600 hover:text-slate-400">
                       <Share2 size={16} />
                     </button>
                   </div>
-                  <p className="text-slate-300 leading-relaxed mb-4">{post.content}</p>
+                  <p className="text-slate-300 leading-relaxed mb-4">
+                    {post.content}
+                  </p>
                   <div className="flex items-center gap-6">
-                    <button 
+                    <button
                       onClick={() => onLikePost(post.id)}
                       className="flex items-center gap-2 text-xs font-semibold text-slate-500 hover:text-rose-400 transition-colors group/like"
                     >
                       <div className="p-2 rounded-full group-hover/like:bg-rose-500/10 transition-colors">
-                        <Heart size={18} className={post.likes > 0 ? "fill-rose-500 text-rose-500" : ""} />
+                        <Heart
+                          size={18}
+                          className={
+                            post.likes > 0 ? "fill-rose-500 text-rose-500" : ""
+                          }
+                        />
                       </div>
                       {post.likes}
                     </button>
-                    <button 
+                    <button
                       onClick={() => onTipPost(post.id, 10)}
                       className="flex items-center gap-2 text-xs font-semibold text-slate-500 hover:text-amber-400 transition-colors group/tip"
                     >
                       <div className="p-2 rounded-full group-hover/tip:bg-amber-500/10 transition-colors">
-                        <Coins size={18} className={post.tips > 0 ? "text-amber-400" : ""} />
+                        <Coins
+                          size={18}
+                          className={post.tips > 0 ? "text-amber-400" : ""}
+                        />
                       </div>
                       {post.tips} Tips
                     </button>

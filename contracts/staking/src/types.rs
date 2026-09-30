@@ -12,6 +12,8 @@ pub enum Error {
     InvalidWithdrawalPeriod = 6,
     NothingToUnstake = 7,
     RequestNotFound = 8,
+    AlreadyClaimed = 9,
+    MathOverflow = 10,
 }
 
 #[contracttype]
@@ -26,6 +28,7 @@ pub struct StakeInfo {
 pub struct UnstakeRequest {
     pub amount: i128,
     pub unlock_timestamp: u64,
+    pub claimed: bool,
 }
 
 #[contracttype]

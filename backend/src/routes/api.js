@@ -1,9 +1,14 @@
 import warrantyRoutes from './warranty.js';
+import favoritesRoutes from './favorites.js';
+import workspaceRoutes from './workspace.js';
+import searchRoutes from './search.js';
+import projectsRoutes from './projects.js';
 import express from 'express';
 import v1Compile from './v1/compile.js';
 import v1Deploy from './v1/deploy.js';
 import v1Invoke from './v1/invoke.js';
 import v1Identity from './v1/identity.js';
+import v1Simulate from './v1/simulate.js';
 import v2Compile from './v2/compile.js';
 import v2Deploy from './v2/deploy.js';
 import v2Invoke from './v2/invoke.js';
@@ -13,19 +18,21 @@ import eventsRouter from './events.js';
 import patentsRouter from './patents.js';
 import tokenBurnRouter from './tokenBurn.js';
 import oracleRouter from './oracle.js';
+import verificationRouter from './verification.js';
 import {
   versionTransformer,
   requestTransformerV2,
 } from '../middleware/versionTransformer.js';
-import { rateLimitMiddleware } from '../middleware/rateLimiter.js';
 
 import { versions } from '../config/versions.js';
 import { deprecationHeaders } from '../middleware/deprecationHeaders.js';
+import {
+  dispatchByApiVersion,
+  negotiateApiVersion,
+  rejectUnsupportedUriVersion,
+} from '../middleware/apiVersioning.js';
 
 const router = express.Router();
-
-// Apply deprecation/version headers to all versioned routes
-router.use(deprecationHeaders);
 
 // Version discovery endpoint
 router.get('/versions', (req, res) => {
@@ -38,10 +45,13 @@ router.get('/versions', (req, res) => {
 // v1 Routes
 const v1Router = express.Router();
 v1Router.use(versionTransformer('v1'));
+// compile/deploy/invoke limits are attached per-route inside each router so
+// every request is counted exactly once.
 v1Router.use('/compile', v1Compile);
 v1Router.use('/deploy', v1Deploy);
 v1Router.use('/invoke', v1Invoke);
 v1Router.use('/identity', v1Identity);
+v1Router.use('/simulate', v1Simulate);
 v1Router.use('/lottery', v2Lottery);
 
 // v2 Routes
@@ -52,21 +62,74 @@ v2Router.use('/compile', v2Compile);
 v2Router.use('/deploy', v2Deploy);
 v2Router.use('/invoke', v2Invoke);
 v2Router.use('/identity', v2Identity);
+v2Router.use('/simulate', v1Simulate);
 v2Router.use('/lottery', v2Lottery);
 
-// Register versioned routes
-router.use('/v1', v1Router);
-router.use('/v2', v2Router);
-router.use('/oracle', oracleRouter);
+const versionRouters = {
+  v1: v1Router,
+  v2: v2Router,
+};
 
-// Default to v1 for backward compatibility (requests to /api/compile, etc.)
-router.use('/compile', versionTransformer('v1'), v1Compile);
-router.use('/deploy', versionTransformer('v1'), v1Deploy);
-router.use('/invoke', versionTransformer('v1'), v1Invoke);
-router.use('/identity', versionTransformer('v1'), v1Identity);
+const headerVersionedPaths = [
+  '/compile',
+  '/deploy',
+  '/invoke',
+  '/identity',
+  '/simulate',
+  '/lottery',
+];
+
+function isHeaderVersionedPath(path) {
+  return headerVersionedPaths.some(
+    (prefix) => path === prefix || path.startsWith(`${prefix}/`)
+  );
+}
+
+// Register versioned routes
+router.use(
+  '/v1',
+  negotiateApiVersion({ uriVersion: 'v1' }),
+  deprecationHeaders,
+  v1Router
+);
+router.use(
+  '/v2',
+  negotiateApiVersion({ uriVersion: 'v2' }),
+  deprecationHeaders,
+  v2Router
+);
+router.use((req, res, next) => {
+  if (/^\/v\d+(?:\/|$)/i.test(req.path)) {
+    return rejectUnsupportedUriVersion(req, res, next);
+  }
+
+  return next();
+});
+router.use('/oracle', oracleRouter);
+router.use('/verify', verificationRouter);
+
+// Default to v1 for backward compatibility, while allowing headers such as:
+// Accept: application/vnd.soroban-playground.v2+json
+// Accept-Version: v2
+router.use(
+  (req, res, next) => {
+    if (!isHeaderVersionedPath(req.path)) return next();
+    return negotiateApiVersion()(req, res, next);
+  },
+  (req, res, next) => {
+    if (!req.apiVersion) return next();
+    return deprecationHeaders(req, res, next);
+  },
+  (req, res, next) => {
+    if (!req.apiVersion) return next();
+    return dispatchByApiVersion(versionRouters)(req, res, next);
+  }
+);
+
 router.use('/events', eventsRouter);
 router.use('/patents', patentsRouter);
 router.use('/token-burn', tokenBurnRouter);
+router.use('/search', searchRoutes);
 
 import bugBountyRoutes from './bugBountyRoutes.js';
 router.use('/bug-bounty', bugBountyRoutes);
@@ -75,4 +138,26 @@ import musicLicensingRoutes from './musicLicensingRoutes.js';
 router.use('/music-licensing', musicLicensingRoutes);
 
 router.use('/warranty', warrantyRoutes);
+router.use('/favorites', favoritesRoutes);
+router.use('/workspace', workspaceRoutes);
+router.use('/projects', projectsRoutes);
+
+import sorobanRpcManager from '../services/sorobanRpcManager.js';
+
+router.get('/rpc/status', (_req, res) => {
+  res.json({
+    success: true,
+    data: sorobanRpcManager.getStatus(),
+  });
+});
+
+router.post('/rpc/reset', (_req, res) => {
+  sorobanRpcManager.reset();
+  res.json({
+    success: true,
+    message: 'Soroban RPC circuit breaker reset cleanly',
+    data: sorobanRpcManager.getStatus(),
+  });
+});
+
 export default router;

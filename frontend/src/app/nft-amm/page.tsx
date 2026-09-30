@@ -24,8 +24,11 @@ import {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const API_BASE =
-  (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5000").replace(/\/$/, "");
+const API_BASE = (
+  process.env.NEXT_PUBLIC_API_BASE_URL ??
+  (process.env.NEXT_PUBLIC_BACKEND_URL ||
+    "https://soroban-playground.onrender.com")
+).replace(/\/$/, "");
 
 const CURVE_TYPES = ["Linear", "Exponential"] as const;
 type CurveType = (typeof CURVE_TYPES)[number];
@@ -117,16 +120,23 @@ function shortAddr(addr: string): string {
 
 async function apiFetch<T>(
   path: string,
-  options?: RequestInit
+  options?: RequestInit,
 ): Promise<{ ok: boolean; data?: T; error?: string }> {
   try {
     const res = await fetch(`${API_BASE}/api/nft-amm${path}`, {
       headers: { "Content-Type": "application/json" },
       ...options,
     });
-    const json = (await res.json()) as { success?: boolean; data?: T; message?: string };
+    const json = (await res.json()) as {
+      success?: boolean;
+      data?: T;
+      message?: string;
+    };
     if (!res.ok) {
-      return { ok: false, error: (json as { message?: string }).message ?? "Request failed" };
+      return {
+        ok: false,
+        error: (json as { message?: string }).message ?? "Request failed",
+      };
     }
     return { ok: true, data: json.data as T };
   } catch (err) {
@@ -207,6 +217,43 @@ function StatCard({
   );
 }
 
+// ── Token Balance Display ─────────────────────────────────────────────────────
+
+interface TokenBalanceDisplayProps {
+  balance: number;
+  spotPrice: number;
+  poolType: PoolType;
+}
+
+const TokenBalanceDisplay = React.memo(
+  ({ balance, spotPrice, poolType }: TokenBalanceDisplayProps) => {
+    const isInsufficient =
+      (poolType === "Buy" || poolType === "Trade") && balance < spotPrice;
+    const formattedBalance = (balance / 10_000_000).toFixed(2); // conversion to XLM
+
+    return (
+      <div>
+        <p className="text-xs text-gray-500 flex items-center gap-1">
+          Token Balance
+          {isInsufficient && (
+            <span
+              className="inline-block h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse"
+              title="Insufficient balance for spot trade"
+            />
+          )}
+        </p>
+        <p
+          className={`mt-0.5 font-medium ${isInsufficient ? "text-red-400 font-semibold" : "text-gray-300"}`}
+        >
+          {formattedBalance} XLM
+        </p>
+      </div>
+    );
+  },
+);
+
+TokenBalanceDisplay.displayName = "TokenBalanceDisplay";
+
 // ── Pool Card ─────────────────────────────────────────────────────────────────
 
 function PoolCard({
@@ -226,11 +273,9 @@ function PoolCard({
   const [nftIdInput, setNftIdInput] = useState("");
 
   const buyPrice = Math.floor(
-    pool.spotPrice * (1 + pool.feeBps / 10_000) * (1 + 50 / 10_000)
+    pool.spotPrice * (1 + pool.feeBps / 10_000) * (1 + 50 / 10_000),
   );
-  const sellPrice = Math.floor(
-    pool.spotPrice * (1 - 50 / 10_000)
-  );
+  const sellPrice = Math.floor(pool.spotPrice * (1 - 50 / 10_000));
 
   const handleBuy = async () => {
     setBuyLoading(true);
@@ -279,12 +324,12 @@ function PoolCard({
             label={pool.poolType}
             colorClass={POOL_TYPE_COLORS[pool.poolType]}
           />
-          <Badge
-            label={pool.curve}
-            colorClass={CURVE_COLORS[pool.curve]}
-          />
+          <Badge label={pool.curve} colorClass={CURVE_COLORS[pool.curve]} />
           {!pool.active && (
-            <Badge label="Inactive" colorClass="text-gray-500 bg-gray-500/10 border-gray-500/30" />
+            <Badge
+              label="Inactive"
+              colorClass="text-gray-500 bg-gray-500/10 border-gray-500/30"
+            />
           )}
         </div>
         {expanded ? (
@@ -321,12 +366,11 @@ function PoolCard({
               <p className="text-xs text-gray-500">NFTs in Pool</p>
               <p className="mt-0.5 text-gray-300">{pool.nftCount}</p>
             </div>
-            <div>
-              <p className="text-xs text-gray-500">Token Balance</p>
-              <p className="mt-0.5 text-gray-300">
-                {stroopsToXlm(pool.tokenBalance)} XLM
-              </p>
-            </div>
+            <TokenBalanceDisplay
+              balance={pool.tokenBalance}
+              spotPrice={pool.spotPrice}
+              poolType={pool.poolType}
+            />
             <div>
               <p className="text-xs text-gray-500">Total Volume</p>
               <p className="mt-0.5 text-gray-300">
@@ -350,7 +394,9 @@ function PoolCard({
             <div className="grid gap-3 sm:grid-cols-2">
               {pool.poolType !== "Buy" && (
                 <div className="rounded-lg border border-emerald-800/40 bg-emerald-900/20 p-3">
-                  <p className="text-xs text-gray-500">Buy Price (incl. fees)</p>
+                  <p className="text-xs text-gray-500">
+                    Buy Price (incl. fees)
+                  </p>
                   <p className="mt-1 text-lg font-bold text-emerald-400">
                     {stroopsToXlm(buyPrice)} XLM
                   </p>
@@ -358,7 +404,9 @@ function PoolCard({
               )}
               {pool.poolType !== "Sell" && (
                 <div className="rounded-lg border border-orange-800/40 bg-orange-900/20 p-3">
-                  <p className="text-xs text-gray-500">Sell Price (after fees)</p>
+                  <p className="text-xs text-gray-500">
+                    Sell Price (after fees)
+                  </p>
                   <p className="mt-1 text-lg font-bold text-orange-400">
                     {stroopsToXlm(sellPrice)} XLM
                   </p>
@@ -457,11 +505,26 @@ function CreatePoolModal({
         : parseInt(deltaInput, 10);
     const fee = poolType === "Trade" ? parseInt(feeBps, 10) : 0;
 
-    if (!owner.trim()) { setError("Owner address required"); return; }
-    if (!nftCollection.trim()) { setError("NFT collection address required"); return; }
-    if (!paymentToken.trim()) { setError("Payment token address required"); return; }
-    if (!Number.isFinite(spotPrice) || spotPrice <= 0) { setError("Enter a valid spot price"); return; }
-    if (!Number.isFinite(delta) || delta < 0) { setError("Enter a valid delta"); return; }
+    if (!owner.trim()) {
+      setError("Owner address required");
+      return;
+    }
+    if (!nftCollection.trim()) {
+      setError("NFT collection address required");
+      return;
+    }
+    if (!paymentToken.trim()) {
+      setError("Payment token address required");
+      return;
+    }
+    if (!Number.isFinite(spotPrice) || spotPrice <= 0) {
+      setError("Enter a valid spot price");
+      return;
+    }
+    if (!Number.isFinite(delta) || delta < 0) {
+      setError("Enter a valid delta");
+      return;
+    }
 
     setLoading(true);
     try {
@@ -501,13 +564,37 @@ function CreatePoolModal({
 
         <form onSubmit={handleSubmit} className="space-y-4" noValidate>
           {[
-            { id: "owner", label: "Owner Address", value: owner, set: setOwner, placeholder: "G…" },
-            { id: "nftCol", label: "NFT Collection Address", value: nftCollection, set: setNftCollection, placeholder: "C…" },
-            { id: "payTok", label: "Payment Token Address", value: paymentToken, set: setPaymentToken, placeholder: "C…" },
+            {
+              id: "owner",
+              label: "Owner Address",
+              value: owner,
+              set: setOwner,
+              placeholder: "G…",
+            },
+            {
+              id: "nftCol",
+              label: "NFT Collection Address",
+              value: nftCollection,
+              set: setNftCollection,
+              placeholder: "C…",
+            },
+            {
+              id: "payTok",
+              label: "Payment Token Address",
+              value: paymentToken,
+              set: setPaymentToken,
+              placeholder: "C…",
+            },
           ].map(({ id, label, value, set, placeholder }) => (
             <div key={id}>
-              <label htmlFor={id} className="mb-1 block text-xs font-medium text-gray-400">
-                {label} <span aria-hidden="true" className="text-red-400">*</span>
+              <label
+                htmlFor={id}
+                className="mb-1 block text-xs font-medium text-gray-400"
+              >
+                {label}{" "}
+                <span aria-hidden="true" className="text-red-400">
+                  *
+                </span>
               </label>
               <input
                 id={id}
@@ -523,7 +610,10 @@ function CreatePoolModal({
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <label htmlFor="curve" className="mb-1 block text-xs font-medium text-gray-400">
+              <label
+                htmlFor="curve"
+                className="mb-1 block text-xs font-medium text-gray-400"
+              >
                 Curve Type
               </label>
               <select
@@ -532,11 +622,18 @@ function CreatePoolModal({
                 onChange={(e) => setCurve(e.target.value as CurveType)}
                 className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 outline-none focus:border-cyan-500"
               >
-                {CURVE_TYPES.map((c) => <option key={c} value={c}>{c}</option>)}
+                {CURVE_TYPES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
               </select>
             </div>
             <div>
-              <label htmlFor="poolType" className="mb-1 block text-xs font-medium text-gray-400">
+              <label
+                htmlFor="poolType"
+                className="mb-1 block text-xs font-medium text-gray-400"
+              >
                 Pool Type
               </label>
               <select
@@ -545,15 +642,25 @@ function CreatePoolModal({
                 onChange={(e) => setPoolType(e.target.value as PoolType)}
                 className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 outline-none focus:border-cyan-500"
               >
-                {POOL_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                {POOL_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <label htmlFor="spotPrice" className="mb-1 block text-xs font-medium text-gray-400">
-                Spot Price (XLM) <span aria-hidden="true" className="text-red-400">*</span>
+              <label
+                htmlFor="spotPrice"
+                className="mb-1 block text-xs font-medium text-gray-400"
+              >
+                Spot Price (XLM){" "}
+                <span aria-hidden="true" className="text-red-400">
+                  *
+                </span>
               </label>
               <input
                 id="spotPrice"
@@ -568,7 +675,10 @@ function CreatePoolModal({
               />
             </div>
             <div>
-              <label htmlFor="delta" className="mb-1 block text-xs font-medium text-gray-400">
+              <label
+                htmlFor="delta"
+                className="mb-1 block text-xs font-medium text-gray-400"
+              >
                 Delta ({curve === "Linear" ? "XLM" : "bps e.g. 500=5%"})
               </label>
               <input
@@ -585,7 +695,10 @@ function CreatePoolModal({
 
           {poolType === "Trade" && (
             <div>
-              <label htmlFor="feeBps" className="mb-1 block text-xs font-medium text-gray-400">
+              <label
+                htmlFor="feeBps"
+                className="mb-1 block text-xs font-medium text-gray-400"
+              >
                 Pool Fee (bps, e.g. 100 = 1%)
               </label>
               <input
@@ -601,7 +714,10 @@ function CreatePoolModal({
           )}
 
           {error && (
-            <div role="alert" className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-300">
+            <div
+              role="alert"
+              className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-300"
+            >
               <AlertCircle size={14} className="shrink-0" />
               {error}
             </div>
@@ -620,7 +736,11 @@ function CreatePoolModal({
               disabled={loading}
               className="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-cyan-500 disabled:opacity-50"
             >
-              {loading ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+              {loading ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Plus size={14} />
+              )}
               {loading ? "Creating…" : "Create Pool"}
             </button>
           </div>
@@ -635,7 +755,12 @@ function CreatePoolModal({
 export default function NftAmmPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [pools, setPools] = useState<Pool[]>([]);
-  const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, pages: 1 });
+  const [pagination, setPagination] = useState<Pagination>({
+    page: 1,
+    limit: 20,
+    total: 0,
+    pages: 1,
+  });
   const [analytics, setAnalytics] = useState<CollectionAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<Toast | null>(null);
@@ -649,39 +774,55 @@ export default function NftAmmPage() {
 
   // Demo user address
   const [userAddress, setUserAddress] = useState(
-    "GUSER111111111111111111111111111111111111111111111111111111"
+    "GUSER111111111111111111111111111111111111111111111111111111",
   );
 
-  const showToast = useCallback((type: "success" | "error", message: string) => {
-    setToast({ type, message });
-    setTimeout(() => setToast(null), 4000);
-  }, []);
+  const showToast = useCallback(
+    (type: "success" | "error", message: string) => {
+      setToast({ type, message });
+      setTimeout(() => setToast(null), 4000);
+    },
+    [],
+  );
 
   const fetchStats = useCallback(async () => {
     const res = await apiFetch<Stats>("/stats");
     if (res.ok && res.data) setStats(res.data);
   }, []);
 
-  const fetchPools = useCallback(async (page = 1) => {
-    const params = new URLSearchParams({ page: String(page), limit: "20" });
-    if (filterType) params.set("poolType", filterType);
-    if (filterCurve) params.set("curve", filterCurve);
-    if (filterActive) params.set("active", filterActive);
-    if (collectionSearch) params.set("collection", collectionSearch);
+  const fetchPools = useCallback(
+    async (page = 1) => {
+      const params = new URLSearchParams({ page: String(page), limit: "20" });
+      if (filterType) params.set("poolType", filterType);
+      if (filterCurve) params.set("curve", filterCurve);
+      if (filterActive) params.set("active", filterActive);
+      if (collectionSearch) params.set("collection", collectionSearch);
 
-    try {
-      const raw = await fetch(`${API_BASE}/api/nft-amm/pools?${params.toString()}`);
-      const json = (await raw.json()) as { data?: Pool[]; pagination?: Pagination };
-      if (json.data) setPools(json.data);
-      if (json.pagination) setPagination(json.pagination);
-    } catch {
-      // ignore
-    }
-  }, [filterType, filterCurve, filterActive, collectionSearch]);
+      try {
+        const raw = await fetch(
+          `${API_BASE}/api/nft-amm/pools?${params.toString()}`,
+        );
+        const json = (await raw.json()) as {
+          data?: Pool[];
+          pagination?: Pagination;
+        };
+        if (json.data) setPools(json.data);
+        if (json.pagination) setPagination(json.pagination);
+      } catch {
+        // ignore
+      }
+    },
+    [filterType, filterCurve, filterActive, collectionSearch],
+  );
 
   const fetchAnalytics = useCallback(async (collection: string) => {
-    if (!collection) { setAnalytics(null); return; }
-    const res = await apiFetch<CollectionAnalytics>(`/collections/${collection}/analytics`);
+    if (!collection) {
+      setAnalytics(null);
+      return;
+    }
+    const res = await apiFetch<CollectionAnalytics>(
+      `/collections/${collection}/analytics`,
+    );
     if (res.ok && res.data) setAnalytics(res.data);
   }, []);
 
@@ -695,9 +836,9 @@ export default function NftAmmPage() {
     const runRefresh = async () => {
       await refresh();
     };
-    
+
     runRefresh();
-    
+
     const interval = setInterval(runRefresh, 15_000);
     return () => clearInterval(interval);
   }, [refresh]);
@@ -706,23 +847,34 @@ export default function NftAmmPage() {
     const runFetchPools = async () => {
       await fetchPools(1);
     };
-    
+
     runFetchPools();
   }, [filterType, filterCurve, filterActive, collectionSearch, fetchPools]);
 
   useEffect(() => {
     const runFetchAnalytics = async () => {
-      if (collectionSearch.length === 56) await fetchAnalytics(collectionSearch);
+      if (collectionSearch.length === 56)
+        await fetchAnalytics(collectionSearch);
       else setAnalytics(null);
     };
-    
+
     runFetchAnalytics();
   }, [collectionSearch, fetchAnalytics]);
 
-  const handleCreatePool = async (data: Parameters<typeof apiFetch>[1] extends undefined ? never : {
-    owner: string; nftCollection: string; paymentToken: string;
-    curve: CurveType; poolType: PoolType; spotPrice: number; delta: number; feeBps: number;
-  }) => {
+  const handleCreatePool = async (
+    data: Parameters<typeof apiFetch>[1] extends undefined
+      ? never
+      : {
+          owner: string;
+          nftCollection: string;
+          paymentToken: string;
+          curve: CurveType;
+          poolType: PoolType;
+          spotPrice: number;
+          delta: number;
+          feeBps: number;
+        },
+  ) => {
     const res = await apiFetch<Pool>("/pools", {
       method: "POST",
       body: JSON.stringify(data),
@@ -744,7 +896,11 @@ export default function NftAmmPage() {
     }
   };
 
-  const handleSell = async (poolId: number, nftId: number, minPrice: number) => {
+  const handleSell = async (
+    poolId: number,
+    nftId: number,
+    minPrice: number,
+  ) => {
     const res = await apiFetch(`/pools/${poolId}/sell`, {
       method: "POST",
       body: JSON.stringify({ seller: userAddress, nftId, minPrice }),
@@ -760,7 +916,8 @@ export default function NftAmmPage() {
     const res = await apiFetch("/admin/pause", {
       method: "POST",
       body: JSON.stringify({
-        adminAddress: "GADMIN1111111111111111111111111111111111111111111111111111",
+        adminAddress:
+          "GADMIN1111111111111111111111111111111111111111111111111111",
         paused: !stats?.paused,
       }),
     });
@@ -781,7 +938,8 @@ export default function NftAmmPage() {
             NFT AMM
           </h1>
           <p className="mt-2 text-sm text-gray-400">
-            Automated Market Maker for NFTs with dynamic bonding curve pricing and collection analytics.
+            Automated Market Maker for NFTs with dynamic bonding curve pricing
+            and collection analytics.
           </p>
         </div>
 
@@ -795,7 +953,11 @@ export default function NftAmmPage() {
                 : "border-orange-600/40 bg-orange-600/10 text-orange-400 hover:bg-orange-600/20"
             }`}
           >
-            {stats?.paused ? <PlayCircle size={16} /> : <PauseCircle size={16} />}
+            {stats?.paused ? (
+              <PlayCircle size={16} />
+            ) : (
+              <PauseCircle size={16} />
+            )}
             {stats?.paused ? "Unpause" : "Pause"}
           </button>
 
@@ -818,9 +980,13 @@ export default function NftAmmPage() {
       </div>
 
       {stats?.paused && (
-        <div role="alert" className="flex items-center gap-3 rounded-xl border border-orange-500/40 bg-orange-500/10 p-4 text-sm text-orange-300">
+        <div
+          role="alert"
+          className="flex items-center gap-3 rounded-xl border border-orange-500/40 bg-orange-500/10 p-4 text-sm text-orange-300"
+        >
           <PauseCircle size={18} className="shrink-0" />
-          The NFT AMM is currently paused. Pool creation and trading are disabled.
+          The NFT AMM is currently paused. Pool creation and trading are
+          disabled.
         </div>
       )}
 
@@ -828,7 +994,11 @@ export default function NftAmmPage() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Total Pools" value={stats?.totalPools ?? "—"} icon={<Layers size={22} />} />
+        <StatCard
+          label="Total Pools"
+          value={stats?.totalPools ?? "—"}
+          icon={<Layers size={22} />}
+        />
         <StatCard
           label="Active Pools"
           value={stats?.activePools ?? "—"}
@@ -850,14 +1020,22 @@ export default function NftAmmPage() {
       {/* Pool type breakdown */}
       {stats?.byType && Object.keys(stats.byType).length > 0 && (
         <section aria-labelledby="breakdown-heading">
-          <h2 id="breakdown-heading" className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500">
+          <h2
+            id="breakdown-heading"
+            className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500"
+          >
             Pool Distribution
           </h2>
           <div className="grid gap-3 sm:grid-cols-3">
             {POOL_TYPES.map((t) => (
-              <div key={t} className={`rounded-xl border p-4 ${POOL_TYPE_COLORS[t]}`}>
+              <div
+                key={t}
+                className={`rounded-xl border p-4 ${POOL_TYPE_COLORS[t]}`}
+              >
                 <p className="text-sm font-medium">{t}</p>
-                <p className="mt-1 text-2xl font-bold">{stats.byType[t] ?? 0}</p>
+                <p className="mt-1 text-2xl font-bold">
+                  {stats.byType[t] ?? 0}
+                </p>
                 <p className="mt-0.5 text-xs opacity-70">pools</p>
               </div>
             ))}
@@ -866,8 +1044,14 @@ export default function NftAmmPage() {
       )}
 
       {/* Demo address */}
-      <section aria-labelledby="demo-addr-heading" className="rounded-xl border border-gray-800 bg-gray-900/40 p-5">
-        <h2 id="demo-addr-heading" className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-400">
+      <section
+        aria-labelledby="demo-addr-heading"
+        className="rounded-xl border border-gray-800 bg-gray-900/40 p-5"
+      >
+        <h2
+          id="demo-addr-heading"
+          className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-400"
+        >
           <Wallet size={16} /> Your Address (for trading)
         </h2>
         <input
@@ -881,7 +1065,10 @@ export default function NftAmmPage() {
 
       {/* Filters */}
       <section aria-labelledby="filters-heading">
-        <h2 id="filters-heading" className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-gray-500">
+        <h2
+          id="filters-heading"
+          className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-gray-500"
+        >
           <Filter size={14} /> Filters
         </h2>
         <div className="flex flex-wrap gap-3">
@@ -892,7 +1079,11 @@ export default function NftAmmPage() {
             className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-300 outline-none focus:border-cyan-500"
           >
             <option value="">All Types</option>
-            {POOL_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            {POOL_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
           </select>
 
           <select
@@ -902,7 +1093,11 @@ export default function NftAmmPage() {
             className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-300 outline-none focus:border-cyan-500"
           >
             <option value="">All Curves</option>
-            {CURVE_TYPES.map((c) => <option key={c} value={c}>{c}</option>)}
+            {CURVE_TYPES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
           </select>
 
           <select
@@ -927,7 +1122,12 @@ export default function NftAmmPage() {
 
           {(filterType || filterCurve || filterActive || collectionSearch) && (
             <button
-              onClick={() => { setFilterType(""); setFilterCurve(""); setFilterActive(""); setCollectionSearch(""); }}
+              onClick={() => {
+                setFilterType("");
+                setFilterCurve("");
+                setFilterActive("");
+                setCollectionSearch("");
+              }}
               className="rounded-lg border border-gray-700 px-3 py-2 text-sm text-gray-400 transition-colors hover:bg-gray-800"
             >
               Clear
@@ -938,8 +1138,14 @@ export default function NftAmmPage() {
 
       {/* Collection analytics */}
       {analytics && (
-        <section aria-labelledby="analytics-heading" className="rounded-xl border border-gray-800 bg-gray-900/40 p-5">
-          <h2 id="analytics-heading" className="mb-4 flex items-center gap-2 text-sm font-semibold text-gray-300">
+        <section
+          aria-labelledby="analytics-heading"
+          className="rounded-xl border border-gray-800 bg-gray-900/40 p-5"
+        >
+          <h2
+            id="analytics-heading"
+            className="mb-4 flex items-center gap-2 text-sm font-semibold text-gray-300"
+          >
             <BarChart3 size={16} className="text-cyan-400" />
             Collection Analytics — {shortAddr(analytics.collection)}
           </h2>
@@ -947,7 +1153,9 @@ export default function NftAmmPage() {
             <div className="rounded-lg bg-gray-800/60 p-3 text-center">
               <p className="text-xs text-gray-500">Floor Price</p>
               <p className="mt-1 font-bold text-emerald-400">
-                {analytics.floorPrice ? `${stroopsToXlm(analytics.floorPrice)} XLM` : "—"}
+                {analytics.floorPrice
+                  ? `${stroopsToXlm(analytics.floorPrice)} XLM`
+                  : "—"}
               </p>
             </div>
             <div className="rounded-lg bg-gray-800/60 p-3 text-center">
@@ -964,20 +1172,37 @@ export default function NftAmmPage() {
             </div>
             <div className="rounded-lg bg-gray-800/60 p-3 text-center">
               <p className="text-xs text-gray-500">NFTs in Pools</p>
-              <p className="mt-1 font-bold text-gray-200">{analytics.totalNftsInPools}</p>
+              <p className="mt-1 font-bold text-gray-200">
+                {analytics.totalNftsInPools}
+              </p>
             </div>
           </div>
           {analytics.recentTrades.length > 0 && (
             <div>
-              <p className="mb-2 text-xs font-medium uppercase tracking-wider text-gray-500">Recent Trades</p>
+              <p className="mb-2 text-xs font-medium uppercase tracking-wider text-gray-500">
+                Recent Trades
+              </p>
               <div className="space-y-1">
                 {analytics.recentTrades.map((t, i) => (
-                  <div key={i} className="flex items-center justify-between rounded-lg bg-gray-800/40 px-3 py-2 text-xs">
-                    <span className={t.type === "buy" ? "text-emerald-400" : "text-orange-400"}>
+                  <div
+                    key={i}
+                    className="flex items-center justify-between rounded-lg bg-gray-800/40 px-3 py-2 text-xs"
+                  >
+                    <span
+                      className={
+                        t.type === "buy"
+                          ? "text-emerald-400"
+                          : "text-orange-400"
+                      }
+                    >
                       {t.type === "buy" ? "↑ Buy" : "↓ Sell"} NFT #{t.nftId}
                     </span>
-                    <span className="text-gray-400">{stroopsToXlm(t.price)} XLM</span>
-                    <span className="text-gray-600">{new Date(t.ts).toLocaleTimeString()}</span>
+                    <span className="text-gray-400">
+                      {stroopsToXlm(t.price)} XLM
+                    </span>
+                    <span className="text-gray-600">
+                      {new Date(t.ts).toLocaleTimeString()}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -988,7 +1213,10 @@ export default function NftAmmPage() {
 
       {/* Pools list */}
       <section aria-labelledby="pools-heading">
-        <h2 id="pools-heading" className="mb-4 text-sm font-semibold uppercase tracking-wider text-gray-500">
+        <h2
+          id="pools-heading"
+          className="mb-4 text-sm font-semibold uppercase tracking-wider text-gray-500"
+        >
           Pools ({pagination.total})
         </h2>
 

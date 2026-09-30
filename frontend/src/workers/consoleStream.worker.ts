@@ -68,8 +68,14 @@ function writeLineToRing(line: string): void {
     return;
   }
 
-  const writeCursor = Atomics.load(headerView, ConsoleRingHeaderIndex.WRITE_CURSOR);
-  const readCursor = Atomics.load(headerView, ConsoleRingHeaderIndex.READ_CURSOR);
+  const writeCursor = Atomics.load(
+    headerView,
+    ConsoleRingHeaderIndex.WRITE_CURSOR,
+  );
+  const readCursor = Atomics.load(
+    headerView,
+    ConsoleRingHeaderIndex.READ_CURSOR,
+  );
   const usedBytes = writeCursor - readCursor;
   const freeBytes = capacity - usedBytes;
 
@@ -80,9 +86,17 @@ function writeLineToRing(line: string): void {
 
   const writeOffset = writeCursor % capacity;
   writeUint32Wrapped(dataView, writeOffset, encoded.length);
-  writeBytesWrapped(dataView, (writeOffset + MESSAGE_HEADER_BYTES) % capacity, encoded);
+  writeBytesWrapped(
+    dataView,
+    (writeOffset + MESSAGE_HEADER_BYTES) % capacity,
+    encoded,
+  );
 
-  Atomics.store(headerView, ConsoleRingHeaderIndex.WRITE_CURSOR, writeCursor + requiredBytes);
+  Atomics.store(
+    headerView,
+    ConsoleRingHeaderIndex.WRITE_CURSOR,
+    writeCursor + requiredBytes,
+  );
   Atomics.add(headerView, ConsoleRingHeaderIndex.SEQUENCE, 1);
 }
 
@@ -130,7 +144,10 @@ function connectSocket(url: string, protocols?: string[]): void {
   closeSocket();
 
   try {
-    socket = protocols && protocols.length > 0 ? new WebSocket(url, protocols) : new WebSocket(url);
+    socket =
+      protocols && protocols.length > 0
+        ? new WebSocket(url, protocols)
+        : new WebSocket(url);
     socket.binaryType = "arraybuffer";
 
     socket.onopen = () => {
@@ -166,12 +183,15 @@ function connectSocket(url: string, protocols?: string[]): void {
       }
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "unknown socket error";
+    const message =
+      error instanceof Error ? error.message : "unknown socket error";
     postStatus(`Socket setup failed: ${message}`);
   }
 }
 
-(self as DedicatedWorkerGlobalScope).onmessage = (event: MessageEvent<IncomingWorkerMessage>) => {
+(self as DedicatedWorkerGlobalScope).onmessage = (
+  event: MessageEvent<IncomingWorkerMessage>,
+) => {
   const message = event.data;
 
   switch (message.type) {

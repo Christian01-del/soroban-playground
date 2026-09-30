@@ -83,7 +83,9 @@ export function ConnectionBadge({
       )}
 
       {/* Reconnect button — shown only when applicable */}
-      {(status === "reconnecting" || status === "error" || status === "fallback") &&
+      {(status === "reconnecting" ||
+        status === "error" ||
+        status === "fallback") &&
         onReconnect && (
           <button
             onClick={onReconnect}

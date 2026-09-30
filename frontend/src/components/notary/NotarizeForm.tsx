@@ -1,7 +1,13 @@
-'use client';
+"use client";
 
-import React, { useState, useRef } from 'react';
-import { FileText, Upload, CheckCircle2, Loader2, Download } from 'lucide-react';
+import React, { useState, useRef } from "react";
+import {
+  FileText,
+  Upload,
+  CheckCircle2,
+  Loader2,
+  Download,
+} from "lucide-react";
 
 interface Certificate {
   fileHash: string;
@@ -12,18 +18,18 @@ interface Certificate {
 
 async function sha256Hex(file: File): Promise<string> {
   const buffer = await file.arrayBuffer();
-  const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
   return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 export default function NotarizeForm() {
   const [file, setFile] = useState<File | null>(null);
-  const [fileHash, setFileHash] = useState('');
-  const [metadata, setMetadata] = useState('');
+  const [fileHash, setFileHash] = useState("");
+  const [metadata, setMetadata] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const [certificate, setCertificate] = useState<Certificate | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -31,12 +37,12 @@ export default function NotarizeForm() {
     const selected = e.target.files?.[0] ?? null;
     setFile(selected);
     setCertificate(null);
-    setError('');
+    setError("");
     if (selected) {
       const hash = await sha256Hex(selected);
       setFileHash(hash);
     } else {
-      setFileHash('');
+      setFileHash("");
     }
   }
 
@@ -44,24 +50,24 @@ export default function NotarizeForm() {
     e.preventDefault();
     if (!fileHash) return;
     if (!metadata.trim()) {
-      setError('Metadata is required.');
+      setError("Metadata is required.");
       return;
     }
     setLoading(true);
-    setError('');
+    setError("");
     try {
-      const res = await fetch('/api/notary/notarize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch("/api/notary/notarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fileHash, metadata }),
       });
       const json = await res.json();
       if (!res.ok) {
-        throw new Error(json.message ?? 'Notarization failed');
+        throw new Error(json.message ?? "Notarization failed");
       }
       setCertificate({ fileHash, metadata, ...json.data });
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
+      setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setLoading(false);
     }
@@ -70,9 +76,9 @@ export default function NotarizeForm() {
   function downloadCertificate() {
     if (!certificate) return;
     const content = JSON.stringify(certificate, null, 2);
-    const blob = new Blob([content], { type: 'application/json' });
+    const blob = new Blob([content], { type: "application/json" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     a.href = url;
     a.download = `notary-certificate-${certificate.recordId}.json`;
     a.click();
@@ -85,7 +91,9 @@ export default function NotarizeForm() {
         <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
           <FileText className="w-6 h-6 text-blue-600 dark:text-blue-400" />
         </div>
-        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Notarize File</h2>
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
+          Notarize File
+        </h2>
       </div>
 
       <form onSubmit={handleSubmit} noValidate aria-label="Notarize file form">
@@ -104,7 +112,9 @@ export default function NotarizeForm() {
             aria-label="Select file to notarize"
           >
             <Upload className="w-8 h-8" />
-            <span className="font-medium">{file ? file.name : 'Click to select a file'}</span>
+            <span className="font-medium">
+              {file ? file.name : "Click to select a file"}
+            </span>
             {fileHash && (
               <span className="text-xs font-mono text-slate-400 break-all px-4">
                 SHA-256: {fileHash}
@@ -127,7 +137,8 @@ export default function NotarizeForm() {
             htmlFor="notarize-metadata"
             className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1"
           >
-            Metadata <span className="text-slate-400 font-normal">(max 500 chars)</span>
+            Metadata{" "}
+            <span className="text-slate-400 font-normal">(max 500 chars)</span>
           </label>
           <textarea
             id="notarize-metadata"
@@ -139,14 +150,20 @@ export default function NotarizeForm() {
             className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             aria-describedby="metadata-count"
           />
-          <p id="metadata-count" className="text-xs text-slate-400 mt-1 text-right">
+          <p
+            id="metadata-count"
+            className="text-xs text-slate-400 mt-1 text-right"
+          >
             {metadata.length}/500
           </p>
         </div>
 
         {/* Error */}
         {error && (
-          <p role="alert" className="text-sm text-red-600 dark:text-red-400 mb-4">
+          <p
+            role="alert"
+            className="text-sm text-red-600 dark:text-red-400 mb-4"
+          >
             {error}
           </p>
         )}
@@ -163,7 +180,7 @@ export default function NotarizeForm() {
               Notarizing…
             </>
           ) : (
-            'Notarize File'
+            "Notarize File"
           )}
         </button>
       </form>

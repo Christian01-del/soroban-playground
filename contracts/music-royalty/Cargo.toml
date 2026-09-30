@@ -5,10 +5,15 @@ edition = "2021"
 publish = false
 
 [lib]
-crate-type = ["cdylib"]
+# rlib alongside cdylib so the crate can be linked into a test harness; a
+# cdylib-only crate cannot be unit tested.
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-soroban-sdk = "20.0.0"
+soroban-sdk = "21.0.6"
+
+[dev-dependencies]
+soroban-sdk = { version = "21.0.6", features = ["testutils"] }
 
 [profile.release]
 opt-level = "z"

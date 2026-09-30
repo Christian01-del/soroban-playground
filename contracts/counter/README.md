@@ -10,6 +10,7 @@ This is a simple counter contract example for Stellar Soroban. It demonstrates h
 ## How it works
 
 The contract uses `env.storage().instance()` to persist the counter value. When `increment()` is called, it:
+
 1. Retrieves the current value from storage (defaulting to 0 if not set).
 2. Adds 1 to the value.
 3. Saves the updated value back to storage.

@@ -1,6 +1,6 @@
 /**
  * Synthetic Assets Dashboard
- * 
+ *
  * Main component for the synthetic assets interface
  * Features:
  * - Asset overview and price tracking
@@ -11,18 +11,18 @@
  * - Analytics and history
  */
 
-'use client';
+"use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { useWebSocket } from '@/hooks/useWebSocket';
-import { useSyntheticAssets } from '@/hooks/useSyntheticAssets';
-import AssetOverview from '@/components/synthetic-assets/AssetOverview';
-import PositionManager from '@/components/synthetic-assets/PositionManager';
-import TradingInterface from '@/components/synthetic-assets/TradingInterface';
-import PriceChart from '@/components/synthetic-assets/PriceChart';
-import LiquidationMonitor from '@/components/synthetic-assets/LiquidationMonitor';
-import ProtocolStats from '@/components/synthetic-assets/ProtocolStats';
-import './SyntheticAssetsDashboard.module.css';
+import React, { useState, useEffect, useCallback } from "react";
+import { useWebSocket } from "@/hooks/useWebSocket";
+import { useSyntheticAssets } from "@/hooks/useSyntheticAssets";
+import AssetOverview from "@/components/synthetic-assets/AssetOverview";
+import PositionManager from "@/components/synthetic-assets/PositionManager";
+import TradingInterface from "@/components/synthetic-assets/TradingInterface";
+import PriceChart from "@/components/synthetic-assets/PriceChart";
+import LiquidationMonitor from "@/components/synthetic-assets/LiquidationMonitor";
+import ProtocolStats from "@/components/synthetic-assets/ProtocolStats";
+import "./SyntheticAssetsDashboard.module.css";
 
 interface SyntheticAssetsDashboardProps {
   userAddress?: string;
@@ -31,8 +31,10 @@ interface SyntheticAssetsDashboardProps {
 const SyntheticAssetsDashboard: React.FC<SyntheticAssetsDashboardProps> = ({
   userAddress,
 }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'positions' | 'trading' | 'analytics'>('overview');
-  const [selectedAsset, setSelectedAsset] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<
+    "overview" | "positions" | "trading" | "analytics"
+  >("overview");
+  const [selectedAsset, setSelectedAsset] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
 
@@ -61,9 +63,9 @@ const SyntheticAssetsDashboard: React.FC<SyntheticAssetsDashboardProps> = ({
 
   // Handle WebSocket price updates
   useEffect(() => {
-    if (wsData?.type === 'price_update') {
+    if (wsData?.type === "price_update") {
       refreshPrices();
-    } else if (wsData?.type === 'liquidation_alert') {
+    } else if (wsData?.type === "liquidation_alert") {
       setError(`Position ${wsData.positionId} is liquidatable`);
       refreshPositions();
     }
@@ -82,7 +84,7 @@ const SyntheticAssetsDashboard: React.FC<SyntheticAssetsDashboardProps> = ({
         ]);
         setError(undefined);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load data');
+        setError(err instanceof Error ? err.message : "Failed to load data");
       } finally {
         setIsLoading(false);
       }
@@ -94,7 +96,13 @@ const SyntheticAssetsDashboard: React.FC<SyntheticAssetsDashboardProps> = ({
     const interval = setInterval(loadData, 30000); // Refresh every 30 seconds
 
     return () => clearInterval(interval);
-  }, [userAddress, refreshAssets, refreshPrices, refreshProtocolParams, refreshPositions]);
+  }, [
+    userAddress,
+    refreshAssets,
+    refreshPrices,
+    refreshProtocolParams,
+    refreshPositions,
+  ]);
 
   // Auto-select first asset
   useEffect(() => {
@@ -105,7 +113,7 @@ const SyntheticAssetsDashboard: React.FC<SyntheticAssetsDashboardProps> = ({
 
   const handleAssetChange = (assetSymbol: string) => {
     setSelectedAsset(assetSymbol);
-    setActiveTab('overview');
+    setActiveTab("overview");
   };
 
   return (
@@ -119,7 +127,9 @@ const SyntheticAssetsDashboard: React.FC<SyntheticAssetsDashboardProps> = ({
         <div className="header-actions">
           {userAddress && (
             <div className="user-info">
-              <span className="address">{userAddress.slice(0, 6)}...{userAddress.slice(-4)}</span>
+              <span className="address">
+                {userAddress.slice(0, 6)}...{userAddress.slice(-4)}
+              </span>
             </div>
           )}
           <button
@@ -153,10 +163,10 @@ const SyntheticAssetsDashboard: React.FC<SyntheticAssetsDashboardProps> = ({
           <div className="asset-selector">
             <h3>Assets</h3>
             <div className="asset-list">
-              {assets.map(asset => (
+              {assets.map((asset) => (
                 <button
                   key={asset.symbol}
-                  className={`asset-item ${selectedAsset === asset.symbol ? 'active' : ''}`}
+                  className={`asset-item ${selectedAsset === asset.symbol ? "active" : ""}`}
                   onClick={() => handleAssetChange(asset.symbol)}
                 >
                   <div className="asset-name">
@@ -187,28 +197,28 @@ const SyntheticAssetsDashboard: React.FC<SyntheticAssetsDashboardProps> = ({
           {/* Tabs */}
           <div className="tabs">
             <button
-              className={`tab ${activeTab === 'overview' ? 'active' : ''}`}
-              onClick={() => setActiveTab('overview')}
+              className={`tab ${activeTab === "overview" ? "active" : ""}`}
+              onClick={() => setActiveTab("overview")}
             >
               Overview
             </button>
             <button
-              className={`tab ${activeTab === 'positions' ? 'active' : ''}`}
-              onClick={() => setActiveTab('positions')}
+              className={`tab ${activeTab === "positions" ? "active" : ""}`}
+              onClick={() => setActiveTab("positions")}
               disabled={!userAddress}
             >
               Positions
             </button>
             <button
-              className={`tab ${activeTab === 'trading' ? 'active' : ''}`}
-              onClick={() => setActiveTab('trading')}
+              className={`tab ${activeTab === "trading" ? "active" : ""}`}
+              onClick={() => setActiveTab("trading")}
               disabled={!userAddress}
             >
               Trading
             </button>
             <button
-              className={`tab ${activeTab === 'analytics' ? 'active' : ''}`}
-              onClick={() => setActiveTab('analytics')}
+              className={`tab ${activeTab === "analytics" ? "active" : ""}`}
+              onClick={() => setActiveTab("analytics")}
             >
               Analytics
             </button>
@@ -223,10 +233,10 @@ const SyntheticAssetsDashboard: React.FC<SyntheticAssetsDashboardProps> = ({
               </div>
             ) : (
               <>
-                {activeTab === 'overview' && selectedAsset && (
+                {activeTab === "overview" && selectedAsset && (
                   <div className="overview-content">
                     <AssetOverview
-                      asset={assets.find(a => a.symbol === selectedAsset)}
+                      asset={assets.find((a) => a.symbol === selectedAsset)}
                       price={prices[selectedAsset]}
                     />
                     <PriceChart
@@ -236,7 +246,7 @@ const SyntheticAssetsDashboard: React.FC<SyntheticAssetsDashboardProps> = ({
                   </div>
                 )}
 
-                {activeTab === 'positions' && userAddress && (
+                {activeTab === "positions" && userAddress && (
                   <div className="positions-content">
                     <PositionManager
                       positions={positions}
@@ -248,7 +258,7 @@ const SyntheticAssetsDashboard: React.FC<SyntheticAssetsDashboardProps> = ({
                   </div>
                 )}
 
-                {activeTab === 'trading' && userAddress && selectedAsset && (
+                {activeTab === "trading" && userAddress && selectedAsset && (
                   <div className="trading-content">
                     <TradingInterface
                       assetSymbol={selectedAsset}
@@ -260,7 +270,7 @@ const SyntheticAssetsDashboard: React.FC<SyntheticAssetsDashboardProps> = ({
                   </div>
                 )}
 
-                {activeTab === 'analytics' && (
+                {activeTab === "analytics" && (
                   <div className="analytics-content">
                     <LiquidationMonitor
                       positions={positions}

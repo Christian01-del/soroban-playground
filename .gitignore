@@ -5,20 +5,41 @@ node_modules
 
 # Testing
 /coverage
+**/coverage/
+**/.nyc_output/
+# Jest test snapshots (auto-generated, should not be committed)
+**/__snapshots__/
+# Soroban test snapshots (auto-generated, not committed)
+test_snapshots/
+**/test_snapshots/
+# proptest regression corpus (auto-generated)
+**/proptest-regressions/
 
 # Next.js
 /.next/
 /out/
 build
+**/.next/
+
+# Production build output
+dist/
+out/
 
 # Soroban / Rust Backend
 target/
 .soroban/
 *.wasm
 
+# Cargo lock files in individual contracts (keep root Cargo.lock)
+contracts/*/Cargo.lock
+
 # Misc
 .DS_Store
 *.pem
+Thumbs.db
+*.swp
+*.swo
+*~
 
 # Debug
 npm-debug.log*
@@ -27,67 +48,70 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # Env
+.env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
-.env
 
 # Vercel
 .vercel
 
-# Typescript
+# TypeScript build info
 *.tsbuildinfo
-# Dependencies
-node_modules
-
-/.pnp
-.pnp.js
-
-# Testing
-/coverage
-
-# Next.js
-/.next/
-/out/
-build
-
-# Soroban / Rust Backend
-target/
-.soroban/
-*.wasm
-
-# Misc
-.DS_Store
-*.pem
-
-# Debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-
-# Env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-.env
-
-# Vercel
-.vercel
-
-# Typescript
-*.tsbuildinfo
-
-# Ignore test rate limit script (local/test-only)
-backend/test_rate_limit.js
+next-env.d.ts
 
 # Indexer & Databases
 indexer/target/
 *.db
 *.sqlite
+*.sqlite-shm
+*.sqlite-wal
 
 # Cache and Data
 backend/cache/
 backend/data/
+.cache/
+**/.cache/
+
+# Lint and build output artifacts (local only)
+backend/lint_output.txt
+backend/lint_out.txt
+backend/lint.txt
+backend/npm-install.log
+frontend/lint_output.txt
+frontend/build_out.txt
+
+# Misc generated/log files
+*.log
+npm-install.log
+
+# Local-only scripts and data files
+create_90_issues.py
+create_issues.js
+deployed_contracts.txt
+data/created_issues.json
+data/issue_creation.log
+data/branch_list.txt
+
+# Editor and IDE files
+.idea/
+.vscode/settings.json
+*.code-workspace
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+
+# Package manager lock files at contract level (keep root ones)
+contracts/**/package-lock.json
+contracts/**/yarn.lock

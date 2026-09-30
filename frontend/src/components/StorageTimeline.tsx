@@ -19,7 +19,9 @@ export default function StorageTimeline({
   const hasFrames = totalFrames > 0;
   const canStepBackward = hasFrames && currentFrame > 0;
   const canStepForward = hasFrames && currentFrame < totalFrames - 1;
-  const formattedTimestamp = capturedAt ? new Date(capturedAt).toLocaleTimeString() : undefined;
+  const formattedTimestamp = capturedAt
+    ? new Date(capturedAt).toLocaleTimeString()
+    : undefined;
 
   return (
     <div className="rounded-lg border border-gray-800 bg-gray-950/70 p-3 space-y-3">
@@ -29,10 +31,14 @@ export default function StorageTimeline({
             <History size={14} className="mr-2 text-cyan-400" />
             Ledger Timeline
           </p>
-          <p className="text-xs text-gray-400 mt-1">{contextLabel ?? "No snapshot selected"}</p>
+          <p className="text-xs text-gray-400 mt-1">
+            {contextLabel ?? "No snapshot selected"}
+          </p>
         </div>
         <p className="text-xs text-gray-500 tabular-nums">
-          {hasFrames ? `Frame ${currentFrame + 1} / ${totalFrames}` : "Frame 0 / 0"}
+          {hasFrames
+            ? `Frame ${currentFrame + 1} / ${totalFrames}`
+            : "Frame 0 / 0"}
         </p>
       </div>
 
@@ -78,7 +84,9 @@ export default function StorageTimeline({
       </div>
 
       <p className="text-[11px] text-gray-500">
-        {formattedTimestamp ? `Captured at ${formattedTimestamp}` : "Run a transaction to generate timeline frames."}
+        {formattedTimestamp
+          ? `Captured at ${formattedTimestamp}`
+          : "Run a transaction to generate timeline frames."}
       </p>
     </div>
   );

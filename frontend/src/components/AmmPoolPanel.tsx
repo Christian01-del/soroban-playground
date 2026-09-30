@@ -22,16 +22,33 @@ interface Props {
   pool: PoolData | null;
   lpBalance: number;
   isLoading: boolean;
-  onSwap: (tokenIn: "A" | "B", amountIn: number, minOut: number) => Promise<void>;
-  onAddLiquidity: (amountA: number, amountB: number, minLp: number) => Promise<void>;
-  onRemoveLiquidity: (lpAmount: number, minA: number, minB: number) => Promise<void>;
+  onSwap: (
+    tokenIn: "A" | "B",
+    amountIn: number,
+    minOut: number,
+  ) => Promise<void>;
+  onAddLiquidity: (
+    amountA: number,
+    amountB: number,
+    minLp: number,
+  ) => Promise<void>;
+  onRemoveLiquidity: (
+    lpAmount: number,
+    minA: number,
+    minB: number,
+  ) => Promise<void>;
 }
 
 const SLIPPAGE_OPTIONS = [0.5, 1, 3];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function getAmountOut(amountIn: number, ra: number, rb: number, feeBps: number): number {
+function getAmountOut(
+  amountIn: number,
+  ra: number,
+  rb: number,
+  feeBps: number,
+): number {
   if (ra === 0 || rb === 0 || amountIn <= 0) return 0;
   const ff = 10_000 - feeBps;
   return Math.floor((amountIn * ff * rb) / (ra * 10_000 + amountIn * ff));
@@ -75,9 +92,10 @@ export default function AmmPoolPanel({
   const swapPreview = useMemo(() => {
     if (!pool || !amountIn) return null;
     const ain = parseFloat(amountIn) || 0;
-    const [ra, rb] = tokenIn === "A"
-      ? [pool.reserveA, pool.reserveB]
-      : [pool.reserveB, pool.reserveA];
+    const [ra, rb] =
+      tokenIn === "A"
+        ? [pool.reserveA, pool.reserveB]
+        : [pool.reserveB, pool.reserveA];
     const out = getAmountOut(ain, ra, rb, pool.feeBps);
     const impact = priceImpact(ain, ra);
     const minOut = Math.floor(out * (1 - slippage / 100));
@@ -93,13 +111,15 @@ export default function AmmPoolPanel({
     return { outA, outB };
   }, [pool, removeLp]);
 
-  const poolPrice = pool && pool.reserveA > 0
-    ? (pool.reserveB / pool.reserveA).toFixed(6)
-    : "—";
+  const poolPrice =
+    pool && pool.reserveA > 0
+      ? (pool.reserveB / pool.reserveA).toFixed(6)
+      : "—";
 
-  const userShare = pool && pool.totalLp > 0
-    ? ((lpBalance / pool.totalLp) * 100).toFixed(2)
-    : "0.00";
+  const userShare =
+    pool && pool.totalLp > 0
+      ? ((lpBalance / pool.totalLp) * 100).toFixed(2)
+      : "0.00";
 
   return (
     <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
@@ -113,8 +133,12 @@ export default function AmmPoolPanel({
         </div>
         {pool && (
           <div className="flex items-center gap-3 text-xs text-slate-500">
-            <span>{pool.tokenALabel}/{pool.tokenBLabel}</span>
-            <span className="text-slate-400">1 {pool.tokenALabel} = {poolPrice} {pool.tokenBLabel}</span>
+            <span>
+              {pool.tokenALabel}/{pool.tokenBLabel}
+            </span>
+            <span className="text-slate-400">
+              1 {pool.tokenALabel} = {poolPrice} {pool.tokenBLabel}
+            </span>
           </div>
         )}
       </div>
@@ -123,11 +147,26 @@ export default function AmmPoolPanel({
       {pool && (
         <div className="mb-4 grid grid-cols-3 gap-2 text-xs">
           {[
-            { label: `${pool.tokenALabel} Reserve`, value: fmt(pool.reserveA), color: "text-cyan-300" },
-            { label: `${pool.tokenBLabel} Reserve`, value: fmt(pool.reserveB), color: "text-emerald-300" },
-            { label: "Your Share", value: `${userShare}%`, color: "text-orange-300" },
+            {
+              label: `${pool.tokenALabel} Reserve`,
+              value: fmt(pool.reserveA),
+              color: "text-cyan-300",
+            },
+            {
+              label: `${pool.tokenBLabel} Reserve`,
+              value: fmt(pool.reserveB),
+              color: "text-emerald-300",
+            },
+            {
+              label: "Your Share",
+              value: `${userShare}%`,
+              color: "text-orange-300",
+            },
           ].map(({ label, value, color }) => (
-            <div key={label} className="rounded-xl border border-white/8 bg-slate-950/50 p-2">
+            <div
+              key={label}
+              className="rounded-xl border border-white/8 bg-slate-950/50 p-2"
+            >
               <p className="text-slate-500">{label}</p>
               <p className={`mt-0.5 font-semibold ${color}`}>{value}</p>
             </div>
@@ -162,7 +201,11 @@ export default function AmmPoolPanel({
               onClick={() => setTokenIn((t) => (t === "A" ? "B" : "A"))}
               className="flex items-center gap-1 rounded-full border border-white/10 bg-slate-900 px-3 py-1 text-xs text-slate-200 hover:border-emerald-400/30"
             >
-              {pool ? (tokenIn === "A" ? pool.tokenALabel : pool.tokenBLabel) : "Token A"}
+              {pool
+                ? tokenIn === "A"
+                  ? pool.tokenALabel
+                  : pool.tokenBLabel
+                : "Token A"}
               <ArrowDownUp size={10} />
             </button>
           </div>
@@ -197,30 +240,47 @@ export default function AmmPoolPanel({
             <div className="rounded-xl border border-white/8 bg-slate-950/50 p-2 space-y-1 text-xs">
               <div className="flex justify-between">
                 <span className="text-slate-500">You receive (est.)</span>
-                <span className="text-emerald-300 font-semibold">{fmt(swapPreview.out)}</span>
+                <span className="text-emerald-300 font-semibold">
+                  {fmt(swapPreview.out)}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Min received</span>
-                <span className="text-slate-300">{fmt(swapPreview.minOut)}</span>
+                <span className="text-slate-300">
+                  {fmt(swapPreview.minOut)}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Price impact</span>
-                <span className={swapPreview.impact > 5 ? "text-rose-400 font-semibold" : "text-slate-300"}>
+                <span
+                  className={
+                    swapPreview.impact > 5
+                      ? "text-rose-400 font-semibold"
+                      : "text-slate-300"
+                  }
+                >
                   {swapPreview.impact.toFixed(2)}%
                   {swapPreview.impact > 5 && " ⚠️"}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">Fee ({pool?.feeBps ?? 30} bps)</span>
+                <span className="text-slate-500">
+                  Fee ({pool?.feeBps ?? 30} bps)
+                </span>
                 <span className="text-slate-400">
-                  {fmt(((parseFloat(amountIn) || 0) * (pool?.feeBps ?? 30)) / 10_000)}
+                  {fmt(
+                    ((parseFloat(amountIn) || 0) * (pool?.feeBps ?? 30)) /
+                      10_000,
+                  )}
                 </span>
               </div>
             </div>
           )}
 
           <button
-            disabled={isLoading || !contractId || !swapPreview || swapPreview.out === 0}
+            disabled={
+              isLoading || !contractId || !swapPreview || swapPreview.out === 0
+            }
             onClick={() => {
               if (!swapPreview) return;
               onSwap(tokenIn, parseFloat(amountIn) || 0, swapPreview.minOut);
@@ -272,8 +332,13 @@ export default function AmmPoolPanel({
               <button
                 disabled={isLoading || !contractId || !addA || !addB}
                 onClick={() => {
-                  onAddLiquidity(parseFloat(addA) || 0, parseFloat(addB) || 0, 1);
-                  setAddA(""); setAddB("");
+                  onAddLiquidity(
+                    parseFloat(addA) || 0,
+                    parseFloat(addB) || 0,
+                    1,
+                  );
+                  setAddA("");
+                  setAddB("");
                 }}
                 className="w-full rounded-full border border-cyan-400/30 bg-cyan-400/10 py-1.5 text-xs font-medium text-cyan-200 transition hover:bg-cyan-400/20 disabled:opacity-40"
               >
@@ -286,7 +351,8 @@ export default function AmmPoolPanel({
           {liqTab === "remove" && (
             <>
               <div className="text-xs text-slate-500 mb-1">
-                Your LP balance: <span className="text-slate-300">{fmt(lpBalance)}</span>
+                Your LP balance:{" "}
+                <span className="text-slate-300">{fmt(lpBalance)}</span>
               </div>
               <input
                 value={removeLp}
@@ -297,17 +363,27 @@ export default function AmmPoolPanel({
               {removePreview && (
                 <div className="rounded-xl border border-white/8 bg-slate-950/50 p-2 space-y-1 text-xs">
                   <div className="flex justify-between">
-                    <span className="text-slate-500">You receive {pool?.tokenALabel}</span>
-                    <span className="text-cyan-300">{fmt(removePreview.outA)}</span>
+                    <span className="text-slate-500">
+                      You receive {pool?.tokenALabel}
+                    </span>
+                    <span className="text-cyan-300">
+                      {fmt(removePreview.outA)}
+                    </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-500">You receive {pool?.tokenBLabel}</span>
-                    <span className="text-emerald-300">{fmt(removePreview.outB)}</span>
+                    <span className="text-slate-500">
+                      You receive {pool?.tokenBLabel}
+                    </span>
+                    <span className="text-emerald-300">
+                      {fmt(removePreview.outB)}
+                    </span>
                   </div>
                 </div>
               )}
               <button
-                disabled={isLoading || !contractId || !removeLp || !removePreview}
+                disabled={
+                  isLoading || !contractId || !removeLp || !removePreview
+                }
                 onClick={() => {
                   if (!removePreview) return;
                   onRemoveLiquidity(

@@ -34,7 +34,7 @@ ChartJS.register(
   LineElement,
   Title,
   Tooltip,
-  Legend
+  Legend,
 );
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -148,7 +148,9 @@ export default function StablecoinDashboard({
   onAddReserve,
   onWithdrawReserve,
 }: Props) {
-  const [activeTab, setActiveTab] = useState<"overview" | "reserve" | "history" | "admin">("overview");
+  const [activeTab, setActiveTab] = useState<
+    "overview" | "reserve" | "history" | "admin"
+  >("overview");
   const [newPrice, setNewPrice] = useState("");
   const [reserveAmount, setReserveAmount] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
@@ -172,11 +174,19 @@ export default function StablecoinDashboard({
 
   // Price chart data
   const chartData = {
-    labels: priceHistory?.map((p) => shortDate(p.timestamp)) || ["Day 1", "Day 2", "Day 3", "Day 4", "Day 5"],
+    labels: priceHistory?.map((p) => shortDate(p.timestamp)) || [
+      "Day 1",
+      "Day 2",
+      "Day 3",
+      "Day 4",
+      "Day 5",
+    ],
     datasets: [
       {
         label: "Price",
-        data: priceHistory?.map((p) => p.price / 10000000) || [1.0, 1.01, 0.99, 1.0, 1.0],
+        data: priceHistory?.map((p) => p.price / 10000000) || [
+          1.0, 1.01, 0.99, 1.0, 1.0,
+        ],
         borderColor: "rgb(6, 182, 212)",
         backgroundColor: "rgba(6, 182, 212, 0.1)",
         tension: 0.4,
@@ -269,18 +279,24 @@ export default function StablecoinDashboard({
                 <Wallet className="w-4 h-4" />
                 <span className="text-sm">Total Supply</span>
               </div>
-              <p className="text-xl font-bold">{formatCurrency(displayMetrics.totalSupply)}</p>
+              <p className="text-xl font-bold">
+                {formatCurrency(displayMetrics.totalSupply)}
+              </p>
             </div>
             <div className="bg-slate-800 p-4 rounded-lg">
               <div className="flex items-center gap-2 text-slate-400 mb-2">
                 <DollarSign className="w-4 h-4" />
                 <span className="text-sm">Current Price</span>
               </div>
-              <p className="text-xl font-bold">{formatCurrency(displayMetrics.currentPrice)}</p>
+              <p className="text-xl font-bold">
+                {formatCurrency(displayMetrics.currentPrice)}
+              </p>
               {displayMetrics.priceDeviation !== 0 && (
                 <span
                   className={`text-xs ${
-                    displayMetrics.priceDeviation > 0 ? "text-emerald-400" : "text-rose-400"
+                    displayMetrics.priceDeviation > 0
+                      ? "text-emerald-400"
+                      : "text-rose-400"
                   }`}
                 >
                   {displayMetrics.priceDeviation > 0 ? "+" : ""}
@@ -293,14 +309,18 @@ export default function StablecoinDashboard({
                 <Shield className="w-4 h-4" />
                 <span className="text-sm">Collateral Ratio</span>
               </div>
-              <p className="text-xl font-bold">{(displayMetrics.collateralizationRatio * 100).toFixed(1)}%</p>
+              <p className="text-xl font-bold">
+                {(displayMetrics.collateralizationRatio * 100).toFixed(1)}%
+              </p>
             </div>
             <div className="bg-slate-800 p-4 rounded-lg">
               <div className="flex items-center gap-2 text-slate-400 mb-2">
                 <Users className="w-4 h-4" />
                 <span className="text-sm">Holders</span>
               </div>
-              <p className="text-xl font-bold">{displayMetrics.holders.toLocaleString()}</p>
+              <p className="text-xl font-bold">
+                {displayMetrics.holders.toLocaleString()}
+              </p>
             </div>
           </div>
 
@@ -350,35 +370,58 @@ export default function StablecoinDashboard({
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="bg-slate-800 p-4 rounded-lg">
               <p className="text-sm text-slate-400 mb-1">Total Reserve</p>
-              <p className="text-2xl font-bold">{formatCurrency(reserveInfo?.totalReserve || "950000000000")}</p>
+              <p className="text-2xl font-bold">
+                {formatCurrency(reserveInfo?.totalReserve || "950000000000")}
+              </p>
             </div>
             <div className="bg-slate-800 p-4 rounded-lg">
               <p className="text-sm text-slate-400 mb-1">Target Reserve</p>
-              <p className="text-2xl font-bold">{formatCurrency(reserveInfo?.targetReserve || "1000000000000")}</p>
+              <p className="text-2xl font-bold">
+                {formatCurrency(reserveInfo?.targetReserve || "1000000000000")}
+              </p>
             </div>
             <div className="bg-slate-800 p-4 rounded-lg">
               <p className="text-sm text-slate-400 mb-1">Reserve Ratio</p>
-              <p className="text-2xl font-bold">{((reserveInfo?.reserveRatio || 0.95) * 100).toFixed(1)}%</p>
+              <p className="text-2xl font-bold">
+                {((reserveInfo?.reserveRatio || 0.95) * 100).toFixed(1)}%
+              </p>
             </div>
           </div>
 
           {/* Asset Breakdown */}
           <div className="bg-slate-800 rounded-lg overflow-hidden">
-            <div className="px-4 py-3 bg-slate-700 font-medium">Reserve Assets</div>
+            <div className="px-4 py-3 bg-slate-700 font-medium">
+              Reserve Assets
+            </div>
             <div className="divide-y divide-slate-700">
-              {(reserveInfo?.assets || [
-                { asset: "XLM", amount: "400000000000", value: "400000000000" },
-                { asset: "USDC", amount: "300000000000", value: "300000000000" },
-                { asset: "BTC", amount: "8333", value: "250000000000" },
-              ]).map((asset) => (
-                <div key={asset.asset} className="px-4 py-3 flex items-center justify-between">
+              {(
+                reserveInfo?.assets || [
+                  {
+                    asset: "XLM",
+                    amount: "400000000000",
+                    value: "400000000000",
+                  },
+                  {
+                    asset: "USDC",
+                    amount: "300000000000",
+                    value: "300000000000",
+                  },
+                  { asset: "BTC", amount: "8333", value: "250000000000" },
+                ]
+              ).map((asset) => (
+                <div
+                  key={asset.asset}
+                  className="px-4 py-3 flex items-center justify-between"
+                >
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-slate-700 rounded-full flex items-center justify-center font-bold text-sm">
                       {asset.asset[0]}
                     </div>
                     <div>
                       <p className="font-medium">{asset.asset}</p>
-                      <p className="text-sm text-slate-400">{formatNumber(asset.amount)} tokens</p>
+                      <p className="text-sm text-slate-400">
+                        {formatNumber(asset.amount)} tokens
+                      </p>
                     </div>
                   </div>
                   <p className="font-medium">{formatCurrency(asset.value)}</p>
@@ -393,19 +436,26 @@ export default function StablecoinDashboard({
       {activeTab === "history" && (
         <div className="space-y-6">
           <div className="bg-slate-800 rounded-lg overflow-hidden">
-            <div className="px-4 py-3 bg-slate-700 font-medium">Recent Rebase Events</div>
+            <div className="px-4 py-3 bg-slate-700 font-medium">
+              Recent Rebase Events
+            </div>
             <div className="divide-y divide-slate-700">
               {(rebaseHistory?.slice(0, 5) || []).map((rebase, idx) => (
-                <div key={idx} className="px-4 py-3 flex items-center justify-between">
+                <div
+                  key={idx}
+                  className="px-4 py-3 flex items-center justify-between"
+                >
                   <div className="flex items-center gap-3">
                     <div
                       className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                        parseInt(rebase.new_supply) > parseInt(rebase.old_supply)
+                        parseInt(rebase.new_supply) >
+                        parseInt(rebase.old_supply)
                           ? "bg-emerald-500/20 text-emerald-400"
                           : "bg-rose-500/20 text-rose-400"
                       }`}
                     >
-                      {parseInt(rebase.new_supply) > parseInt(rebase.old_supply) ? (
+                      {parseInt(rebase.new_supply) >
+                      parseInt(rebase.old_supply) ? (
                         <TrendingUp className="w-4 h-4" />
                       ) : (
                         <TrendingDown className="w-4 h-4" />
@@ -413,13 +463,20 @@ export default function StablecoinDashboard({
                     </div>
                     <div>
                       <p className="font-medium">
-                        {parseInt(rebase.new_supply) > parseInt(rebase.old_supply) ? "Expansion" : "Contraction"}
+                        {parseInt(rebase.new_supply) >
+                        parseInt(rebase.old_supply)
+                          ? "Expansion"
+                          : "Contraction"}
                       </p>
-                      <p className="text-sm text-slate-400">{new Date(rebase.timestamp).toLocaleString()}</p>
+                      <p className="text-sm text-slate-400">
+                        {new Date(rebase.timestamp).toLocaleString()}
+                      </p>
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-medium">{formatNumber(rebase.new_supply)}</p>
+                    <p className="font-medium">
+                      {formatNumber(rebase.new_supply)}
+                    </p>
                     <p className="text-xs text-slate-400">
                       was {formatNumber(rebase.old_supply)}
                     </p>
@@ -427,7 +484,9 @@ export default function StablecoinDashboard({
                 </div>
               ))}
               {(!rebaseHistory || rebaseHistory.length === 0) && (
-                <div className="px-4 py-8 text-center text-slate-400">No rebase events found</div>
+                <div className="px-4 py-8 text-center text-slate-400">
+                  No rebase events found
+                </div>
               )}
             </div>
           </div>
@@ -468,7 +527,9 @@ export default function StablecoinDashboard({
             <h3 className="font-medium mb-4">Reserve Management</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm text-slate-400 mb-2">Add Reserve</label>
+                <label className="block text-sm text-slate-400 mb-2">
+                  Add Reserve
+                </label>
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -487,7 +548,9 @@ export default function StablecoinDashboard({
                 </div>
               </div>
               <div>
-                <label className="block text-sm text-slate-400 mb-2">Withdraw Reserve</label>
+                <label className="block text-sm text-slate-400 mb-2">
+                  Withdraw Reserve
+                </label>
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -514,7 +577,9 @@ export default function StablecoinDashboard({
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-slate-400">Contract ID</span>
-                <span className="font-mono">{contractId || "Not deployed"}</span>
+                <span className="font-mono">
+                  {contractId || "Not deployed"}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Target Price</span>

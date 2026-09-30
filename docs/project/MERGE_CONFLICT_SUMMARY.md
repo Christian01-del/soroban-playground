@@ -11,6 +11,7 @@ Over the course of this session, we successfully resolved and merged **12+ pull 
 ## ✅ All Merged PRs
 
 ### Session 1 (Initial Cleanup):
+
 1. **PR #90** - Environment variable management ✓
 2. **PR #91** - Jest unit tests for compilation route ✓
 3. **PR #73** - GitHub Action for backend linting ✓
@@ -18,11 +19,13 @@ Over the course of this session, we successfully resolved and merged **12+ pull 
 5. **PR #76** - Request validation for /api/deploy ✓
 
 ### Session 2 (Additional PRs):
+
 6. **PR #80** - Structured Logging with Winston ✓
 7. **PR #83** - Enhanced error handling in compile.js ✓
 8. **PR #77** - GitHub Action for request validation ✓
 
 ### Session 3 (Final Batch):
+
 9. **PR #85** - Swagger API documentation ✓
 10. **PR #78** - Backend security and Docker improvements ✓
 11. **PR #82** - ESLint/Prettier configuration ✓
@@ -60,6 +63,7 @@ Over the course of this session, we successfully resolved and merged **12+ pull 
 ## 🛠️ Resolution Strategy Used
 
 ### Our Approach:
+
 ```bash
 # For each PR:
 1. Fetch PR branch (from origin or contributor fork)
@@ -74,8 +78,9 @@ Over the course of this session, we successfully resolved and merged **12+ pull 
 ```
 
 ### Key Principle:
+
 > **"Preserve core logic, adopt safe dependencies"**
-> 
+>
 > We kept working implementations while accepting useful additions like new libraries, documentation, and non-breaking features.
 
 ---
@@ -83,17 +88,20 @@ Over the course of this session, we successfully resolved and merged **12+ pull 
 ## 📋 Prevention Measures Implemented
 
 ### 1. Documentation Created:
+
 - ✅ **GIT_WORKFLOW_GUIDE.md** - Comprehensive workflow guide
 - ✅ **.github/workflows/check-merge-conflicts.yml** - Automated conflict detection
 - ✅ **MERGE_CONFLICT_SUMMARY.md** (this file) - Lessons learned
 
 ### 2. Process Improvements:
+
 - ✅ Require branches to be < 3 days old before PR creation
 - ✅ Mandate merging/rebasing main before pushing
 - ✅ Communication guidelines for shared file modifications
 - ✅ PR checklist to verify no duplicates exist
 
 ### 3. Automation Added:
+
 - ✅ GitHub Action to detect merge conflicts automatically
 - ✅ Automated comments with conflict resolution instructions
 - ✅ Label system for conflicting PRs
@@ -103,12 +111,14 @@ Over the course of this session, we successfully resolved and merged **12+ pull 
 ## 📈 Impact
 
 ### Before:
+
 - ❌ 12+ PRs stuck with conflicts
 - ❌ Weeks of delayed features
 - ❌ Frustrated contributors
 - ❌ Risky, complex merges
 
 ### After:
+
 - ✅ All PRs merged and features deployed
 - ✅ Clear workflow documentation
 - ✅ Automated conflict prevention
@@ -181,6 +191,7 @@ npm test && npm run lint
 4. **Ask for Help** - Team is here to support
 
 ### Prevention Checklist:
+
 - [ ] Pulled latest main before starting?
 - [ ] Checked existing PRs for duplicates?
 - [ ] Announced work on shared files?
@@ -201,5 +212,5 @@ npm test && npm run lint
 
 **Remember: Good communication + frequent syncs = No merge conflicts!**
 
-*Created: March 27, 2026*
-*After resolving 12+ merge conflicts in Soroban Playground*
+_Created: March 27, 2026_
+_After resolving 12+ merge conflicts in Soroban Playground_

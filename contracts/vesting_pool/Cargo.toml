@@ -1,0 +1,14 @@
+[package]
+name = "milestone-vesting-pool"
+version = "0.1.0"
+edition = "2021"
+description = "Milestone-based tranche vesting pool contract"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+soroban-sdk = "21.0.6"
+
+[dev-dependencies]
+soroban-sdk = { version = "21.0.6", features = ["testutils"] }

@@ -1,5 +1,3 @@
-/* eslint-disable */
-
 // Basic test file that should work with existing Jest configuration
 
 // Simple test to verify Jest is working

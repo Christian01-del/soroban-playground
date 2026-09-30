@@ -51,6 +51,7 @@ The Synthetic Assets system is a comprehensive DeFi protocol that enables users 
 #### Admin Functions
 
 **Initialize Contract**
+
 ```rust
 initialize(
   env: Env,
@@ -65,6 +66,7 @@ initialize(
 ```
 
 **Register Synthetic Asset**
+
 ```rust
 register_synthetic_asset(
   env: Env,
@@ -78,6 +80,7 @@ register_synthetic_asset(
 #### User Functions
 
 **Mint Synthetic Assets**
+
 ```rust
 mint_synthetic(
   env: Env,
@@ -89,6 +92,7 @@ mint_synthetic(
 ```
 
 **Burn Synthetic Assets**
+
 ```rust
 burn_synthetic(
   env: Env,
@@ -99,6 +103,7 @@ burn_synthetic(
 ```
 
 **Open Trading Position**
+
 ```rust
 open_trade(
   env: Env,
@@ -111,6 +116,7 @@ open_trade(
 ```
 
 **Close Trading Position**
+
 ```rust
 close_trade(
   env: Env,
@@ -122,12 +128,14 @@ close_trade(
 #### View Functions
 
 **Get Position Details**
+
 ```rust
 get_position(env: Env, position_id: u64) -> Result<CollateralPosition, Error>
 get_trading_position_info(env: Env, position_id: u64) -> Result<TradingPosition, Error>
 ```
 
 **Get Metrics**
+
 ```rust
 get_collateral_ratio(env: Env, position_id: u64) -> Result<i128, Error>
 get_health_factor(env: Env, position_id: u64) -> Result<i128, Error>
@@ -141,6 +149,7 @@ All endpoints use JWT authentication (except GET endpoints for public data).
 ### Asset Management
 
 **Register Asset**
+
 ```http
 POST /v1/synthetic-assets/register
 Content-Type: application/json
@@ -162,6 +171,7 @@ Response:
 ### Position Management
 
 **Mint Synthetic Assets**
+
 ```http
 POST /v1/synthetic-assets/mint
 Content-Type: application/json
@@ -182,6 +192,7 @@ Response:
 ```
 
 **Burn Synthetic Assets**
+
 ```http
 POST /v1/synthetic-assets/burn
 Content-Type: application/json
@@ -194,6 +205,7 @@ Content-Type: application/json
 ```
 
 **Add Collateral**
+
 ```http
 POST /v1/synthetic-assets/add-collateral
 Content-Type: application/json
@@ -208,6 +220,7 @@ Content-Type: application/json
 ### Trading
 
 **Open Trade**
+
 ```http
 POST /v1/synthetic-assets/open-trade
 Content-Type: application/json
@@ -228,6 +241,7 @@ Response:
 ```
 
 **Close Trade**
+
 ```http
 POST /v1/synthetic-assets/close-trade
 Content-Type: application/json
@@ -247,6 +261,7 @@ Response:
 ### Data Retrieval
 
 **Get Position Details**
+
 ```http
 GET /v1/synthetic-assets/position/:id
 
@@ -268,6 +283,7 @@ Response:
 ```
 
 **Get Asset Price**
+
 ```http
 GET /v1/synthetic-assets/price/:symbol
 
@@ -283,6 +299,7 @@ Response:
 ```
 
 **Get Protocol Parameters**
+
 ```http
 GET /v1/synthetic-assets/params
 
@@ -299,6 +316,7 @@ Response:
 ```
 
 **Get Registered Assets**
+
 ```http
 GET /v1/synthetic-assets/assets
 
@@ -340,6 +358,7 @@ npm run build
 ### Real-time Updates
 
 The dashboard automatically updates:
+
 - Asset prices (every 5 seconds)
 - Position metrics (every 30 seconds)
 - Liquidation alerts (immediate)
@@ -349,22 +368,27 @@ The dashboard automatically updates:
 ### Tables
 
 **positions**
+
 - Stores collateral and trading positions
 - Indexes on user_address, asset_symbol, status
 
 **synthetic_assets**
+
 - Metadata for each synthetic asset
 - Symbol, name, decimals, total supply
 
 **asset_prices**
+
 - Historical price data
 - Timestamp, price, confidence score
 
 **synthetic_asset_events**
+
 - Event log for all operations
 - Mint, burn, trade, liquidation events
 
 **liquidation_alerts**
+
 - Positions at risk of liquidation
 - Alert timestamp, resolution status
 
@@ -429,6 +453,7 @@ NEXT_PUBLIC_NETWORK=testnet
 ### Deployment Steps
 
 1. **Smart Contract**
+
    ```bash
    cd contracts/synthetic-assets
    cargo build --release --target wasm32-unknown-unknown
@@ -436,6 +461,7 @@ NEXT_PUBLIC_NETWORK=testnet
    ```
 
 2. **Backend**
+
    ```bash
    cd backend
    npm install
@@ -461,6 +487,7 @@ cargo test --lib
 ```
 
 Test coverage: >90%
+
 - Unit tests for all functions
 - Integration tests for complex flows
 - Edge case tests for error handling
@@ -473,6 +500,7 @@ npm test
 ```
 
 Test coverage: >85%
+
 - API endpoint tests
 - Service layer tests
 - Database integration tests
@@ -485,6 +513,7 @@ npm test
 ```
 
 Test coverage: >80%
+
 - Component unit tests
 - Integration tests
 - E2E tests for key user flows
@@ -494,19 +523,23 @@ Test coverage: >80%
 ### Common Issues
 
 **Position minting fails with "InsufficientCollateral"**
+
 - Ensure collateral amount meets minimum ratio
 - Check: `collateral >= (mint_amount * price * min_ratio) / 10000`
 
 **Position is liquidatable**
+
 - Add more collateral or burn some synthetic assets
 - Ensure collateral ratio > liquidation threshold
 
 **WebSocket connection drops**
+
 - Check network connectivity
 - Verify API server is running
 - Check browser console for errors
 
 **Transaction fails with "Unauthorized"**
+
 - Verify wallet is connected
 - Check that transaction is signed correctly
 - Ensure sufficient account balance for fees

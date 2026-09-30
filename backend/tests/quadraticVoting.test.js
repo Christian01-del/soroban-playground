@@ -4,7 +4,7 @@
 import { jest } from '@jest/globals';
 
 // Mock the quadratic voting service
-jest.unstable_mockModule('../src/services/quadraticVotingService.js', () => ({
+jest.mock('../src/services/quadraticVotingService.js', () => ({
   default: {
     initialize: jest.fn(),
     createProposal: jest.fn(),
@@ -23,14 +23,16 @@ jest.unstable_mockModule('../src/services/quadraticVotingService.js', () => ({
 }));
 
 // Mock rate limiter middleware
-jest.unstable_mockModule('../src/middleware/rateLimiter.js', () => ({
+jest.mock('../src/middleware/rateLimiter.js', () => ({
   rateLimitMiddleware: () => (_req, _res, next) => next(),
 }));
 
-const { default: qvService } =
-  await import('../src/services/quadraticVotingService.js');
-const { default: quadraticVotingRoute } =
-  await import('../src/routes/quadraticVoting.js');
+const {
+  default: qvService,
+} = require('../src/services/quadraticVotingService.js');
+const {
+  default: quadraticVotingRoute,
+} = require('../src/routes/quadraticVoting.js');
 
 import express from 'express';
 import request from 'supertest';

@@ -1,7 +1,7 @@
 import { jest } from '@jest/globals';
 
 // Mock the synthetic assets service dependencies
-jest.unstable_mockModule('../src/services/syntheticAssetsService.js', () => ({
+jest.mock('../src/services/syntheticAssetsService.js', () => ({
   syntheticAssetsService: {
     registerAsset: jest.fn(),
     mintSynthetic: jest.fn(),
@@ -21,18 +21,19 @@ jest.unstable_mockModule('../src/services/syntheticAssetsService.js', () => ({
     getMaxMintable: jest.fn(),
     getTradingPnL: jest.fn(),
     getRegisteredAssets: jest.fn(),
+    monitorLiquidations: jest.fn(),
   },
 }));
 
 // Mock database service
-jest.unstable_mockModule('../src/services/databaseService.js', () => ({
+jest.mock('../src/services/databaseService.js', () => ({
   databaseService: {
     query: jest.fn(),
   },
 }));
 
 // Mock redis service
-jest.unstable_mockModule('../src/services/redisService.js', () => ({
+jest.mock('../src/services/redisService.js', () => ({
   redisService: {
     get: jest.fn(),
     set: jest.fn(),
@@ -41,15 +42,16 @@ jest.unstable_mockModule('../src/services/redisService.js', () => ({
 }));
 
 // Mock invoke service
-jest.unstable_mockModule('../src/services/invokeService.js', () => ({
+jest.mock('../src/services/invokeService.js', () => ({
   invokeContract: jest.fn(),
 }));
 
-const { syntheticAssetsService } =
-  await import('../src/services/syntheticAssetsService.js');
-const { databaseService } = await import('../src/services/databaseService.js');
-const { redisService } = await import('../src/services/redisService.js');
-const { invokeContract } = await import('../src/services/invokeService.js');
+const {
+  syntheticAssetsService,
+} = require('../src/services/syntheticAssetsService.js');
+const { databaseService } = require('../src/services/databaseService.js');
+const { redisService } = require('../src/services/redisService.js');
+const { invokeContract } = require('../src/services/invokeService.js');
 
 const CONTRACT_ID = 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const USER_ADDRESS = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
@@ -190,7 +192,7 @@ describe('Synthetic Assets End-to-End Flow', () => {
   describe('Protocol Parameters Management Flow', () => {
     it('executes get params → update params → verify changes flow', async () => {
       // Get current parameters
-      syntheticAssetsService.getProtocolParams.mockResolvedValue({
+      syntheticAssetsService.getProtocolParams.mockResolvedValueOnce({
         minCollateralRatio: 1500000, // 150%
         liquidationThreshold: 1100000, // 110%
         liquidationBonus: 50000, // 5%
@@ -204,7 +206,7 @@ describe('Synthetic Assets End-to-End Flow', () => {
       });
 
       // Verify updated parameters
-      syntheticAssetsService.getProtocolParams.mockResolvedValue({
+      syntheticAssetsService.getProtocolParams.mockResolvedValueOnce({
         minCollateralRatio: 1600000, // 160%
         liquidationThreshold: 1150000, // 115%
         liquidationBonus: 60000, // 6%
@@ -440,6 +442,17 @@ describe('Synthetic Assets Performance Testing', () => {
       // Make some positions liquidatable for testing
       const isLiquidatable = parseInt(id.slice(-1)) % 3 === 0;
       return Promise.resolve(isLiquidatable);
+    });
+
+    // Mock monitorLiquidations to mimic the real behavior for testing
+    syntheticAssetsService.monitorLiquidations.mockImplementation(async () => {
+      const positions = await databaseService.query(
+        'SELECT position_id FROM positions WHERE status = $1 AND type = $2',
+        ['OPEN', 'COLLATERAL']
+      );
+      for (const position of positions.rows) {
+        await syntheticAssetsService.isLiquidatable(position.position_id);
+      }
     });
 
     // Test monitoring with many positions

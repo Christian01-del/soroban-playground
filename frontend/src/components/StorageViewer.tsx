@@ -82,7 +82,11 @@ function safeStringify(value: unknown): string {
     return "null";
   }
 
-  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+  if (
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    typeof value === "bigint"
+  ) {
     return String(value);
   }
 
@@ -109,7 +113,12 @@ function toPath(path: string[]): string {
     .join("");
 }
 
-function collectBoundaryEntries(kind: "added" | "removed", value: unknown, path: string[], entries: DiffEntry[]): void {
+function collectBoundaryEntries(
+  kind: "added" | "removed",
+  value: unknown,
+  path: string[],
+  entries: DiffEntry[],
+): void {
   if (Array.isArray(value)) {
     if (value.length === 0) {
       entries.push({
@@ -121,7 +130,9 @@ function collectBoundaryEntries(kind: "added" | "removed", value: unknown, path:
       return;
     }
 
-    value.forEach((item, index) => collectBoundaryEntries(kind, item, [...path, String(index)], entries));
+    value.forEach((item, index) =>
+      collectBoundaryEntries(kind, item, [...path, String(index)], entries),
+    );
     return;
   }
 
@@ -151,7 +162,12 @@ function collectBoundaryEntries(kind: "added" | "removed", value: unknown, path:
   });
 }
 
-function collectDiffEntries(previous: unknown, current: unknown, path: string[], entries: DiffEntry[]): void {
+function collectDiffEntries(
+  previous: unknown,
+  current: unknown,
+  path: string[],
+  entries: DiffEntry[],
+): void {
   if (deepEqual(previous, current)) {
     return;
   }
@@ -173,15 +189,28 @@ function collectDiffEntries(previous: unknown, current: unknown, path: string[],
     if (Array.isArray(previous) && Array.isArray(current)) {
       const maxLength = Math.max(previous.length, current.length);
       for (let index = 0; index < maxLength; index += 1) {
-        collectDiffEntries(previous[index], current[index], [...path, String(index)], entries);
+        collectDiffEntries(
+          previous[index],
+          current[index],
+          [...path, String(index)],
+          entries,
+        );
       }
       return;
     }
 
     if (isRecord(previous) && isRecord(current)) {
-      const keySet = new Set([...Object.keys(previous), ...Object.keys(current)]);
+      const keySet = new Set([
+        ...Object.keys(previous),
+        ...Object.keys(current),
+      ]);
       for (const key of keySet) {
-        collectDiffEntries(previous[key], current[key], [...path, key], entries);
+        collectDiffEntries(
+          previous[key],
+          current[key],
+          [...path, key],
+          entries,
+        );
       }
       return;
     }
@@ -195,7 +224,10 @@ function collectDiffEntries(previous: unknown, current: unknown, path: string[],
   });
 }
 
-function createDeepDiff(previous: LedgerState, current: LedgerState): DiffEntry[] {
+function createDeepDiff(
+  previous: LedgerState,
+  current: LedgerState,
+): DiffEntry[] {
   const entries: DiffEntry[] = [];
   collectDiffEntries(previous, current, [], entries);
   return entries;
@@ -224,7 +256,10 @@ function getTopLevelDiffKind(
   previousStorage: LedgerState,
   currentStorage: LedgerState,
 ): DiffKind | "unchanged" {
-  const existsBefore = Object.prototype.hasOwnProperty.call(previousStorage, key);
+  const existsBefore = Object.prototype.hasOwnProperty.call(
+    previousStorage,
+    key,
+  );
   const existsNow = Object.prototype.hasOwnProperty.call(currentStorage, key);
 
   if (!existsBefore && existsNow) {
@@ -267,11 +302,19 @@ export default function StorageViewer({
   capturedAt,
   onScrubTimeline,
 }: StorageViewerProps) {
-  const entries = Object.entries(storage).sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey));
+  const entries = Object.entries(storage).sort(([leftKey], [rightKey]) =>
+    leftKey.localeCompare(rightKey),
+  );
   const deepDiffEntries = createDeepDiff(previousStorage, storage);
-  const addedCount = deepDiffEntries.filter((entry) => entry.kind === "added").length;
-  const removedCount = deepDiffEntries.filter((entry) => entry.kind === "removed").length;
-  const changedCount = deepDiffEntries.filter((entry) => entry.kind === "changed").length;
+  const addedCount = deepDiffEntries.filter(
+    (entry) => entry.kind === "added",
+  ).length;
+  const removedCount = deepDiffEntries.filter(
+    (entry) => entry.kind === "removed",
+  ).length;
+  const changedCount = deepDiffEntries.filter(
+    (entry) => entry.kind === "changed",
+  ).length;
 
   return (
     <div className="flex flex-col space-y-4 p-5 bg-gray-900 border border-gray-800 rounded-xl shadow-lg mt-4">
@@ -280,7 +323,9 @@ export default function StorageViewer({
           <Database size={16} className="mr-2 text-cyan-400" />
           Contract Storage
         </h3>
-        {contextLabel ? <p className="text-xs text-gray-500 mb-3">{contextLabel}</p> : null}
+        {contextLabel ? (
+          <p className="text-xs text-gray-500 mb-3">{contextLabel}</p>
+        ) : null}
         <StorageTimeline
           totalFrames={totalFrames}
           currentFrame={currentFrame}
@@ -291,7 +336,9 @@ export default function StorageViewer({
       </div>
 
       {entries.length === 0 ? (
-        <p className="text-xs text-gray-500 italic">Storage is empty or inaccessible.</p>
+        <p className="text-xs text-gray-500 italic">
+          Storage is empty or inaccessible.
+        </p>
       ) : (
         <div className="bg-gray-950 border border-gray-800 rounded-lg p-3 font-mono text-sm overflow-x-auto">
           <table className="w-full text-left">
@@ -304,17 +351,29 @@ export default function StorageViewer({
             </thead>
             <tbody className="divide-y divide-gray-800/50">
               {entries.map(([key, value]) => {
-                const topLevelKind = getTopLevelDiffKind(key, previousStorage, storage);
+                const topLevelKind = getTopLevelDiffKind(
+                  key,
+                  previousStorage,
+                  storage,
+                );
                 return (
-                <tr key={key}>
-                  <td className={`py-2 pr-4 align-top ${rowClassesByKind(topLevelKind)}`}>{key}</td>
-                  <td className="py-2 pr-4 text-emerald-300 break-all">
-                    <pre className="whitespace-pre-wrap break-all">{renderValue(value)}</pre>
-                  </td>
-                  <td className={`py-2 align-top uppercase text-[11px] tracking-wide ${rowClassesByKind(topLevelKind)}`}>
-                    {topLevelKind}
-                  </td>
-                </tr>
+                  <tr key={key}>
+                    <td
+                      className={`py-2 pr-4 align-top ${rowClassesByKind(topLevelKind)}`}
+                    >
+                      {key}
+                    </td>
+                    <td className="py-2 pr-4 text-emerald-300 break-all">
+                      <pre className="whitespace-pre-wrap break-all">
+                        {renderValue(value)}
+                      </pre>
+                    </td>
+                    <td
+                      className={`py-2 align-top uppercase text-[11px] tracking-wide ${rowClassesByKind(topLevelKind)}`}
+                    >
+                      {topLevelKind}
+                    </td>
+                  </tr>
                 );
               })}
             </tbody>
@@ -324,7 +383,9 @@ export default function StorageViewer({
 
       <div className="rounded-lg border border-gray-800 bg-gray-950 p-3">
         <div className="flex items-center justify-between mb-3">
-          <p className="text-xs text-gray-400 uppercase tracking-wider">Frame Diff (Deep)</p>
+          <p className="text-xs text-gray-400 uppercase tracking-wider">
+            Frame Diff (Deep)
+          </p>
           <p className="text-[11px] text-gray-500">
             <span className="text-emerald-400">+{addedCount}</span> /{" "}
             <span className="text-rose-400">-{removedCount}</span> /{" "}
@@ -333,7 +394,9 @@ export default function StorageViewer({
         </div>
 
         {deepDiffEntries.length === 0 ? (
-          <p className="text-xs text-gray-500 italic">No changes from previous frame.</p>
+          <p className="text-xs text-gray-500 italic">
+            No changes from previous frame.
+          </p>
         ) : (
           <div className="max-h-56 overflow-y-auto rounded border border-gray-800">
             <table className="w-full text-left text-xs font-mono">
@@ -368,10 +431,14 @@ export default function StorageViewer({
                       {entry.path}
                     </td>
                     <td className="py-2 px-2 align-top text-gray-400 break-all">
-                      {entry.kind === "added" ? "∅" : renderValue(entry.previous)}
+                      {entry.kind === "added"
+                        ? "∅"
+                        : renderValue(entry.previous)}
                     </td>
                     <td className="py-2 px-2 align-top text-gray-200 break-all">
-                      {entry.kind === "removed" ? "∅" : renderValue(entry.current)}
+                      {entry.kind === "removed"
+                        ? "∅"
+                        : renderValue(entry.current)}
                     </td>
                   </tr>
                 ))}

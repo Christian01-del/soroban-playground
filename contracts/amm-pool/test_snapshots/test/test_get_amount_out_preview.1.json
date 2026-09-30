@@ -281,6 +281,21 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "TotalFees"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "i128": {
+                            "hi": 0,
+                            "lo": 3
+                          }
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "TotalLp"
                             }
                           ]
@@ -289,6 +304,21 @@
                           "i128": {
                             "hi": 0,
                             "lo": 100000
+                          }
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "TotalVolume"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "i128": {
+                            "hi": 0,
+                            "lo": 1000
                           }
                         }
                       }

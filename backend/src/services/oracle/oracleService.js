@@ -23,7 +23,6 @@ import crypto from 'crypto';
 
 import { ConsensusCoordinator } from './consensus.js';
 import { LockManager } from './lockManager.js';
-import { LockScope } from './hierarchy.js';
 import { MemoryBackend } from './backends.js';
 import { MemoryVoteStore } from './voteStore.js';
 import { VoteSigner } from './voteSigner.js';
@@ -34,9 +33,80 @@ import { sharedAuditLog } from './auditLog.js';
 const DEFAULT_NODE_COUNT = 5;
 const DEFAULT_THRESHOLD = 3;
 const DEFAULT_PROOF_TTL_MS = 5 * 60_000;
+const DEFAULT_WAIT_TIMEOUT_MS = 10_000;
+const WAIT_POLL_INTERVAL_MS = 5;
+
+// Proof lifecycle states. Previously these were bare strings scattered across
+// the module, which made typos silent and terminal-state checks easy to get
+// wrong.
+export const ProofStatus = Object.freeze({
+  VOTING: 'voting',
+  SUBMITTED: 'submitted',
+  NO_QUORUM: 'no_quorum',
+  FAILED: 'failed',
+});
+
+const TERMINAL_STATUSES = Object.freeze([
+  ProofStatus.SUBMITTED,
+  ProofStatus.FAILED,
+  ProofStatus.NO_QUORUM,
+]);
 
 function newProofId() {
   return crypto.randomBytes(8).toString('hex');
+}
+
+function buildNodeIds(nodeCount, nodeIds) {
+  if (nodeIds) {
+    return nodeIds;
+  }
+
+  return Array.from({ length: nodeCount }, (_, i) => `oracle-${i + 1}`);
+}
+
+function createProofRecord({ proofId, payload, metadata }) {
+  return {
+    id: proofId,
+    payload,
+    metadata: metadata || null,
+    status: ProofStatus.VOTING,
+    submittedAt: Date.now(),
+    votes: [],
+    consensus: null,
+    leader: null,
+    result: null,
+    error: null,
+  };
+}
+
+function mapProofVotes(nodeResults, nodes) {
+  return nodeResults.map((result, index) => ({
+    nodeId: nodes[index].id,
+    ok: result.status === 'fulfilled',
+    phase: result.status === 'fulfilled' ? result.value.phase : 'rejected',
+    error:
+      result.status === 'rejected'
+        ? result.reason?.message
+        : result.value?.error,
+  }));
+}
+
+function findLeaderResult(nodeResults) {
+  return nodeResults.find(
+    (r) => r.status === 'fulfilled' && r.value.phase === 'leader'
+  );
+}
+
+function hasRejectedVote(nodeResults) {
+  return nodeResults.some(
+    (r) => r.status === 'fulfilled' && r.value.phase === 'rejected'
+  );
+}
+
+function buildRandomSignerKeys(ids) {
+  return Object.fromEntries(
+    ids.map((id) => [id, crypto.randomBytes(32).toString('hex')])
+  );
 }
 
 export class OracleService {
@@ -69,14 +139,11 @@ export class OracleService {
     this.proofs = new Map(); // proofId -> proof state
     this.proofOrder = []; // FIFO of proofIds for retention pruning
 
-    const ids =
-      nodeIds || Array.from({ length: nodeCount }, (_, i) => `oracle-${i + 1}`);
+    const ids = buildNodeIds(nodeCount, nodeIds);
     this.voteSigner =
       voteSigner ||
       new VoteSigner({
-        keys: Object.fromEntries(
-          ids.map((id) => [id, crypto.randomBytes(32).toString('hex')])
-        ),
+        keys: buildRandomSignerKeys(ids),
         required: requireSignedVotes,
       });
 
@@ -125,18 +192,7 @@ export class OracleService {
   // events on the bus.
   async submitProof(payload, { metadata } = {}) {
     const proofId = newProofId();
-    const proof = {
-      id: proofId,
-      payload,
-      metadata: metadata || null,
-      status: 'voting',
-      submittedAt: Date.now(),
-      votes: [],
-      consensus: null,
-      leader: null,
-      result: null,
-      error: null,
-    };
+    const proof = createProofRecord({ proofId, payload, metadata });
     this._trackProof(proof);
     this.eventBus.publish(OracleEvent.PROOF_RECEIVED, {
       proofId,
@@ -147,7 +203,7 @@ export class OracleService {
     // Fire-and-forget node fan-out. We collect results to populate proof
     // state, but the HTTP caller doesn't wait for it.
     this._runProof(proof).catch((err) => {
-      proof.status = 'failed';
+      proof.status = ProofStatus.FAILED;
       proof.error = err.message;
       this.eventBus.publish(OracleEvent.PROOF_FAILED, {
         proofId,
@@ -161,7 +217,7 @@ export class OracleService {
   // for callers that want a synchronous response.
   async submitProofAndWait(payload, opts = {}) {
     const proof = await this.submitProof(payload, opts);
-    await this._waitFor(proof.id, ['submitted', 'failed', 'no_quorum']);
+    await this._waitFor(proof.id, TERMINAL_STATUSES);
     return this.getProof(proof.id);
   }
 
@@ -170,47 +226,56 @@ export class OracleService {
       this.nodes.map((n) => n.processProof(proof.id, proof.payload))
     );
 
-    proof.votes = nodeResults.map((r, i) => ({
-      nodeId: this.nodes[i].id,
-      ok: r.status === 'fulfilled',
-      phase: r.status === 'fulfilled' ? r.value.phase : 'rejected',
-      error: r.status === 'rejected' ? r.reason?.message : r.value?.error,
-    }));
+    proof.votes = mapProofVotes(nodeResults, this.nodes);
 
-    const leaderResult = nodeResults.find(
-      (r) => r.status === 'fulfilled' && r.value.phase === 'leader'
-    );
+    const leaderResult = findLeaderResult(nodeResults);
     if (leaderResult) {
-      proof.status = 'submitted';
-      proof.leader = leaderResult.value.handle?.owner ?? null;
-      proof.consensus = leaderResult.value.tally;
-      proof.result = leaderResult.value.submission ?? null;
-    } else {
-      // No leader — either no quorum, or all nodes were rejected.
-      const tally = await this.consensus.tally(proof.id);
-      proof.consensus = tally;
-      const anyRejected = nodeResults.some(
-        (r) => r.status === 'fulfilled' && r.value.phase === 'rejected'
-      );
-      proof.status =
-        tally.totalVotes === 0 && anyRejected ? 'failed' : 'no_quorum';
+      this._applyLeaderOutcome(proof, leaderResult.value);
+      return;
     }
+
+    await this._applyNoLeaderOutcome(proof, nodeResults);
   }
 
-  // Internal helper for submitProofAndWait()
-  _waitFor(proofId, terminalStatuses, timeoutMs = 10_000) {
+  _applyLeaderOutcome(proof, leader) {
+    proof.status = ProofStatus.SUBMITTED;
+    proof.leader = leader.handle?.owner ?? null;
+    proof.consensus = leader.tally;
+    proof.result = leader.submission ?? null;
+  }
+
+  // No leader was elected — either quorum was never reached, or every node
+  // rejected the payload outright.
+  async _applyNoLeaderOutcome(proof, nodeResults) {
+    const tally = await this.consensus.tally(proof.id);
+    proof.consensus = tally;
+    proof.status =
+      tally.totalVotes === 0 && hasRejectedVote(nodeResults)
+        ? ProofStatus.FAILED
+        : ProofStatus.NO_QUORUM;
+  }
+
+  // Internal helper for submitProofAndWait(). Resolves once the proof reaches
+  // a terminal status, or once it has been evicted by the retention window.
+  _waitFor(
+    proofId,
+    terminalStatuses = TERMINAL_STATUSES,
+    timeoutMs = DEFAULT_WAIT_TIMEOUT_MS
+  ) {
+    const deadline = Date.now() + timeoutMs;
+
     return new Promise((resolve, reject) => {
-      const start = Date.now();
       const check = () => {
         const proof = this.proofs.get(proofId);
-        if (!proof) return resolve();
-        if (terminalStatuses.includes(proof.status)) return resolve();
-        if (Date.now() - start > timeoutMs) {
+        if (!proof || terminalStatuses.includes(proof.status)) {
+          return resolve();
+        }
+        if (Date.now() >= deadline) {
           return reject(
             new Error(`Proof ${proofId} did not complete within ${timeoutMs}ms`)
           );
         }
-        setTimeout(check, 5);
+        setTimeout(check, WAIT_POLL_INTERVAL_MS);
       };
       check();
     });
@@ -230,15 +295,17 @@ export class OracleService {
   }
 
   health() {
+    const activeProofs = this.listProofs({ limit: this.proofRetention }).filter(
+      (p) => p.status === ProofStatus.VOTING
+    ).length;
+
     return {
       backend: this.backend.name,
       voteStore: this.voteStore.name,
       nodes: this.nodes.length,
       threshold: this.threshold,
       processedProofs: this.proofOrder.length,
-      activeProofs: this.listProofs({ limit: this.proofRetention }).filter(
-        (p) => ['voting'].includes(p.status)
-      ).length,
+      activeProofs,
     };
   }
 }

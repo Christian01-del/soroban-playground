@@ -1,0 +1,17 @@
+[package]
+name = "sports-betting"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Pari-mutuel sports betting with multi-oracle consensus settlement"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+soroban-sdk = "21.0.6"
+
+[dev-dependencies]
+soroban-sdk = { version = "21.0.6", features = ["testutils"] }
+

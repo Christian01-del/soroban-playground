@@ -30,7 +30,7 @@ export function OracleStatusPanel() {
   const { nodes, proofs, events, health, loading, error, submitProof } =
     useOracleStatus();
   const [payloadDraft, setPayloadDraft] = useState(
-    JSON.stringify({ price: 100, asset: "XLM" }, null, 2)
+    JSON.stringify({ price: 100, asset: "XLM" }, null, 2),
   );
   const [submitting, setSubmitting] = useState(false);
 
@@ -52,10 +52,15 @@ export function OracleStatusPanel() {
         <h1 className="text-2xl font-bold text-white">Oracle Network</h1>
         {health && (
           <div className="text-xs text-gray-400">
-            backend: <span className="text-gray-200">{String(health.backend)}</span> · nodes:{" "}
-            <span className="text-gray-200">{String(health.nodes)}</span> · threshold:{" "}
-            <span className="text-gray-200">{String(health.threshold)}</span> · active:{" "}
-            <span className="text-gray-200">{String(health.activeProofs ?? 0)}</span>
+            backend:{" "}
+            <span className="text-gray-200">{String(health.backend)}</span> ·
+            nodes: <span className="text-gray-200">{String(health.nodes)}</span>{" "}
+            · threshold:{" "}
+            <span className="text-gray-200">{String(health.threshold)}</span> ·
+            active:{" "}
+            <span className="text-gray-200">
+              {String(health.activeProofs ?? 0)}
+            </span>
           </div>
         )}
       </header>
@@ -98,7 +103,9 @@ export function OracleStatusPanel() {
       </section>
 
       <section>
-        <h2 className="mb-2 text-base font-semibold text-gray-200">Submit a proof</h2>
+        <h2 className="mb-2 text-base font-semibold text-gray-200">
+          Submit a proof
+        </h2>
         <textarea
           value={payloadDraft}
           onChange={(e) => setPayloadDraft(e.target.value)}
@@ -152,7 +159,9 @@ export function OracleStatusPanel() {
       </section>
 
       <section>
-        <h2 className="mb-2 text-base font-semibold text-gray-200">Live events</h2>
+        <h2 className="mb-2 text-base font-semibold text-gray-200">
+          Live events
+        </h2>
         {events.length === 0 ? (
           <p className="text-gray-500">Waiting for events…</p>
         ) : (
@@ -164,9 +173,14 @@ export function OracleStatusPanel() {
                 </span>{" "}
                 <span className="font-semibold text-blue-400">{e.event}</span>
                 {e.proofId ? (
-                  <span className="text-gray-500"> · {e.proofId.slice(0, 8)}</span>
+                  <span className="text-gray-500">
+                    {" "}
+                    · {e.proofId.slice(0, 8)}
+                  </span>
                 ) : null}
-                {e.nodeId ? <span className="text-gray-500"> · {e.nodeId}</span> : null}
+                {e.nodeId ? (
+                  <span className="text-gray-500"> · {e.nodeId}</span>
+                ) : null}
               </li>
             ))}
           </ul>

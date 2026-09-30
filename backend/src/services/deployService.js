@@ -1,4 +1,3 @@
-import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { EventEmitter } from 'events';
@@ -14,6 +13,8 @@ import {
   injectTraceContext,
 } from '../utils/tracing.js';
 import { alertManager } from '../utils/alerting.js';
+import { recordTamperEvidentAuditLog } from './tamperEvidentAuditLogger.js';
+import { spawnTracked, terminateChildProcess } from './childProcessManager.js';
 
 const DEFAULT_TIMEOUT_MS = 30000;
 const DEFAULT_STATE_FILE =
@@ -68,7 +69,7 @@ function emitProgress(event) {
   });
 }
 
-function validateDeployContract(contract) {
+export function validateDeployContract(contract) {
   const errors = [];
   if (!contract.sourceAccount) {
     errors.push(
@@ -112,7 +113,7 @@ export function deployContract(contract, { signal, onProgress } = {}) {
   return new Promise((resolve, reject) => {
     const startTime = Date.now();
 
-    const child = spawn(
+    const child = spawnTracked(
       process.env.SOROBAN_CLI || 'soroban',
       [
         'contract',
@@ -137,7 +138,7 @@ export function deployContract(contract, { signal, onProgress } = {}) {
     const timeout = setTimeout(
       () => {
         addSpanEvent(span, 'deploy.timeout');
-        child.kill('SIGKILL');
+        terminateChildProcess(child);
         finish(new Error(`Deployment timed out for ${contract.contractName}`));
       },
       Number.parseInt(
@@ -173,7 +174,7 @@ export function deployContract(contract, { signal, onProgress } = {}) {
 
     const onAbort = () => {
       addSpanEvent(span, 'deploy.cancelled');
-      child.kill('SIGKILL');
+      terminateChildProcess(child);
       finish(new Error(`Deployment cancelled for ${contract.contractName}`));
     };
 
@@ -198,9 +199,18 @@ export function deployContract(contract, { signal, onProgress } = {}) {
 
     child.on('close', (code) => {
       if (code === 0) {
+        const contractId = stdout.trim() || `C${contract.id.padEnd(55, '0').slice(0, 55)}`;
+        recordTamperEvidentAuditLog({
+          action: 'contract_deploy',
+          contractId,
+          ledgerSequence: contract.ledgerSequence || contract.ledger_sequence || 1,
+          sessionId: contract.sessionId || contract.session_id || 'sess-deploy',
+          userId: contract.userId || contract.user_id,
+          metadata: { contractName: contract.contractName, network: contract.network },
+        }).catch(() => {});
+
         finish(null, {
-          contractId:
-            stdout.trim() || `C${contract.id.padEnd(55, '0').slice(0, 55)}`,
+          contractId,
           stdout: stdout.trim(),
           stderr: stderr.trim(),
         });

@@ -59,8 +59,17 @@ interface ContentPublishingPanelProps {
   feed: Article[];
   stats?: AuthorStats;
   subscribers: SubscriberRow[];
-  onRegister: (input: { name: string; bio: string; subscriptionPrice: number; periodSeconds: number }) => Promise<void>;
-  onPublish: (input: { title: string; contentHash: string; premium: boolean }) => Promise<void>;
+  onRegister: (input: {
+    name: string;
+    bio: string;
+    subscriptionPrice: number;
+    periodSeconds: number;
+  }) => Promise<void>;
+  onPublish: (input: {
+    title: string;
+    contentHash: string;
+    premium: boolean;
+  }) => Promise<void>;
   onTip: (articleId: number, amount: number) => Promise<void>;
   onLike: (articleId: number) => Promise<void>;
   onSubscribe: (author: string, periods: number) => Promise<void>;
@@ -77,7 +86,11 @@ const fmtTime = (ts: number) => {
 };
 
 const fmtNumber = (n: number) =>
-  n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `${(n / 1_000).toFixed(1)}K` : `${n}`;
+  n >= 1_000_000
+    ? `${(n / 1_000_000).toFixed(1)}M`
+    : n >= 1_000
+      ? `${(n / 1_000).toFixed(1)}K`
+      : `${n}`;
 
 const ContentPublishingPanel: React.FC<ContentPublishingPanelProps> = ({
   profile,
@@ -133,7 +146,11 @@ const ContentPublishingPanel: React.FC<ContentPublishingPanelProps> = ({
     if (!postTitle.trim() || !postHash.trim()) return;
     setSubmitting(true);
     try {
-      await onPublish({ title: postTitle.trim(), contentHash: postHash.trim(), premium: postPremium });
+      await onPublish({
+        title: postTitle.trim(),
+        contentHash: postHash.trim(),
+        premium: postPremium,
+      });
       setPostTitle("");
       setPostHash("");
       setPostPremium(false);
@@ -157,14 +174,32 @@ const ContentPublishingPanel: React.FC<ContentPublishingPanelProps> = ({
         <header className="rounded-3xl border border-violet-500/20 bg-gradient-to-r from-violet-900/40 to-indigo-900/40 p-6 backdrop-blur-xl">
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-violet-300">Author</p>
-              <h2 className="mt-1 text-2xl font-bold text-white">{profile.name}</h2>
-              <p className="mt-1 max-w-2xl text-sm text-slate-300">{profile.bio}</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-violet-300">
+                Author
+              </p>
+              <h2 className="mt-1 text-2xl font-bold text-white">
+                {profile.name}
+              </h2>
+              <p className="mt-1 max-w-2xl text-sm text-slate-300">
+                {profile.bio}
+              </p>
             </div>
             <dl className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-3">
-              <Stat label="Articles" value={fmtNumber(stats?.articleCount ?? 0)} icon={<BookOpen size={14} />} />
-              <Stat label="Subscribers" value={fmtNumber(stats?.activeSubscribers ?? 0)} icon={<Users size={14} />} />
-              <Stat label="Tips" value={fmtNumber(stats?.totalTips ?? 0)} icon={<Coins size={14} />} />
+              <Stat
+                label="Articles"
+                value={fmtNumber(stats?.articleCount ?? 0)}
+                icon={<BookOpen size={14} />}
+              />
+              <Stat
+                label="Subscribers"
+                value={fmtNumber(stats?.activeSubscribers ?? 0)}
+                icon={<Users size={14} />}
+              />
+              <Stat
+                label="Tips"
+                value={fmtNumber(stats?.totalTips ?? 0)}
+                icon={<Coins size={14} />}
+              />
             </dl>
           </div>
         </header>
@@ -178,7 +213,11 @@ const ContentPublishingPanel: React.FC<ContentPublishingPanelProps> = ({
         </button>
       )}
 
-      <nav role="tablist" aria-label="Content publishing sections" className="flex gap-2">
+      <nav
+        role="tablist"
+        aria-label="Content publishing sections"
+        className="flex gap-2"
+      >
         {(["feed", "studio", "analytics"] as const).map((t) => (
           <button
             key={t}
@@ -268,7 +307,9 @@ const ContentPublishingPanel: React.FC<ContentPublishingPanelProps> = ({
           )}
 
           <div className="space-y-3">
-            <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400">Your articles</h3>
+            <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400">
+              Your articles
+            </h3>
             {articles.length === 0 ? (
               <EmptyState message="No articles yet." />
             ) : (
@@ -278,7 +319,9 @@ const ContentPublishingPanel: React.FC<ContentPublishingPanelProps> = ({
                   article={article}
                   onTip={(amount) => onTip(article.id, amount)}
                   onLike={() => onLike(article.id)}
-                  onSubscribe={(periods) => onSubscribe(article.author, periods)}
+                  onSubscribe={(periods) =>
+                    onSubscribe(article.author, periods)
+                  }
                   compact
                 />
               ))
@@ -294,9 +337,24 @@ const ContentPublishingPanel: React.FC<ContentPublishingPanelProps> = ({
           ) : (
             <>
               <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-                <MetricCard label="Total views" value={fmtNumber(stats.totalViews)} icon={<Eye size={16} />} accent="text-sky-300" />
-                <MetricCard label="Likes" value={fmtNumber(stats.totalLikes)} icon={<Heart size={16} />} accent="text-rose-300" />
-                <MetricCard label="Tips" value={fmtNumber(stats.totalTips)} icon={<Coins size={16} />} accent="text-amber-300" />
+                <MetricCard
+                  label="Total views"
+                  value={fmtNumber(stats.totalViews)}
+                  icon={<Eye size={16} />}
+                  accent="text-sky-300"
+                />
+                <MetricCard
+                  label="Likes"
+                  value={fmtNumber(stats.totalLikes)}
+                  icon={<Heart size={16} />}
+                  accent="text-rose-300"
+                />
+                <MetricCard
+                  label="Tips"
+                  value={fmtNumber(stats.totalTips)}
+                  icon={<Coins size={16} />}
+                  accent="text-amber-300"
+                />
                 <MetricCard
                   label="View → sub rate"
                   value={`${conversionRate.toFixed(2)}%`}
@@ -314,27 +372,54 @@ const ContentPublishingPanel: React.FC<ContentPublishingPanelProps> = ({
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs">
-                      <caption className="sr-only">List of subscribers with subscription details</caption>
+                      <caption className="sr-only">
+                        List of subscribers with subscription details
+                      </caption>
                       <thead className="text-[10px] uppercase tracking-widest text-slate-400">
                         <tr>
-                          <th scope="col" className="px-3 py-2">Subscriber</th>
-                          <th scope="col" className="px-3 py-2">Started</th>
-                          <th scope="col" className="px-3 py-2">Expires</th>
-                          <th scope="col" className="px-3 py-2">Paid</th>
-                          <th scope="col" className="px-3 py-2">Status</th>
+                          <th scope="col" className="px-3 py-2">
+                            Subscriber
+                          </th>
+                          <th scope="col" className="px-3 py-2">
+                            Started
+                          </th>
+                          <th scope="col" className="px-3 py-2">
+                            Expires
+                          </th>
+                          <th scope="col" className="px-3 py-2">
+                            Paid
+                          </th>
+                          <th scope="col" className="px-3 py-2">
+                            Status
+                          </th>
                         </tr>
                       </thead>
                       <tbody className="text-slate-300">
                         {subscribers.map((row) => (
-                          <tr key={row.subscriber} className="border-t border-white/5">
-                            <td className="px-3 py-2 font-mono text-[11px]">{shorten(row.subscriber)}</td>
-                            <td className="px-3 py-2">{new Date(row.startedAt * 1000).toLocaleDateString()}</td>
-                            <td className="px-3 py-2">{new Date(row.expiresAt * 1000).toLocaleDateString()}</td>
+                          <tr
+                            key={row.subscriber}
+                            className="border-t border-white/5"
+                          >
+                            <td className="px-3 py-2 font-mono text-[11px]">
+                              {shorten(row.subscriber)}
+                            </td>
+                            <td className="px-3 py-2">
+                              {new Date(
+                                row.startedAt * 1000,
+                              ).toLocaleDateString()}
+                            </td>
+                            <td className="px-3 py-2">
+                              {new Date(
+                                row.expiresAt * 1000,
+                              ).toLocaleDateString()}
+                            </td>
                             <td className="px-3 py-2">{row.totalPaid}</td>
                             <td className="px-3 py-2">
                               <span
                                 className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                                  row.active ? "bg-emerald-500/15 text-emerald-300" : "bg-slate-700/40 text-slate-400"
+                                  row.active
+                                    ? "bg-emerald-500/15 text-emerald-300"
+                                    : "bg-slate-700/40 text-slate-400"
                                 }`}
                               >
                                 {row.active ? "Active" : "Expired"}
@@ -363,7 +448,10 @@ const ContentPublishingPanel: React.FC<ContentPublishingPanelProps> = ({
             onSubmit={handleRegister}
             className="w-full max-w-md space-y-4 rounded-3xl border border-violet-500/30 bg-slate-900 p-6"
           >
-            <h3 id="cp-register-title" className="text-base font-bold text-white">
+            <h3
+              id="cp-register-title"
+              className="text-base font-bold text-white"
+            >
               Register as an author
             </h3>
             <Field label="Display name" htmlFor="cp-reg-name">
@@ -433,7 +521,11 @@ const ContentPublishingPanel: React.FC<ContentPublishingPanelProps> = ({
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-const Stat: React.FC<{ label: string; value: string; icon: React.ReactNode }> = ({ label, value, icon }) => (
+const Stat: React.FC<{
+  label: string;
+  value: string;
+  icon: React.ReactNode;
+}> = ({ label, value, icon }) => (
   <div className="rounded-xl border border-white/5 bg-white/5 px-3 py-2">
     <dt className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-slate-400">
       {icon}
@@ -443,28 +535,33 @@ const Stat: React.FC<{ label: string; value: string; icon: React.ReactNode }> = 
   </div>
 );
 
-const MetricCard: React.FC<{ label: string; value: string; icon: React.ReactNode; accent: string }> = ({
-  label,
-  value,
-  icon,
-  accent,
-}) => (
+const MetricCard: React.FC<{
+  label: string;
+  value: string;
+  icon: React.ReactNode;
+  accent: string;
+}> = ({ label, value, icon, accent }) => (
   <div className="rounded-2xl border border-white/5 bg-white/5 p-4">
     <div className={`flex items-center gap-2 ${accent}`}>
       {icon}
-      <span className="text-[10px] font-bold uppercase tracking-widest">{label}</span>
+      <span className="text-[10px] font-bold uppercase tracking-widest">
+        {label}
+      </span>
     </div>
     <p className="mt-2 text-2xl font-bold text-white">{value}</p>
   </div>
 );
 
-const Field: React.FC<{ label: string; htmlFor: string; children: React.ReactNode }> = ({
-  label,
-  htmlFor,
-  children,
-}) => (
+const Field: React.FC<{
+  label: string;
+  htmlFor: string;
+  children: React.ReactNode;
+}> = ({ label, htmlFor, children }) => (
   <div className="space-y-1.5">
-    <label htmlFor={htmlFor} className="text-[11px] font-semibold uppercase tracking-widest text-slate-400">
+    <label
+      htmlFor={htmlFor}
+      className="text-[11px] font-semibold uppercase tracking-widest text-slate-400"
+    >
       {label}
     </label>
     {children}
@@ -477,7 +574,8 @@ const EmptyState: React.FC<{ message: string }> = ({ message }) => (
   </div>
 );
 
-const shorten = (addr: string) => (addr.length > 12 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr);
+const shorten = (addr: string) =>
+  addr.length > 12 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
 
 interface ArticleCardProps {
   article: Article;
@@ -487,7 +585,13 @@ interface ArticleCardProps {
   compact?: boolean;
 }
 
-const ArticleCard: React.FC<ArticleCardProps> = ({ article, onTip, onLike, onSubscribe, compact }) => {
+const ArticleCard: React.FC<ArticleCardProps> = ({
+  article,
+  onTip,
+  onLike,
+  onSubscribe,
+  compact,
+}) => {
   const [tipAmount, setTipAmount] = useState("100");
   const [busy, setBusy] = useState<"tip" | "like" | "sub" | null>(null);
 
@@ -527,11 +631,18 @@ const ArticleCard: React.FC<ArticleCardProps> = ({ article, onTip, onLike, onSub
     >
       <header className="flex items-start justify-between gap-4">
         <div>
-          <h4 id={`article-${article.id}-title`} className="text-base font-bold text-white">
+          <h4
+            id={`article-${article.id}-title`}
+            className="text-base font-bold text-white"
+          >
             {article.title}
           </h4>
           <p className="text-xs text-slate-400">
-            By <span className="font-mono">{article.authorName ?? shorten(article.author)}</span> · {fmtTime(article.timestamp)}
+            By{" "}
+            <span className="font-mono">
+              {article.authorName ?? shorten(article.author)}
+            </span>{" "}
+            · {fmtTime(article.timestamp)}
           </p>
         </div>
         {article.premium && (
@@ -540,12 +651,20 @@ const ArticleCard: React.FC<ArticleCardProps> = ({ article, onTip, onLike, onSub
           </span>
         )}
       </header>
-      <p className="mt-2 truncate font-mono text-[11px] text-slate-500">hash: {article.contentHash}</p>
+      <p className="mt-2 truncate font-mono text-[11px] text-slate-500">
+        hash: {article.contentHash}
+      </p>
 
       <footer className="mt-4 flex flex-wrap items-center gap-3 text-xs text-slate-300">
-        <span className="inline-flex items-center gap-1"><Eye size={12} /> {fmtNumber(article.views)}</span>
-        <span className="inline-flex items-center gap-1"><Heart size={12} /> {fmtNumber(article.likes)}</span>
-        <span className="inline-flex items-center gap-1"><Coins size={12} /> {fmtNumber(article.tipsCollected)}</span>
+        <span className="inline-flex items-center gap-1">
+          <Eye size={12} /> {fmtNumber(article.views)}
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <Heart size={12} /> {fmtNumber(article.likes)}
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <Coins size={12} /> {fmtNumber(article.tipsCollected)}
+        </span>
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <button

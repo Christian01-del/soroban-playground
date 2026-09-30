@@ -1,7 +1,7 @@
 import { jest } from '@jest/globals';
 
 // Mock the synthetic assets service
-jest.unstable_mockModule('../src/services/syntheticAssetsService.js', () => ({
+jest.mock('../src/services/syntheticAssetsService.js', () => ({
   syntheticAssetsService: {
     registerAsset: jest.fn(),
     mintSynthetic: jest.fn(),
@@ -21,23 +21,26 @@ jest.unstable_mockModule('../src/services/syntheticAssetsService.js', () => ({
     getMaxMintable: jest.fn(),
     getTradingPnL: jest.fn(),
     getRegisteredAssets: jest.fn(),
+    monitorLiquidations: jest.fn(),
   },
 }));
 
 // Mock auth middleware
-jest.unstable_mockModule('../src/middleware/auth.js', () => ({
+jest.mock('../src/middleware/auth.js', () => ({
   requireAuth: (_req, _res, next) => next(),
 }));
 
 // Mock validation middleware
-jest.unstable_mockModule('../src/middleware/validation.js', () => ({
+jest.mock('../src/middleware/validation.js', () => ({
   validateInput: (_req, _res, next) => next(),
 }));
 
-const { syntheticAssetsService } =
-  await import('../src/services/syntheticAssetsService.js');
-const { default: syntheticAssetsRouter } =
-  await import('../src/routes/v1/synthetic-assets.js');
+const {
+  syntheticAssetsService,
+} = require('../src/services/syntheticAssetsService.js');
+const {
+  default: syntheticAssetsRouter,
+} = require('../src/routes/v1/synthetic-assets.js');
 
 import express from 'express';
 import request from 'supertest';
@@ -60,8 +63,7 @@ beforeEach(() => {
 describe('POST /v1/synthetic-assets/register', () => {
   it('registers new synthetic asset successfully', async () => {
     syntheticAssetsService.registerAsset.mockResolvedValue({
-      success: true,
-      data: { contractId: CONTRACT_ID },
+      contractId: CONTRACT_ID,
     });
 
     const res = await request(app).post('/v1/synthetic-assets/register').send({
@@ -162,8 +164,7 @@ describe('POST /v1/synthetic-assets/mint', () => {
 describe('POST /v1/synthetic-assets/burn', () => {
   it('burns synthetic assets successfully', async () => {
     syntheticAssetsService.burnSynthetic.mockResolvedValue({
-      success: true,
-      data: { burned: '1000000' },
+      burned: '1000000',
     });
 
     const res = await request(app).post('/v1/synthetic-assets/burn').send({
@@ -210,8 +211,7 @@ describe('POST /v1/synthetic-assets/burn', () => {
 describe('POST /v1/synthetic-assets/add-collateral', () => {
   it('adds collateral successfully', async () => {
     syntheticAssetsService.addCollateral.mockResolvedValue({
-      success: true,
-      data: { added: '500000' },
+      added: '500000',
     });
 
     const res = await request(app)
@@ -263,11 +263,7 @@ describe('POST /v1/synthetic-assets/add-collateral', () => {
 
 describe('POST /v1/synthetic-assets/open-trade', () => {
   it('opens trading position successfully', async () => {
-    syntheticAssetsService.openTrade.mockResolvedValue({
-      success: true,
-      positionId: POSITION_ID,
-      data: POSITION_ID,
-    });
+    syntheticAssetsService.openTrade.mockResolvedValue(POSITION_ID);
 
     const res = await request(app)
       .post('/v1/synthetic-assets/open-trade')
@@ -323,11 +319,7 @@ describe('POST /v1/synthetic-assets/open-trade', () => {
 
 describe('POST /v1/synthetic-assets/close-trade', () => {
   it('closes trading position successfully', async () => {
-    syntheticAssetsService.closeTrade.mockResolvedValue({
-      success: true,
-      finalAmount: '1200000',
-      data: '1200000',
-    });
+    syntheticAssetsService.closeTrade.mockResolvedValue('1200000');
 
     const res = await request(app)
       .post('/v1/synthetic-assets/close-trade')
@@ -528,10 +520,7 @@ describe('GET /v1/synthetic-assets/trade/:id', () => {
 
 describe('GET /v1/synthetic-assets/ratio/:id', () => {
   it('gets collateral ratio successfully', async () => {
-    syntheticAssetsService.getCollateralRatio.mockResolvedValue({
-      ratio: '2000000', // 200%
-      healthFactor: '3000000', // 300%
-    });
+    syntheticAssetsService.getCollateralRatio.mockResolvedValue('2000000');
 
     const res = await request(app).get(
       `/v1/synthetic-assets/ratio/${POSITION_ID}`
@@ -561,10 +550,7 @@ describe('GET /v1/synthetic-assets/ratio/:id', () => {
 
 describe('GET /v1/synthetic-assets/health/:id', () => {
   it('gets health factor successfully', async () => {
-    syntheticAssetsService.getHealthFactor.mockResolvedValue({
-      healthFactor: '3000000', // 300%
-      status: 'SAFE',
-    });
+    syntheticAssetsService.getHealthFactor.mockResolvedValue('3000000');
 
     const res = await request(app).get(
       `/v1/synthetic-assets/health/${POSITION_ID}`
@@ -741,11 +727,7 @@ describe('GET /v1/synthetic-assets/assets', () => {
 
 describe('GET /v1/synthetic-assets/max-mintable', () => {
   it('calculates max mintable amount successfully', async () => {
-    syntheticAssetsService.getMaxMintable.mockResolvedValue({
-      maxMintable: '1000000',
-      collateralRequired: '500000',
-      price: '1000000',
-    });
+    syntheticAssetsService.getMaxMintable.mockResolvedValue('1000000');
 
     const res = await request(app)
       .get('/v1/synthetic-assets/max-mintable')
@@ -793,12 +775,7 @@ describe('GET /v1/synthetic-assets/max-mintable', () => {
 
 describe('GET /v1/synthetic-assets/pnl/:id', () => {
   it('gets trading PnL successfully', async () => {
-    syntheticAssetsService.getTradingPnL.mockResolvedValue({
-      pnl: '200000',
-      unrealized: '150000',
-      realized: '50000',
-      timestamp: new Date().toISOString(),
-    });
+    syntheticAssetsService.getTradingPnL.mockResolvedValue('200000');
 
     const res = await request(app).get(
       `/v1/synthetic-assets/pnl/${POSITION_ID}`

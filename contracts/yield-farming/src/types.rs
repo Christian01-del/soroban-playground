@@ -1,7 +1,7 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
-use soroban_sdk::{contracterror, contracttype, Address, String};
+use soroban_sdk::{contracterror, contracttype, Address, String, Vec};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -27,6 +27,18 @@ pub enum Error {
     InvalidApy = 9,
     /// Strategy name must not be empty.
     EmptyName = 10,
+    /// Pool capacity and reward amounts cannot be negative.
+    InvalidPoolConfig = 11,
+    /// Fees and allocation limits must be valid basis-point values.
+    InvalidBasisPoints = 12,
+    /// Risk scores must be between 0 and 100.
+    InvalidRiskScore = 13,
+    /// No active pool satisfies the supplied optimizer constraints.
+    NoOptimizableStrategy = 14,
+    /// Active pools cannot accept the full amount being optimized.
+    InsufficientCapacity = 15,
+    /// A calculation exceeded the supported i128 range.
+    ArithmeticOverflow = 16,
 }
 
 /// Represents a single yield strategy (e.g. a liquidity pool or lending vault).
@@ -59,6 +71,47 @@ pub struct Position {
     pub last_update_ts: u64,
 }
 
+/// Optional optimizer metadata stored separately from [`Strategy`].
+///
+/// Keeping this in a distinct storage entry preserves the encoding of strategy
+/// records created by earlier contract versions.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct PoolConfig {
+    /// Expected reward-token value emitted by the pool per year. When zero,
+    /// the strategy's quoted APY is used as a backwards-compatible fallback.
+    pub annual_rewards: i128,
+    /// Maximum capital accepted by the pool. Zero means unlimited.
+    pub capacity: i128,
+    /// Performance fee charged against gross yield.
+    pub fee_bps: u32,
+    /// Relative risk from 0 (lowest) to 100 (highest).
+    pub risk_score: u32,
+    /// Maximum share of an optimized portfolio assigned to this pool.
+    pub max_allocation_bps: u32,
+}
+
+/// One target produced by the multi-pool optimizer.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct Allocation {
+    pub strategy_id: u32,
+    pub amount: i128,
+    pub weight_bps: u32,
+    /// Fee-adjusted APY at the pool's projected post-allocation TVL.
+    pub projected_apy_bps: u32,
+}
+
+/// Summary of an atomic portfolio rebalance.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct RebalanceResult {
+    pub total_balance: i128,
+    pub previous_weighted_apy_bps: u32,
+    pub new_weighted_apy_bps: u32,
+    pub allocations: Vec<Allocation>,
+}
+
 /// Instance-level storage keys.
 #[contracttype]
 pub enum InstanceKey {
@@ -73,4 +126,6 @@ pub enum DataKey {
     Strategy(u32),
     /// User position: (strategy_id, user_address).
     Position(u32, Address),
+    /// Optional optimizer configuration by strategy ID.
+    PoolConfig(u32),
 }

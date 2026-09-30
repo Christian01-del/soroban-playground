@@ -1,7 +1,15 @@
 "use client";
 
 import React, { useState } from "react";
-import { ShieldCheck, Users, Clock, Plus, CheckCircle, XCircle, PlayCircle } from "lucide-react";
+import {
+  ShieldCheck,
+  Users,
+  Clock,
+  Plus,
+  CheckCircle,
+  XCircle,
+  PlayCircle,
+} from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -12,7 +20,8 @@ export interface SignerData {
   role: SignerRole;
 }
 
-export type TxStatus = "Pending" | "Queued" | "Executed" | "Cancelled" | "Expired";
+export type TxStatus =
+  "Pending" | "Queued" | "Executed" | "Cancelled" | "Expired";
 
 export interface MultisigTx {
   id: number;
@@ -37,7 +46,11 @@ interface Props {
   onAddSigner: (address: string, role: SignerRole) => Promise<void>;
   onRemoveSigner: (address: string) => Promise<void>;
   onChangeThreshold: (t: number) => Promise<void>;
-  onPropose: (description: string, amount: number, recipient?: string) => Promise<void>;
+  onPropose: (
+    description: string,
+    amount: number,
+    recipient?: string,
+  ) => Promise<void>;
   onApprove: (txId: number) => Promise<void>;
   onExecute: (txId: number) => Promise<void>;
   onCancel: (txId: number) => Promise<void>;
@@ -104,8 +117,15 @@ export default function MultisigWalletDashboard({
   // Threshold form
   const [newThreshold, setNewThreshold] = useState(String(threshold));
 
-  const pending = transactions.filter((t) => t.status === "Pending" || t.status === "Queued");
-  const history = transactions.filter((t) => t.status === "Executed" || t.status === "Cancelled" || t.status === "Expired");
+  const pending = transactions.filter(
+    (t) => t.status === "Pending" || t.status === "Queued",
+  );
+  const history = transactions.filter(
+    (t) =>
+      t.status === "Executed" ||
+      t.status === "Cancelled" ||
+      t.status === "Expired",
+  );
 
   return (
     <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
@@ -118,9 +138,13 @@ export default function MultisigWalletDashboard({
           </p>
         </div>
         <div className="flex items-center gap-2 text-xs text-slate-500">
-          <span>{threshold}-of-{signers.length} threshold</span>
+          <span>
+            {threshold}-of-{signers.length} threshold
+          </span>
           {contractId && (
-            <span className="font-mono text-slate-600">{short(contractId)}</span>
+            <span className="font-mono text-slate-600">
+              {short(contractId)}
+            </span>
           )}
         </div>
       </div>
@@ -173,7 +197,11 @@ export default function MultisigWalletDashboard({
             <button
               disabled={isLoading || !contractId || !propDesc.trim()}
               onClick={() => {
-                onPropose(propDesc.trim(), parseInt(propAmount) || 0, propRecipient || undefined);
+                onPropose(
+                  propDesc.trim(),
+                  parseInt(propAmount) || 0,
+                  propRecipient || undefined,
+                );
                 setPropDesc("");
                 setPropAmount("0");
                 setPropRecipient("");
@@ -187,7 +215,9 @@ export default function MultisigWalletDashboard({
           {/* Pending / Queued */}
           {pending.length > 0 && (
             <div className="space-y-2">
-              <p className="text-xs text-slate-500 uppercase tracking-wider">Pending Approval</p>
+              <p className="text-xs text-slate-500 uppercase tracking-wider">
+                Pending Approval
+              </p>
               {pending.map((tx) => (
                 <TxCard
                   key={tx.id}
@@ -205,7 +235,9 @@ export default function MultisigWalletDashboard({
           {/* History */}
           {history.length > 0 && (
             <div className="space-y-2">
-              <p className="text-xs text-slate-500 uppercase tracking-wider">History</p>
+              <p className="text-xs text-slate-500 uppercase tracking-wider">
+                History
+              </p>
               {history.slice(-5).map((tx) => (
                 <TxCard
                   key={tx.id}
@@ -221,7 +253,9 @@ export default function MultisigWalletDashboard({
           )}
 
           {transactions.length === 0 && (
-            <p className="text-center text-xs text-slate-600 py-4">No transactions yet.</p>
+            <p className="text-center text-xs text-slate-600 py-4">
+              No transactions yet.
+            </p>
           )}
         </div>
       )}
@@ -238,8 +272,12 @@ export default function MultisigWalletDashboard({
               >
                 <div className="flex items-center gap-2">
                   <Users size={12} className="text-slate-500" />
-                  <span className="font-mono text-xs text-slate-300">{short(s.address)}</span>
-                  <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${ROLE_COLORS[s.role]}`}>
+                  <span className="font-mono text-xs text-slate-300">
+                    {short(s.address)}
+                  </span>
+                  <span
+                    className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${ROLE_COLORS[s.role]}`}
+                  >
                     {s.role}
                   </span>
                 </div>
@@ -255,7 +293,9 @@ export default function MultisigWalletDashboard({
               </div>
             ))}
             {signers.length === 0 && (
-              <p className="text-center text-xs text-slate-600 py-2">No signers registered.</p>
+              <p className="text-center text-xs text-slate-600 py-2">
+                No signers registered.
+              </p>
             )}
           </div>
 
@@ -277,12 +317,17 @@ export default function MultisigWalletDashboard({
                 className="flex-1 rounded-lg border border-white/10 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 outline-none"
               >
                 {(["Admin", "Operator", "Viewer"] as SignerRole[]).map((r) => (
-                  <option key={r} value={r}>{r}</option>
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
                 ))}
               </select>
               <button
                 disabled={isLoading || !contractId || !newAddr.trim()}
-                onClick={() => { onAddSigner(newAddr.trim(), newRole); setNewAddr(""); }}
+                onClick={() => {
+                  onAddSigner(newAddr.trim(), newRole);
+                  setNewAddr("");
+                }}
                 className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-200 transition hover:bg-emerald-400/20 disabled:opacity-40"
               >
                 Add
@@ -292,7 +337,9 @@ export default function MultisigWalletDashboard({
 
           {/* Change threshold */}
           <div className="rounded-xl border border-white/8 bg-slate-950/50 p-3 space-y-2">
-            <p className="text-xs font-semibold text-slate-400">Change Threshold</p>
+            <p className="text-xs font-semibold text-slate-400">
+              Change Threshold
+            </p>
             <div className="flex gap-2">
               <input
                 type="number"
@@ -304,7 +351,9 @@ export default function MultisigWalletDashboard({
               />
               <button
                 disabled={isLoading || !contractId}
-                onClick={() => onChangeThreshold(parseInt(newThreshold) || threshold)}
+                onClick={() =>
+                  onChangeThreshold(parseInt(newThreshold) || threshold)
+                }
                 className="rounded-full border border-orange-400/30 bg-orange-400/10 px-3 py-1 text-xs font-medium text-orange-200 transition hover:bg-orange-400/20 disabled:opacity-40"
               >
                 Update
@@ -337,16 +386,23 @@ function TxCard({
   const canApprove = tx.status === "Pending";
   const canExecute = tx.status === "Queued";
   const canCancel = tx.status === "Pending" || tx.status === "Queued";
-  const progress = Math.min(100, Math.round((tx.approvals / tx.threshold) * 100));
+  const progress = Math.min(
+    100,
+    Math.round((tx.approvals / tx.threshold) * 100),
+  );
 
   return (
     <div className="rounded-xl border border-white/8 bg-slate-950/50 px-3 py-2 space-y-1.5">
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
           <p className="text-xs text-slate-200 truncate">{tx.description}</p>
-          <p className="text-[10px] text-slate-500 font-mono">#{tx.id} · {short(tx.proposer)}</p>
+          <p className="text-[10px] text-slate-500 font-mono">
+            #{tx.id} · {short(tx.proposer)}
+          </p>
         </div>
-        <span className={`text-[10px] font-semibold ${STATUS_COLORS[tx.status]}`}>
+        <span
+          className={`text-[10px] font-semibold ${STATUS_COLORS[tx.status]}`}
+        >
           {tx.status}
         </span>
       </div>
@@ -359,7 +415,9 @@ function TxCard({
             style={{ width: `${progress}%` }}
           />
         </div>
-        <span className="text-[10px] text-slate-400">{tx.approvals}/{tx.threshold}</span>
+        <span className="text-[10px] text-slate-400">
+          {tx.approvals}/{tx.threshold}
+        </span>
       </div>
 
       {/* Timelock indicator */}

@@ -1,0 +1,85 @@
+// Copyright (c) 2026 StellarDevTools
+// SPDX-License-Identifier: MIT
+//
+// Proto definitions for Soroban Playground microservice communication.
+// Covers contract event streaming, compilation status, and deployment results
+// exchanged between the Express backend and the Rust indexer.
+
+syntax = "proto3";
+
+package soroban_playground;
+
+// ─── Contract Events ─────────────────────────────────────────────────────────
+
+message ContractEvent {
+  string contract_id  = 1; // Strkey-encoded contract address
+  string event_type   = 2; // e.g. "transfer", "mint", "rebase"
+  string ledger_seq   = 3; // Ledger sequence number as string (avoids u64 loss)
+  int64  timestamp    = 4; // Unix epoch seconds
+  string payload_json = 5; // JSON-encoded event data
+}
+
+message EventStreamRequest {
+  string contract_id = 1; // Filter by contract; empty = all contracts
+  int64  since_ts    = 2; // Only events after this timestamp (0 = from start)
+}
+
+message EventStreamResponse {
+  ContractEvent event = 1;
+}
+
+// ─── Compilation status ───────────────────────────────────────────────────────
+
+message CompileStatusRequest {
+  string job_id = 1;
+}
+
+message CompileStatusResponse {
+  string job_id      = 1;
+  string status      = 2; // "pending" | "running" | "success" | "error"
+  string wasm_base64 = 3; // non-empty only when status == "success"
+  string error_log   = 4; // non-empty only when status == "error"
+}
+
+// ─── Deployment results ───────────────────────────────────────────────────────
+
+message DeployRequest {
+  string job_id      = 1;
+  string wasm_base64 = 2;
+  string source_key  = 3; // Stellar keypair seed / alias
+  string network     = 4; // "testnet" | "mainnet"
+}
+
+message DeployResponse {
+  string job_id      = 1;
+  string contract_id = 2; // Deployed contract address
+  string tx_hash     = 3;
+  string status      = 4; // "success" | "error"
+  string error       = 5;
+}
+
+// ─── Health ───────────────────────────────────────────────────────────────────
+
+message HealthRequest {}
+
+message HealthResponse {
+  string status  = 1; // "ok" | "degraded"
+  string version = 2;
+  int64  uptime  = 3; // seconds
+}
+
+// ─── Service definitions ──────────────────────────────────────────────────────
+
+service IndexerService {
+  // Server-streaming: subscribe to live contract events
+  rpc StreamEvents(EventStreamRequest) returns (stream EventStreamResponse);
+
+  // Unary: fetch compilation job status
+  rpc GetCompileStatus(CompileStatusRequest) returns (CompileStatusResponse);
+
+  // Unary: trigger WASM deployment
+  rpc Deploy(DeployRequest) returns (DeployResponse);
+
+  // Unary: liveness probe
+  rpc HealthCheck(HealthRequest) returns (HealthResponse);
+}

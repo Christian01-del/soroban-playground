@@ -12,17 +12,17 @@ A Soroban smart contract for fractional real estate ownership with rental income
 
 ## Contract Interface
 
-| Function | Description |
-|---|---|
-| `initialize(admin)` | One-time setup |
-| `list_property(admin, name, total_shares, price)` | Tokenize a property |
-| `delist_property(admin, id)` | Stop new investments |
-| `deposit_rental(admin, id, amount)` | Deposit rental income |
-| `buy_shares(investor, id, shares)` | Purchase fractional shares |
-| `transfer_shares(from, to, id, shares)` | Transfer shares |
-| `claim_rental(investor, id)` | Claim pro-rata rental income |
-| `claimable_rental(investor, id)` | View claimable amount (read-only) |
-| `get_property(id)` / `get_ownership(investor, id)` | Read data |
+| Function                                           | Description                       |
+| -------------------------------------------------- | --------------------------------- |
+| `initialize(admin)`                                | One-time setup                    |
+| `list_property(admin, name, total_shares, price)`  | Tokenize a property               |
+| `delist_property(admin, id)`                       | Stop new investments              |
+| `deposit_rental(admin, id, amount)`                | Deposit rental income             |
+| `buy_shares(investor, id, shares)`                 | Purchase fractional shares        |
+| `transfer_shares(from, to, id, shares)`            | Transfer shares                   |
+| `claim_rental(investor, id)`                       | Claim pro-rata rental income      |
+| `claimable_rental(investor, id)`                   | View claimable amount (read-only) |
+| `get_property(id)` / `get_ownership(investor, id)` | Read data                         |
 
 ## Build & Test
 

@@ -9,6 +9,7 @@ This implementation adds a comprehensive tiered rate limiting system with persis
 ### Backend
 
 #### 1. Database Schema (`V002__add_rate_limiting.up.sql`)
+
 - `api_keys` - Store API keys with tier assignment, status, and usage tracking
 - `organizations` - Multi-tenant organization support
 - `rate_limit_usage` - Persistent usage tracking per API key and time window
@@ -16,6 +17,7 @@ This implementation adds a comprehensive tiered rate limiting system with persis
 - `audit_log` - Comprehensive audit trail of all API access
 
 #### 2. API Key Service (`apiKeyService.js`)
+
 - Generate new API keys with automatic SHA-256 hashing
 - Validate keys and retrieve tier information
 - Track usage statistics by endpoint and time window
@@ -23,6 +25,7 @@ This implementation adds a comprehensive tiered rate limiting system with persis
 - Audit logging of all operations
 
 #### 3. Tiered Rate Limiter Middleware (`tieredRateLimiter.js`)
+
 - Extract API keys from headers (`x-api-key`) or query parameters (`api_key`)
 - Multi-window rate limiting (per minute, per hour, per day)
 - Tier-based limit enforcement
@@ -30,6 +33,7 @@ This implementation adds a comprehensive tiered rate limiting system with persis
 - Graceful degradation with fail-open strategy
 
 #### 4. Admin API Endpoints (`admin.js`)
+
 ```
 POST   /api/admin/api-keys              - Generate new API key
 GET    /api/admin/api-keys              - List user's API keys
@@ -42,6 +46,7 @@ GET    /api/admin/rate-limits/stats     - Get global statistics
 ### Frontend
 
 #### Rate Limit Dashboard (`frontend/src/app/rate-limits/page.tsx`)
+
 - List all API keys with tier and status
 - View detailed metrics for each key
 - Display real-time rate limit headers
@@ -55,12 +60,12 @@ GET    /api/admin/rate-limits/stats     - Get global statistics
 
 ### Tier Limits (Default)
 
-| Tier | Per Minute | Per Hour | Per Day | Burst |
-|------|-----------|---------|--------|-------|
-| Free | 10 | 100 | 1,000 | 20 |
-| Standard | 100 | 1,000 | 10,000 | 200 |
-| Premium | 1,000 | 10,000 | 100,000 | 2,000 |
-| Admin | 10,000 | 100,000 | 1,000,000 | 20,000 |
+| Tier     | Per Minute | Per Hour | Per Day   | Burst  |
+| -------- | ---------- | -------- | --------- | ------ |
+| Free     | 10         | 100      | 1,000     | 20     |
+| Standard | 100        | 1,000    | 10,000    | 200    |
+| Premium  | 1,000      | 10,000   | 100,000   | 2,000  |
+| Admin    | 10,000     | 100,000  | 1,000,000 | 20,000 |
 
 These can be customized in the `tier_limits` table.
 
@@ -69,6 +74,7 @@ These can be customized in the `tier_limits` table.
 ### 1. Generate an API Key
 
 Using the dashboard (`/rate-limits`):
+
 1. Click "Generate API Key"
 2. Enter key name and optional description
 3. Select tier (free, standard, premium, admin)
@@ -76,6 +82,7 @@ Using the dashboard (`/rate-limits`):
 5. Copy and save securely
 
 Or via API:
+
 ```bash
 curl -X POST http://localhost:5000/api/admin/api-keys \
   -H "Content-Type: application/json" \
@@ -89,11 +96,13 @@ curl -X POST http://localhost:5000/api/admin/api-keys \
 ### 2. Use API Key in Requests
 
 Via Header (Recommended):
+
 ```bash
 curl -H "x-api-key: sk_..." http://localhost:5000/api/compile
 ```
 
 Via Query Parameter:
+
 ```bash
 curl http://localhost:5000/api/compile?api_key=sk_...
 ```
@@ -101,6 +110,7 @@ curl http://localhost:5000/api/compile?api_key=sk_...
 ### 3. Monitor Rate Limit Status
 
 Response headers include:
+
 ```
 X-RateLimit-Limit-Minute: 100
 X-RateLimit-Remaining-Minute: 95
@@ -114,6 +124,7 @@ X-RateLimit-Tier: premium
 ### 4. Handle Rate Limit Errors
 
 When rate limit exceeded (HTTP 429):
+
 ```json
 {
   "error": "Too Many Requests",
@@ -132,11 +143,13 @@ When rate limit exceeded (HTTP 429):
 ### Load Testing
 
 Run concurrent request test to verify rate limiting enforcement:
+
 ```bash
 node backend/tests/load-test.js
 ```
 
 Tests:
+
 - Different tiers enforce correct limits
 - No race conditions with concurrent requests
 - Proper rate limit headers in responses
@@ -145,11 +158,13 @@ Tests:
 ### Persistence Testing
 
 Verify data persists across server restarts:
+
 ```bash
 node backend/tests/persistence-test.js
 ```
 
 Checks:
+
 - API keys stored in SQLite database
 - Schema tables created on startup
 - Data survives server restart
@@ -159,6 +174,7 @@ Checks:
 ### Rate Limit Algorithm
 
 Uses **Sliding Window Counter** strategy with Redis for efficiency:
+
 - O(1) time complexity for checks
 - Redis Lua scripts for atomic operations
 - Falls back to in-memory LRU cache if Redis unavailable
@@ -182,18 +198,19 @@ Uses **Sliding Window Counter** strategy with Redis for efficiency:
 
 ## Acceptance Criteria Status
 
-| Criteria | Status | Details |
-|----------|--------|---------|
-| Different tiers enforce correct rate limits | ✅ | 4 tiers with distinct limits |
-| API key authentication works with header and query param | ✅ | Both `x-api-key` header and `api_key` param supported |
-| Rate limit headers present in all API responses | ✅ | X-RateLimit-* headers added |
-| Frontend dashboard displays real-time usage metrics | ✅ | Dashboard shows usage, violations, endpoints |
-| Rate limits persist across server restarts | ✅ | SQLite persistence with migrations |
-| Load test confirms no race conditions | ✅ | Concurrent test script included |
+| Criteria                                                 | Status | Details                                               |
+| -------------------------------------------------------- | ------ | ----------------------------------------------------- |
+| Different tiers enforce correct rate limits              | ✅     | 4 tiers with distinct limits                          |
+| API key authentication works with header and query param | ✅     | Both `x-api-key` header and `api_key` param supported |
+| Rate limit headers present in all API responses          | ✅     | X-RateLimit-* headers added                           |
+| Frontend dashboard displays real-time usage metrics      | ✅     | Dashboard shows usage, violations, endpoints          |
+| Rate limits persist across server restarts               | ✅     | SQLite persistence with migrations                    |
+| Load test confirms no race conditions                    | ✅     | Concurrent test script included                       |
 
 ## Files Modified/Created
 
 ### Backend
+
 - `backend/migrations/V002__add_rate_limiting.up.sql` - Database schema migration
 - `backend/migrations/V002__add_rate_limiting.down.sql` - Rollback migration
 - `backend/src/database/schema.sql` - Updated main schema
@@ -205,6 +222,7 @@ Uses **Sliding Window Counter** strategy with Redis for efficiency:
 - `backend/tests/persistence-test.js` - Persistence testing script
 
 ### Frontend
+
 - `frontend/src/app/rate-limits/page.tsx` - Rate limit dashboard UI
 
 ## Future Enhancements

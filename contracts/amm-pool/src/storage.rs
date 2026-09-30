@@ -3,12 +3,15 @@
 
 use soroban_sdk::{Address, Env};
 
-use crate::types::{DataKey, Error, InstanceKey};
+use crate::types::{DataKey, DynamicFeeConfig, Error, InstanceKey, VolatilityState};
 
 macro_rules! instance_get {
     ($fn:ident, $key:ident, $t:ty, $default:expr) => {
         pub fn $fn(env: &Env) -> $t {
-            env.storage().instance().get(&InstanceKey::$key).unwrap_or($default)
+            env.storage()
+                .instance()
+                .get(&InstanceKey::$key)
+                .unwrap_or($default)
         }
     };
 }
@@ -29,20 +32,29 @@ pub fn set_admin(env: &Env, a: &Address) {
 }
 #[allow(dead_code)]
 pub fn get_admin(env: &Env) -> Result<Address, Error> {
-    env.storage().instance().get(&InstanceKey::Admin).ok_or(Error::NotInitialized)
+    env.storage()
+        .instance()
+        .get(&InstanceKey::Admin)
+        .ok_or(Error::NotInitialized)
 }
 
 pub fn set_token_a(env: &Env, a: &Address) {
     env.storage().instance().set(&InstanceKey::TokenA, a);
 }
 pub fn get_token_a(env: &Env) -> Result<Address, Error> {
-    env.storage().instance().get(&InstanceKey::TokenA).ok_or(Error::NotInitialized)
+    env.storage()
+        .instance()
+        .get(&InstanceKey::TokenA)
+        .ok_or(Error::NotInitialized)
 }
 pub fn set_token_b(env: &Env, a: &Address) {
     env.storage().instance().set(&InstanceKey::TokenB, a);
 }
 pub fn get_token_b(env: &Env) -> Result<Address, Error> {
-    env.storage().instance().get(&InstanceKey::TokenB).ok_or(Error::NotInitialized)
+    env.storage()
+        .instance()
+        .get(&InstanceKey::TokenB)
+        .ok_or(Error::NotInitialized)
 }
 
 instance_get!(get_reserve_a, ReserveA, i128, 0);
@@ -60,14 +72,52 @@ instance_set!(set_last_ts, LastTimestamp, u64);
 instance_get!(get_fee_bps, FeeBps, i128, 30);
 instance_set!(set_fee_bps, FeeBps, i128);
 
+pub fn get_dynamic_fee_config(env: &Env) -> Option<DynamicFeeConfig> {
+    env.storage().instance().get(&InstanceKey::DynamicFeeConfig)
+}
+
+pub fn set_dynamic_fee_config(env: &Env, config: &DynamicFeeConfig) {
+    env.storage()
+        .instance()
+        .set(&InstanceKey::DynamicFeeConfig, config);
+}
+
+pub fn remove_dynamic_fee_config(env: &Env) {
+    env.storage()
+        .instance()
+        .remove(&InstanceKey::DynamicFeeConfig);
+}
+
+pub fn get_volatility_state(env: &Env) -> VolatilityState {
+    env.storage()
+        .instance()
+        .get(&InstanceKey::VolatilityState)
+        .unwrap_or(VolatilityState {
+            ema_volatility_bps: 0,
+            last_price: 0,
+            last_timestamp: env.ledger().timestamp(),
+        })
+}
+
+pub fn set_volatility_state(env: &Env, state: &VolatilityState) {
+    env.storage()
+        .instance()
+        .set(&InstanceKey::VolatilityState, state);
+}
+
 // ── LP balances ───────────────────────────────────────────────────────────────
 
 pub fn get_lp(env: &Env, addr: &Address) -> i128 {
-    env.storage().persistent().get(&DataKey::Lp(addr.clone())).unwrap_or(0)
+    env.storage()
+        .persistent()
+        .get(&DataKey::Lp(addr.clone()))
+        .unwrap_or(0)
 }
 
 pub fn set_lp(env: &Env, addr: &Address, amount: i128) {
-    env.storage().persistent().set(&DataKey::Lp(addr.clone()), &amount);
+    env.storage()
+        .persistent()
+        .set(&DataKey::Lp(addr.clone()), &amount);
 }
 
 // ── NFT Collection Analytics ──────────────────────────────────────────────────
@@ -84,13 +134,20 @@ pub fn get_collection_stats(env: &Env) -> Option<crate::types::CollectionStats> 
 }
 
 pub fn set_collection_stats(env: &Env, stats: &crate::types::CollectionStats) {
-    env.storage().persistent().set(&DataKey::CollectionStats, stats);
+    env.storage()
+        .persistent()
+        .set(&DataKey::CollectionStats, stats);
 }
 
 pub fn get_floor_price(env: &Env) -> i128 {
-    env.storage().persistent().get(&DataKey::NftFloorPrice).unwrap_or(0)
+    env.storage()
+        .persistent()
+        .get(&DataKey::NftFloorPrice)
+        .unwrap_or(0)
 }
 
 pub fn set_floor_price(env: &Env, price: i128) {
-    env.storage().persistent().set(&DataKey::NftFloorPrice, &price);
+    env.storage()
+        .persistent()
+        .set(&DataKey::NftFloorPrice, &price);
 }

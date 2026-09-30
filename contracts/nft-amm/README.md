@@ -14,20 +14,22 @@ This contract implements a sudoswap-style NFT AMM where:
 
 ## Pool Types
 
-| Type | Holds | Trades | Fee |
-|------|-------|--------|-----|
-| **Buy** | Tokens | Buys NFTs from users | No fee |
-| **Sell** | NFTs | Sells NFTs to users | No fee |
-| **Trade** | Both | Buys and sells | Earns spread |
+| Type      | Holds  | Trades               | Fee          |
+| --------- | ------ | -------------------- | ------------ |
+| **Buy**   | Tokens | Buys NFTs from users | No fee       |
+| **Sell**  | NFTs   | Sells NFTs to users  | No fee       |
+| **Trade** | Both   | Buys and sells       | Earns spread |
 
 ## Bonding Curves
 
 ### Linear
+
 - **Buy**: `new_price = spot_price + delta`
 - **Sell**: `new_price = spot_price - delta`
 - **Delta**: Fixed amount in stroops (e.g. 1 XLM = 10,000,000)
 
 ### Exponential
+
 - **Buy**: `new_price = spot_price * (1 + delta/10000)`
 - **Sell**: `new_price = spot_price * (1 - delta/10000)`
 - **Delta**: Percentage in basis points (e.g. 500 = 5%)
@@ -35,11 +37,13 @@ This contract implements a sudoswap-style NFT AMM where:
 ## Contract Functions
 
 ### Initialisation
+
 ```rust
 fn initialize(env: Env, admin: Address, protocol_fee_bps: Option<i128>) -> Result<(), Error>
 ```
 
 ### Pool Management
+
 ```rust
 fn create_pool(env, owner, nft_collection, payment_token, curve, pool_type, spot_price, delta, fee_bps) -> Result<u32, Error>
 fn deposit_tokens(env, owner, pool_id, amount) -> Result<(), Error>
@@ -51,12 +55,14 @@ fn update_pool_params(env, owner, pool_id, new_spot_price, new_delta) -> Result<
 ```
 
 ### Trading
+
 ```rust
 fn buy_nft(env, buyer, pool_id, max_price) -> Result<(u64, i128), Error>
 fn sell_nft(env, seller, pool_id, nft_id, min_price) -> Result<i128, Error>
 ```
 
 ### Admin
+
 ```rust
 fn set_paused(env, admin, paused) -> Result<(), Error>
 fn collect_protocol_fees(env, admin, token_address, amount) -> Result<(), Error>
@@ -64,6 +70,7 @@ fn set_protocol_fee(env, admin, fee_bps) -> Result<(), Error>
 ```
 
 ### Queries
+
 ```rust
 fn get_pool(env, pool_id) -> Result<Pool, Error>
 fn pool_count(env) -> u32

@@ -24,8 +24,10 @@ jest.mock('../src/services/syntheticAssetsService.js', () => ({
 // Test with mocks
 describe('Synthetic Assets Service Mocks', () => {
   it('should mock service methods correctly', () => {
-    const { syntheticAssetsService } = require('../src/services/syntheticAssetsService.js');
-    
+    const {
+      syntheticAssetsService,
+    } = require('../src/services/syntheticAssetsService.js');
+
     // Verify mocks are available
     expect(typeof syntheticAssetsService.registerAsset).toBe('function');
     expect(typeof syntheticAssetsService.mintSynthetic).toBe('function');

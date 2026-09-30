@@ -1,12 +1,15 @@
 # PR Merge Status & Instructions
 
 ## ✅ Successfully Merged (13 PRs)
+
 These PRs have been successfully merged into main:
+
 - #378, #379, #381, #382, #383, #384, #385, #387, #389, #399, #402, #405, #406
 
 ## ⏳ Remaining PRs with Merge Conflicts (16 PRs)
 
 ### PR List:
+
 1. **#380** - feat: implement DAO Treasury system (Owner: Chidubemkingsley, Branch: impl/autono-org-multisig)
 2. **#386** - Develop Lottery Contract (Owner: Jeyvers, Branch: feat/lottery-system)
 3. **#388** - Create Decentralized Freelancer Escrow (Owner: ?, Branch: feat/escrow-tracking)
@@ -45,7 +48,7 @@ git merge origin/main
 git checkout --theirs <conflicted_file>
 git add <conflicted_file>
 
-#    Option B: Accept PR's version (ours)  
+#    Option B: Accept PR's version (ours)
 git checkout --ours <conflicted_file>
 git add <conflicted_file>
 
@@ -89,6 +92,7 @@ gh pr merge <NUMBER> --squash --delete-branch
 ## 🎯 Recommendation
 
 For production code, I recommend:
+
 1. Review each PR individually
 2. Test the merged code locally
 3. Resolve conflicts carefully to preserve important changes

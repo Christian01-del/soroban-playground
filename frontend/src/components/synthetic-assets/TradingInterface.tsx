@@ -3,12 +3,12 @@
  * Allows users to open and manage leveraged trading positions
  */
 
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import { useSyntheticAssetsAPI } from '@/hooks/useSyntheticAssetsAPI';
+import React, { useState, useEffect } from "react";
+import { useSyntheticAssetsAPI } from "@/hooks/useSyntheticAssetsAPI";
 
-type TradeDirection = 'Long' | 'Short';
+type TradeDirection = "Long" | "Short";
 
 interface ProtocolParams {
   minCollateralRatio: number;
@@ -32,9 +32,9 @@ const TradingInterface: React.FC<TradingInterfaceProps> = ({
   protocolParams,
   onTradeOpen,
 }) => {
-  const [direction, setDirection] = useState<TradeDirection>('Long');
-  const [margin, setMargin] = useState('');
-  const [leverage, setLeverage] = useState('2');
+  const [direction, setDirection] = useState<TradeDirection>("Long");
+  const [margin, setMargin] = useState("");
+  const [leverage, setLeverage] = useState("2");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -46,13 +46,14 @@ const TradingInterface: React.FC<TradingInterfaceProps> = ({
   useEffect(() => {
     if (currentPrice && margin) {
       const leverageMultiplier = parseInt(leverage) / 10000;
-      const marginRatio = (parseInt(margin) / (parseInt(margin) * leverageMultiplier)) * 100;
-      
-      if (direction === 'Long') {
-        const liqPrice = currentPrice - (currentPrice * marginRatio / 100);
+      const marginRatio =
+        (parseInt(margin) / (parseInt(margin) * leverageMultiplier)) * 100;
+
+      if (direction === "Long") {
+        const liqPrice = currentPrice - (currentPrice * marginRatio) / 100;
         setLiquidationPrice(liqPrice);
       } else {
-        const liqPrice = currentPrice + (currentPrice * marginRatio / 100);
+        const liqPrice = currentPrice + (currentPrice * marginRatio) / 100;
         setLiquidationPrice(liqPrice);
       }
     }
@@ -64,7 +65,7 @@ const TradingInterface: React.FC<TradingInterfaceProps> = ({
       setError(null);
 
       if (!margin || !leverage) {
-        setError('Please enter margin and leverage');
+        setError("Please enter margin and leverage");
         return;
       }
 
@@ -75,19 +76,21 @@ const TradingInterface: React.FC<TradingInterfaceProps> = ({
         leverage: parseInt(leverage),
       });
 
-      setSuccess('Trade opened successfully');
-      setMargin('');
-      setLeverage('2');
+      setSuccess("Trade opened successfully");
+      setMargin("");
+      setLeverage("2");
       onTradeOpen();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to open trade');
+      setError(err instanceof Error ? err.message : "Failed to open trade");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const notionalValue = margin ? parseInt(margin) * (parseInt(leverage) / 10000) : 0;
-  const fee = notionalValue * (protocolParams?.feePercentage || 0) / 10000;
+  const notionalValue = margin
+    ? parseInt(margin) * (parseInt(leverage) / 10000)
+    : 0;
+  const fee = (notionalValue * (protocolParams?.feePercentage || 0)) / 10000;
 
   return (
     <div className="trading-interface">
@@ -100,14 +103,14 @@ const TradingInterface: React.FC<TradingInterfaceProps> = ({
         {/* Direction Selection */}
         <div className="direction-selector">
           <button
-            className={`direction-btn ${direction === 'Long' ? 'active long' : ''}`}
-            onClick={() => setDirection('Long')}
+            className={`direction-btn ${direction === "Long" ? "active long" : ""}`}
+            onClick={() => setDirection("Long")}
           >
             📈 Long
           </button>
           <button
-            className={`direction-btn ${direction === 'Short' ? 'active short' : ''}`}
-            onClick={() => setDirection('Short')}
+            className={`direction-btn ${direction === "Short" ? "active short" : ""}`}
+            onClick={() => setDirection("Short")}
           >
             📉 Short
           </button>
@@ -119,7 +122,7 @@ const TradingInterface: React.FC<TradingInterfaceProps> = ({
           <input
             type="number"
             value={margin}
-            onChange={e => setMargin(e.target.value)}
+            onChange={(e) => setMargin(e.target.value)}
             placeholder="0.00"
             min="0"
           />
@@ -132,7 +135,7 @@ const TradingInterface: React.FC<TradingInterfaceProps> = ({
           <input
             type="range"
             value={leverage}
-            onChange={e => setLeverage(e.target.value)}
+            onChange={(e) => setLeverage(e.target.value)}
             min="10000"
             max="100000"
             step="5000"
@@ -148,7 +151,9 @@ const TradingInterface: React.FC<TradingInterfaceProps> = ({
         <div className="trading-calcs">
           <div className="calc-item">
             <label>Current Price</label>
-            <span>${currentPrice ? (currentPrice / 100000000).toFixed(8) : '—'}</span>
+            <span>
+              ${currentPrice ? (currentPrice / 100000000).toFixed(8) : "—"}
+            </span>
           </div>
           <div className="calc-item">
             <label>Notional Value</label>
@@ -160,8 +165,11 @@ const TradingInterface: React.FC<TradingInterfaceProps> = ({
           </div>
           <div className="calc-item">
             <label>Liquidation Price</label>
-            <span className={direction === 'Long' ? 'danger' : 'success'}>
-              ${liquidationPrice ? (liquidationPrice / 100000000).toFixed(8) : '—'}
+            <span className={direction === "Long" ? "danger" : "success"}>
+              $
+              {liquidationPrice
+                ? (liquidationPrice / 100000000).toFixed(8)
+                : "—"}
             </span>
           </div>
         </div>
@@ -170,9 +178,9 @@ const TradingInterface: React.FC<TradingInterfaceProps> = ({
         <div className="risk-warning">
           <strong>⚠️ Risk Warning:</strong>
           <p>
-            {direction === 'Long'
-              ? `Your position will be liquidated if ${assetSymbol} falls below $${liquidationPrice ? (liquidationPrice / 100000000).toFixed(8) : '&apos;&mdash;&apos;'}`
-              : `Your position will be liquidated if ${assetSymbol} rises above $${liquidationPrice ? (liquidationPrice / 100000000).toFixed(8) : '&apos;&mdash;&apos;'}`}
+            {direction === "Long"
+              ? `Your position will be liquidated if ${assetSymbol} falls below $${liquidationPrice ? (liquidationPrice / 100000000).toFixed(8) : "&apos;&mdash;&apos;"}`
+              : `Your position will be liquidated if ${assetSymbol} rises above $${liquidationPrice ? (liquidationPrice / 100000000).toFixed(8) : "&apos;&mdash;&apos;"}`}
           </p>
         </div>
 
@@ -181,7 +189,7 @@ const TradingInterface: React.FC<TradingInterfaceProps> = ({
           onClick={handleOpenTrade}
           disabled={isSubmitting || !margin || !leverage}
         >
-          {isSubmitting ? 'Opening...' : `Open ${direction} Position`}
+          {isSubmitting ? "Opening..." : `Open ${direction} Position`}
         </button>
       </div>
 
@@ -199,8 +207,8 @@ const TradingInterface: React.FC<TradingInterfaceProps> = ({
         <div className="info-item">
           <strong>Liquidation</strong>
           <p>
-            If your positions losses exceed your margin, it will be automatically liquidated
-            to prevent further losses.
+            If your positions losses exceed your margin, it will be
+            automatically liquidated to prevent further losses.
           </p>
         </div>
       </div>

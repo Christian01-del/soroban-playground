@@ -38,8 +38,9 @@ describe('audit log + crash recovery', () => {
     // Now A waits for B's BATCH key, B waits for A's PROJECT key — cycle.
     // We must use the *same* deadlock detector for both managers to see
     // the cycle, so wire that explicitly.
-    const { sharedDeadlockDetector } =
-      await import('../../src/services/oracle/index.js');
+    const {
+      sharedDeadlockDetector,
+    } = require('../../src/services/oracle/index.js');
     const a2 = new LockManager({
       backend,
       nodeId: 'A2',

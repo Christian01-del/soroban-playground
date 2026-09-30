@@ -10,13 +10,13 @@ is designed to show how a contract can:
 
 ## Contract at a glance
 
-| Area | Purpose |
-| --- | --- |
-| `initialize(admin, options)` | Creates the poll and stores the allowed options |
-| `vote(voter, option)` | Records a first vote or moves an existing vote |
-| Read functions | Expose poll configuration and current results |
-| Storage helpers | Keep persistence logic separate from contract entrypoints |
-| Typed errors | Return clear failures for invalid states and inputs |
+| Area                         | Purpose                                                   |
+| ---------------------------- | --------------------------------------------------------- |
+| `initialize(admin, options)` | Creates the poll and stores the allowed options           |
+| `vote(voter, option)`        | Records a first vote or moves an existing vote            |
+| Read functions               | Expose poll configuration and current results             |
+| Storage helpers              | Keep persistence logic separate from contract entrypoints |
+| Typed errors                 | Return clear failures for invalid states and inputs       |
 
 ## How the contract works
 
@@ -62,16 +62,16 @@ This means the contract demonstrates both:
 
 After votes are recorded, the contract exposes several read helpers:
 
-| Function | What it returns |
-| --- | --- |
-| `is_initialized()` | Whether the poll has been configured |
-| `get_admin()` | The admin address |
-| `get_options()` | The list of allowed options |
-| `is_option_registered(option)` | Whether one option is valid |
-| `get_vote(voter)` | The voter’s current selection |
-| `has_voted(voter)` | Whether the voter has voted |
-| `get_votes(option)` | The total votes for one option |
-| `total_voters()` | The number of unique voters |
+| Function                       | What it returns                      |
+| ------------------------------ | ------------------------------------ |
+| `is_initialized()`             | Whether the poll has been configured |
+| `get_admin()`                  | The admin address                    |
+| `get_options()`                | The list of allowed options          |
+| `is_option_registered(option)` | Whether one option is valid          |
+| `get_vote(voter)`              | The voter’s current selection        |
+| `has_voted(voter)`             | Whether the voter has voted          |
+| `get_votes(option)`            | The total votes for one option       |
+| `total_voters()`               | The number of unique voters          |
 
 ## On-chain state model
 
@@ -102,23 +102,24 @@ This split keeps configuration and aggregated counters easy to reason about.
 
 The contract returns explicit errors for common invalid states:
 
-| Error | Meaning |
-| --- | --- |
-| `AlreadyInitialized` | The poll was already created |
-| `NotInitialized` | A read or vote was attempted before setup |
-| `EmptyOptions` | The poll was initialized with no options |
-| `DuplicateOption` | The options list contains duplicates |
-| `UnknownOption` | A vote targeted an option that was not registered |
+| Error                | Meaning                                                   |
+| -------------------- | --------------------------------------------------------- |
+| `AlreadyInitialized` | The poll was already created                              |
+| `NotInitialized`     | A read or vote was attempted before setup                 |
+| `EmptyOptions`       | The poll was initialized with no options                  |
+| `DuplicateOption`    | The options list contains duplicates                      |
+| `UnknownOption`      | A vote targeted an option that was not registered         |
+| `InvalidState`       | The stored vote counts were inconsistent during an update |
 
 ## Project structure
 
-| File | Responsibility |
-| --- | --- |
-| `src/lib.rs` | Public contract API and voting flow |
-| `src/storage.rs` | Storage access helpers |
-| `src/types.rs` | Errors and storage key definitions |
-| `src/test.rs` | Unit tests for initialization and voting behavior |
-| `Makefile` | Local build and test commands |
+| File             | Responsibility                                    |
+| ---------------- | ------------------------------------------------- |
+| `src/lib.rs`     | Public contract API and voting flow               |
+| `src/storage.rs` | Storage access helpers                            |
+| `src/types.rs`   | Errors and storage key definitions                |
+| `src/test.rs`    | Unit tests for initialization and voting behavior |
+| `Makefile`       | Local build and test commands                     |
 
 ## Local commands
 

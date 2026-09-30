@@ -1,9 +1,17 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 import { ChevronRight, DollarSign } from "lucide-react";
 import Link from "next/link";
-import StablecoinDashboard from "../../components/StablecoinDashboard";
+
+// Chart.js is deferred into its own chunk and only requested when this route renders.
+const StablecoinDashboard = dynamic(() => import("../../components/StablecoinDashboard"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-72 animate-pulse rounded-2xl border border-white/10 bg-white/5" />
+  ),
+});
 
 interface StablecoinMetrics {
   totalSupply: string;
@@ -52,11 +60,21 @@ interface ContractStatus {
 
 export default function StablecoinPage() {
   const [isLoading, setIsLoading] = useState(true);
-  const [metrics, setMetrics] = useState<StablecoinMetrics | undefined>(undefined);
-  const [priceHistory, setPriceHistory] = useState<PricePoint[] | undefined>(undefined);
-  const [rebaseHistory, setRebaseHistory] = useState<RebaseEvent[] | undefined>(undefined);
-  const [reserveInfo, setReserveInfo] = useState<ReserveInfo | undefined>(undefined);
-  const [contractStatus, setContractStatus] = useState<ContractStatus | undefined>(undefined);
+  const [metrics, setMetrics] = useState<StablecoinMetrics | undefined>(
+    undefined,
+  );
+  const [priceHistory, setPriceHistory] = useState<PricePoint[] | undefined>(
+    undefined,
+  );
+  const [rebaseHistory, setRebaseHistory] = useState<RebaseEvent[] | undefined>(
+    undefined,
+  );
+  const [reserveInfo, setReserveInfo] = useState<ReserveInfo | undefined>(
+    undefined,
+  );
+  const [contractStatus, setContractStatus] = useState<
+    ContractStatus | undefined
+  >(undefined);
 
   useEffect(() => {
     // Fetch data from API
@@ -90,9 +108,11 @@ export default function StablecoinPage() {
             return {
               price: Math.round((1.0 + variance) * 10000000),
               target_price: 10000000,
-              timestamp: new Date(Date.now() - (30 - i) * 24 * 60 * 60 * 1000).toISOString(),
+              timestamp: new Date(
+                Date.now() - (30 - i) * 24 * 60 * 60 * 1000,
+              ).toISOString(),
             };
-          })
+          }),
         );
 
         setRebaseHistory([
@@ -221,22 +241,29 @@ export default function StablecoinPage() {
 
         {/* Documentation */}
         <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
-          <h2 className="text-lg font-semibold mb-4">About the Algorithmic Stablecoin</h2>
+          <h2 className="text-lg font-semibold mb-4">
+            About the Algorithmic Stablecoin
+          </h2>
           <div className="grid md:grid-cols-2 gap-6 text-sm text-slate-400">
             <div>
-              <h3 className="text-slate-200 font-medium mb-2">Stability Mechanism</h3>
+              <h3 className="text-slate-200 font-medium mb-2">
+                Stability Mechanism
+              </h3>
               <p className="leading-relaxed">
-                The stablecoin maintains its peg through algorithmic rebasing. When the price
-                deviates from the $1.00 target, the protocol automatically adjusts the total
-                supply through expansion or contraction mechanisms.
+                The stablecoin maintains its peg through algorithmic rebasing.
+                When the price deviates from the $1.00 target, the protocol
+                automatically adjusts the total supply through expansion or
+                contraction mechanisms.
               </p>
             </div>
             <div>
-              <h3 className="text-slate-200 font-medium mb-2">Reserve Backing</h3>
+              <h3 className="text-slate-200 font-medium mb-2">
+                Reserve Backing
+              </h3>
               <p className="leading-relaxed">
-                A diversified reserve of XLM, USDC, and BTC backs each stablecoin token,
-                providing additional stability during market volatility. The collateralization
-                ratio is maintained above 95%.
+                A diversified reserve of XLM, USDC, and BTC backs each
+                stablecoin token, providing additional stability during market
+                volatility. The collateralization ratio is maintained above 95%.
               </p>
             </div>
           </div>

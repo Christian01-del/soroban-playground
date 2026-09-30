@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import React, { useState, useRef } from 'react';
-import { Search, Upload, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import React, { useState, useRef } from "react";
+import { Search, Upload, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 
 interface NotaryRecord {
   fileHash: string;
@@ -14,16 +14,16 @@ interface NotaryRecord {
 
 async function sha256Hex(file: File): Promise<string> {
   const buffer = await file.arrayBuffer();
-  const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
   return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 export default function VerifyForm() {
-  const [hashInput, setHashInput] = useState('');
+  const [hashInput, setHashInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const [record, setRecord] = useState<NotaryRecord | null>(null);
   const [notFound, setNotFound] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -35,18 +35,18 @@ export default function VerifyForm() {
     setHashInput(hash);
     setRecord(null);
     setNotFound(false);
-    setError('');
+    setError("");
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const hash = hashInput.trim();
     if (!/^[0-9a-fA-F]{64}$/.test(hash)) {
-      setError('Please enter a valid 64-character hex hash or upload a file.');
+      setError("Please enter a valid 64-character hex hash or upload a file.");
       return;
     }
     setLoading(true);
-    setError('');
+    setError("");
     setRecord(null);
     setNotFound(false);
     try {
@@ -56,10 +56,10 @@ export default function VerifyForm() {
         return;
       }
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message ?? 'Verification failed');
+      if (!res.ok) throw new Error(json.message ?? "Verification failed");
       setRecord(json.data);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
+      setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setLoading(false);
     }
@@ -71,7 +71,9 @@ export default function VerifyForm() {
         <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
           <Search className="w-6 h-6 text-purple-600 dark:text-purple-400" />
         </div>
-        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Verify File</h2>
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
+          Verify File
+        </h2>
       </div>
 
       <form onSubmit={handleSubmit} noValidate aria-label="Verify file form">
@@ -84,7 +86,9 @@ export default function VerifyForm() {
             aria-label="Upload file to compute hash"
           >
             <Upload className="w-5 h-5" />
-            <span className="text-sm font-medium">Upload file to auto-fill hash</span>
+            <span className="text-sm font-medium">
+              Upload file to auto-fill hash
+            </span>
           </button>
           <input
             ref={fileInputRef}
@@ -111,7 +115,7 @@ export default function VerifyForm() {
               setHashInput(e.target.value);
               setRecord(null);
               setNotFound(false);
-              setError('');
+              setError("");
             }}
             placeholder="64-character hex string"
             className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
@@ -120,7 +124,10 @@ export default function VerifyForm() {
         </div>
 
         {error && (
-          <p role="alert" className="text-sm text-red-600 dark:text-red-400 mb-4">
+          <p
+            role="alert"
+            className="text-sm text-red-600 dark:text-red-400 mb-4"
+          >
             {error}
           </p>
         )}
@@ -137,7 +144,7 @@ export default function VerifyForm() {
               Verifying…
             </>
           ) : (
-            'Verify File'
+            "Verify File"
           )}
         </button>
       </form>
@@ -172,11 +179,11 @@ export default function VerifyForm() {
             <span
               className={`font-semibold ${
                 record.verified
-                  ? 'text-green-800 dark:text-green-300'
-                  : 'text-red-700 dark:text-red-400'
+                  ? "text-green-800 dark:text-green-300"
+                  : "text-red-700 dark:text-red-400"
               }`}
             >
-              {record.verified ? 'Verified' : 'Revoked'}
+              {record.verified ? "Verified" : "Revoked"}
             </span>
           </div>
           <dl className="text-sm space-y-1 text-slate-700 dark:text-slate-300">

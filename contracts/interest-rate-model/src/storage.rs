@@ -53,8 +53,8 @@ pub fn get_tier(env: &Env, index: u32) -> Option<RateTier> {
         .instance()
         .get(&key)
         .unwrap_or_else(|| Vec::new(env));
-    if (index as usize) < tiers.len() {
-        tiers.get(index as usize)
+    if index < tiers.len() {
+        tiers.get(index)
     } else {
         None
     }

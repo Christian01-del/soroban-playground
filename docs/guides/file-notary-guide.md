@@ -113,6 +113,7 @@ curl -X POST http://localhost:5000/api/notary/notarize \
 ```
 
 Response:
+
 ```json
 {
   "success": true,
@@ -127,6 +128,7 @@ curl http://localhost:5000/api/notary/verify/a3f1e2d4b5c6a7b8c9d0e1f2a3b4c5d6e7f
 ```
 
 Response:
+
 ```json
 {
   "success": true,
@@ -178,11 +180,11 @@ curl "http://localhost:5000/api/notary/history?page=1&limit=20"
 
 ## Troubleshooting
 
-| Problem | Cause | Fix |
-|---|---|---|
-| `409 File already notarized` | Hash already on-chain | Each file can only be notarized once |
-| `400 fileHash must be 64-character hex` | Wrong hash format | Use SHA-256 (64 hex chars) |
-| `403 Unauthorized` on revoke | Wrong caller address | Only the original owner can revoke |
-| `429 Too Many Requests` | Rate limit (10 req/min) | Wait 60 seconds and retry |
-| Contract call fails | `NOTARY_CONTRACT_ID` not set | Set the env var and restart backend |
-| SQLite locked | Concurrent writes | Restart backend; SQLite is single-writer |
+| Problem                                 | Cause                        | Fix                                      |
+| --------------------------------------- | ---------------------------- | ---------------------------------------- |
+| `409 File already notarized`            | Hash already on-chain        | Each file can only be notarized once     |
+| `400 fileHash must be 64-character hex` | Wrong hash format            | Use SHA-256 (64 hex chars)               |
+| `403 Unauthorized` on revoke            | Wrong caller address         | Only the original owner can revoke       |
+| `429 Too Many Requests`                 | Rate limit (10 req/min)      | Wait 60 seconds and retry                |
+| Contract call fails                     | `NOTARY_CONTRACT_ID` not set | Set the env var and restart backend      |
+| SQLite locked                           | Concurrent writes            | Restart backend; SQLite is single-writer |

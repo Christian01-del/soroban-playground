@@ -4,13 +4,18 @@
 // SPDX-License-Identifier: MIT
 
 import React, { useState, useEffect, useCallback } from "react";
-import QuadraticVotingDashboard, { QVProposal } from "../../components/QuadraticVotingDashboard";
+import QuadraticVotingDashboard, {
+  QVProposal,
+} from "../../components/QuadraticVotingDashboard";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000";
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ??
+  (process.env.NEXT_PUBLIC_BACKEND_URL ||
+    "https://soroban-playground.onrender.com");
 
 export default function QuadraticVotingPage() {
   const [contractId, setContractId] = useState(
-    process.env.NEXT_PUBLIC_QV_CONTRACT_ID ?? ""
+    process.env.NEXT_PUBLIC_QV_CONTRACT_ID ?? "",
   );
   const [walletAddress] = useState<string | undefined>(undefined);
   const [proposals, setProposals] = useState<QVProposal[]>([]);
@@ -29,7 +34,7 @@ export default function QuadraticVotingPage() {
     setError("");
     try {
       const countRes = await fetch(
-        `${API_BASE}/api/quadratic-voting/proposals/count?contractId=${encodeURIComponent(contractId)}`
+        `${API_BASE}/api/quadratic-voting/proposals/count?contractId=${encodeURIComponent(contractId)}`,
       );
       const countData = await countRes.json();
       if (!countData.success) throw new Error(countData.error);
@@ -38,7 +43,7 @@ export default function QuadraticVotingPage() {
       const fetched: QVProposal[] = [];
       for (let i = 0; i < count; i++) {
         const res = await fetch(
-          `${API_BASE}/api/quadratic-voting/proposals/${i}?contractId=${encodeURIComponent(contractId)}`
+          `${API_BASE}/api/quadratic-voting/proposals/${i}?contractId=${encodeURIComponent(contractId)}`,
         );
         const data = await res.json();
         if (data.success) {
@@ -68,7 +73,7 @@ export default function QuadraticVotingPage() {
     if (!contractId) return;
     try {
       const res = await fetch(
-        `${API_BASE}/api/quadratic-voting/status?contractId=${encodeURIComponent(contractId)}`
+        `${API_BASE}/api/quadratic-voting/status?contractId=${encodeURIComponent(contractId)}`,
       );
       const data = await res.json();
       if (data.success) setIsPaused(data.data.paused);
@@ -87,13 +92,18 @@ export default function QuadraticVotingPage() {
       const res = await fetch(`${API_BASE}/api/quadratic-voting/proposals`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contractId, admin: walletAddress, title, description }),
+        body: JSON.stringify({
+          contractId,
+          admin: walletAddress,
+          title,
+          description,
+        }),
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
       await fetchProposals();
     },
-    [contractId, walletAddress, fetchProposals]
+    [contractId, walletAddress, fetchProposals],
   );
 
   const handleVote = useCallback(
@@ -101,13 +111,19 @@ export default function QuadraticVotingPage() {
       const res = await fetch(`${API_BASE}/api/quadratic-voting/vote`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contractId, voter: walletAddress, proposalId, credits, isFor }),
+        body: JSON.stringify({
+          contractId,
+          voter: walletAddress,
+          proposalId,
+          credits,
+          isFor,
+        }),
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
       await fetchProposals();
     },
-    [contractId, walletAddress, fetchProposals]
+    [contractId, walletAddress, fetchProposals],
   );
 
   const handleFinalize = useCallback(
@@ -118,13 +134,13 @@ export default function QuadraticVotingPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ contractId }),
-        }
+        },
       );
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
       await fetchProposals();
     },
-    [contractId, fetchProposals]
+    [contractId, fetchProposals],
   );
 
   const handleWhitelist = useCallback(
@@ -132,12 +148,17 @@ export default function QuadraticVotingPage() {
       const res = await fetch(`${API_BASE}/api/quadratic-voting/whitelist`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contractId, admin: walletAddress, voter, allow }),
+        body: JSON.stringify({
+          contractId,
+          admin: walletAddress,
+          voter,
+          allow,
+        }),
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
     },
-    [contractId, walletAddress]
+    [contractId, walletAddress],
   );
 
   const handlePause = useCallback(async () => {
@@ -176,7 +197,10 @@ export default function QuadraticVotingPage() {
             aria-label="Contract ID"
           />
           <button
-            onClick={() => { fetchProposals(); fetchStatus(); }}
+            onClick={() => {
+              fetchProposals();
+              fetchStatus();
+            }}
             className="bg-cyan-700 hover:bg-cyan-600 text-white text-sm px-4 py-2 rounded transition-colors"
             aria-label="Refresh proposals"
           >

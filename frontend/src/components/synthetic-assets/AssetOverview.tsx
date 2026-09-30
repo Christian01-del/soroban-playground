@@ -3,9 +3,9 @@
  * Displays asset information and key metrics
  */
 
-'use client';
+"use client";
 
-import React from 'react';
+import React from "react";
 
 interface Asset {
   symbol: string;
@@ -21,10 +21,14 @@ interface AssetOverviewProps {
 
 const AssetOverview: React.FC<AssetOverviewProps> = ({ asset, price }) => {
   if (!asset) {
-    return <div className="asset-overview loading">Select an asset to view details</div>;
+    return (
+      <div className="asset-overview loading">
+        Select an asset to view details
+      </div>
+    );
   }
 
-  const formattedPrice = price ? (price / 100000000).toFixed(8) : '—';
+  const formattedPrice = price ? (price / 100000000).toFixed(8) : "—";
   const formattedSupply = asset.totalSupply / Math.pow(10, asset.decimals);
 
   return (
@@ -56,8 +60,8 @@ const AssetOverview: React.FC<AssetOverviewProps> = ({ asset, price }) => {
 
       <div className="asset-description">
         <p>
-          This synthetic asset is backed by collateral and can be traded on the Stellar network.
-          Manage your positions using the controls above.
+          This synthetic asset is backed by collateral and can be traded on the
+          Stellar network. Manage your positions using the controls above.
         </p>
       </div>
     </div>

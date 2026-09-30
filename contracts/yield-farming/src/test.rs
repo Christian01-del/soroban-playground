@@ -21,11 +21,7 @@ fn setup() -> (Env, Address, YieldFarmingContractClient<'static>) {
     (env, admin, client)
 }
 
-fn add_default_strategy(
-    env: &Env,
-    client: &YieldFarmingContractClient,
-    admin: &Address,
-) -> u32 {
+fn add_default_strategy(env: &Env, client: &YieldFarmingContractClient, admin: &Address) -> u32 {
     client.add_strategy(admin, &String::from_str(env, "LP Pool A"), &1000) // 10% APY
 }
 
@@ -33,20 +29,20 @@ fn add_default_strategy(
 
 #[test]
 fn test_initialize_sets_admin() {
-    let (env, admin, client) = setup();
+    let (_env, admin, client) = setup();
     assert_eq!(client.get_admin(), admin);
 }
 
 #[test]
 fn test_initialize_twice_fails() {
-    let (env, admin, client) = setup();
+    let (_env, admin, client) = setup();
     let result = client.try_initialize(&admin);
     assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
 }
 
 #[test]
 fn test_is_initialized_true_after_init() {
-    let (env, _admin, client) = setup();
+    let (_env, _admin, client) = setup();
     assert!(client.is_initialized());
 }
 
@@ -302,4 +298,154 @@ fn test_two_users_independent_positions() {
     assert_eq!(client.get_position(&alice, &id).deposited, 3_000_000);
     assert_eq!(client.get_position(&bob, &id).deposited, 7_000_000);
     assert_eq!(client.get_strategy(&id).total_deposited, 10_000_000);
+}
+
+// -- Production optimizer ----------------------------------------------------
+
+#[test]
+fn test_legacy_strategy_has_backwards_compatible_pool_defaults() {
+    let (env, admin, client) = setup();
+    let id = add_default_strategy(&env, &client, &admin);
+
+    let config = client.get_pool_config(&id);
+    assert_eq!(config.annual_rewards, 0);
+    assert_eq!(config.capacity, 0);
+    assert_eq!(config.max_allocation_bps, 10_000);
+    assert_eq!(client.dynamic_apy(&id, &1_000_000), 1_000);
+}
+
+#[test]
+fn test_configure_pool_validates_production_limits() {
+    let (env, admin, client) = setup();
+    let id = add_default_strategy(&env, &client, &admin);
+
+    assert_eq!(
+        client.try_configure_pool(&admin, &id, &0, &-1, &0, &0, &10_000),
+        Err(Ok(Error::InvalidPoolConfig))
+    );
+    assert_eq!(
+        client.try_configure_pool(&admin, &id, &0, &0, &10_001, &0, &10_000),
+        Err(Ok(Error::InvalidBasisPoints))
+    );
+    assert_eq!(
+        client.try_configure_pool(&admin, &id, &0, &0, &0, &101, &10_000),
+        Err(Ok(Error::InvalidRiskScore))
+    );
+}
+
+#[test]
+fn test_dynamic_apy_tracks_tvl_dilution_and_fees() {
+    let (env, admin, client) = setup();
+    let id = add_default_strategy(&env, &client, &admin);
+    let user = Address::generate(&env);
+    client.deposit(&user, &id, &1_000_000);
+    client.configure_pool(&admin, &id, &100_000, &3_000_000, &1_000, &10, &10_000);
+
+    assert_eq!(client.dynamic_apy(&id, &0), 900);
+    assert_eq!(client.dynamic_apy(&id, &1_000_000), 450);
+    assert_eq!(
+        client.try_dynamic_apy(&id, &3_000_000),
+        Err(Ok(Error::InsufficientCapacity))
+    );
+}
+
+#[test]
+fn test_optimizer_returns_exact_diversified_allocation() {
+    let (env, admin, client) = setup();
+    let low = client.add_strategy(&admin, &String::from_str(&env, "Low"), &500);
+    let medium = client.add_strategy(&admin, &String::from_str(&env, "Medium"), &1_000);
+    let high = client.add_strategy(&admin, &String::from_str(&env, "High"), &1_500);
+    client.configure_pool(&admin, &low, &0, &0, &0, &5, &5_000);
+    client.configure_pool(&admin, &medium, &0, &0, &0, &10, &5_000);
+    client.configure_pool(&admin, &high, &0, &0, &0, &20, &5_000);
+
+    let allocations = client.optimize_allocation(&1_000_000, &20);
+    assert_eq!(allocations.len(), 3);
+    assert_eq!(
+        allocations.iter().map(|a| a.amount).sum::<i128>(),
+        1_000_000
+    );
+    assert_eq!(
+        allocations.iter().map(|a| a.weight_bps).sum::<u32>(),
+        10_000
+    );
+    assert!(allocations.iter().all(|a| a.amount <= 500_000));
+}
+
+#[test]
+fn test_optimizer_enforces_risk_and_capacity() {
+    let (env, admin, client) = setup();
+    let safe = client.add_strategy(&admin, &String::from_str(&env, "Safe"), &600);
+    let risky = client.add_strategy(&admin, &String::from_str(&env, "Risky"), &2_000);
+    client.configure_pool(&admin, &safe, &0, &600_000, &0, &10, &10_000);
+    client.configure_pool(&admin, &risky, &0, &0, &0, &90, &10_000);
+
+    assert_eq!(
+        client.try_optimize_allocation(&1_000_000, &20),
+        Err(Ok(Error::InsufficientCapacity))
+    );
+    let allocations = client.optimize_allocation(&500_000, &20);
+    assert_eq!(allocations.len(), 1);
+    assert_eq!(allocations.get(0).unwrap().strategy_id, safe);
+}
+
+#[test]
+fn test_compound_all_reinvests_every_pool_and_updates_tvl() {
+    let (env, admin, client) = setup();
+    let first = client.add_strategy(&admin, &String::from_str(&env, "First"), &1_000);
+    let second = client.add_strategy(&admin, &String::from_str(&env, "Second"), &2_000);
+    let user = Address::generate(&env);
+    client.deposit(&user, &first, &1_000_000);
+    client.deposit(&user, &second, &2_000_000);
+    env.ledger()
+        .with_mut(|ledger| ledger.timestamp += 31_536_000);
+
+    assert_eq!(client.compound_all(&user), 500_000);
+    assert_eq!(
+        client.get_position(&user, &first).compounded_balance,
+        1_100_000
+    );
+    assert_eq!(
+        client.get_position(&user, &second).compounded_balance,
+        2_400_000
+    );
+    assert_eq!(client.get_strategy(&first).total_deposited, 1_100_000);
+    assert_eq!(client.get_strategy(&second).total_deposited, 2_400_000);
+}
+
+#[test]
+fn test_rebalance_moves_full_portfolio_across_multiple_pools() {
+    let (env, admin, client) = setup();
+    let low = client.add_strategy(&admin, &String::from_str(&env, "Low"), &300);
+    let mid = client.add_strategy(&admin, &String::from_str(&env, "Mid"), &900);
+    let high = client.add_strategy(&admin, &String::from_str(&env, "High"), &1_500);
+    client.configure_pool(&admin, &low, &0, &0, &0, &5, &5_000);
+    client.configure_pool(&admin, &mid, &0, &0, &0, &10, &5_000);
+    client.configure_pool(&admin, &high, &0, &0, &0, &15, &5_000);
+    let user = Address::generate(&env);
+    client.deposit(&user, &low, &1_000_000);
+
+    let result = client.rebalance(&user, &20);
+    assert_eq!(result.total_balance, 1_000_000);
+    assert!(result.new_weighted_apy_bps > result.previous_weighted_apy_bps);
+    assert_eq!(
+        result.allocations.iter().map(|a| a.amount).sum::<i128>(),
+        1_000_000
+    );
+    assert!(client.try_get_position(&user, &low).is_ok());
+    assert!(client.try_get_position(&user, &mid).is_ok());
+    assert!(client.try_get_position(&user, &high).is_ok());
+}
+
+#[test]
+fn test_rebalance_rejects_when_portfolio_cannot_improve() {
+    let (env, admin, client) = setup();
+    let only = add_default_strategy(&env, &client, &admin);
+    let user = Address::generate(&env);
+    client.deposit(&user, &only, &1_000_000);
+
+    assert_eq!(
+        client.try_rebalance(&user, &100),
+        Err(Ok(Error::NoOptimizableStrategy))
+    );
 }

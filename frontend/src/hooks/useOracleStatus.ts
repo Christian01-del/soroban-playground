@@ -23,7 +23,10 @@ export type OracleProof = {
   status: "voting" | "submitted" | "no_quorum" | "failed";
   submittedAt: number;
   votes: OracleVote[];
-  consensus: { totalVotes: number; results: Array<{ vote: unknown; count: number }> } | null;
+  consensus: {
+    totalVotes: number;
+    results: Array<{ vote: unknown; count: number }>;
+  } | null;
   leader: string | null;
   result: unknown;
   error: string | null;
@@ -35,7 +38,10 @@ export type OracleEvent = {
   proofId?: string;
   nodeId?: string;
   vote?: unknown;
-  tally?: { totalVotes: number; results: Array<{ vote: unknown; count: number }> };
+  tally?: {
+    totalVotes: number;
+    results: Array<{ vote: unknown; count: number }>;
+  };
   threshold?: number;
   submission?: unknown;
   error?: string;
@@ -55,11 +61,16 @@ interface UseOracleStatusApi {
   health: Record<string, unknown> | null;
   loading: boolean;
   error: string | null;
-  submitProof: (payload: unknown, metadata?: Record<string, unknown>) => Promise<OracleProof | null>;
+  submitProof: (
+    payload: unknown,
+    metadata?: Record<string, unknown>,
+  ) => Promise<OracleProof | null>;
   refresh: () => Promise<void>;
 }
 
-export function useOracleStatus(options: UseOracleStatusOptions = {}): UseOracleStatusApi {
+export function useOracleStatus(
+  options: UseOracleStatusOptions = {},
+): UseOracleStatusApi {
   const apiBase = options.apiBase ?? "/api/oracle";
   const pollMs = options.pollMs ?? 5000;
   const maxEvents = options.maxEvents ?? 50;
@@ -111,7 +122,7 @@ export function useOracleStatus(options: UseOracleStatusOptions = {}): UseOracle
         return null;
       }
     },
-    [apiBase]
+    [apiBase],
   );
 
   useEffect(() => {
@@ -162,5 +173,14 @@ export function useOracleStatus(options: UseOracleStatusOptions = {}): UseOracle
     };
   }, [options.wsUrl, maxEvents, refresh]);
 
-  return { nodes, proofs, events, health, loading, error, submitProof, refresh };
+  return {
+    nodes,
+    proofs,
+    events,
+    health,
+    loading,
+    error,
+    submitProof,
+    refresh,
+  };
 }

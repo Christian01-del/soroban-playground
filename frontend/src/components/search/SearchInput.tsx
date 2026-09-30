@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, X, Clock, TrendingUp } from 'lucide-react';
-import searchService from '../../services/searchService';
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { Search, X, Clock, TrendingUp } from "lucide-react";
+import searchService from "../../services/searchService";
 
 interface SearchInputProps {
   onSearch: (query: string) => void;
@@ -11,15 +11,15 @@ interface SearchInputProps {
 
 interface AutocompleteSuggestion {
   suggestion: string;
-  type: 'title' | 'category' | 'creator';
+  type: "title" | "category" | "creator";
   total_matches: number;
 }
 
 const SearchInput: React.FC<SearchInputProps> = ({
   onSearch,
-  placeholder = 'Search projects...',
-  className = '',
-  initialValue = ''
+  placeholder = "Search projects...",
+  className = "",
+  initialValue = "",
 }) => {
   const [query, setQuery] = useState(initialValue);
   const [suggestions, setSuggestions] = useState<AutocompleteSuggestion[]>([]);
@@ -27,7 +27,7 @@ const SearchInput: React.FC<SearchInputProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [popularSearches, setPopularSearches] = useState<string[]>([]);
   const [showPopular, setShowPopular] = useState(false);
-  
+
   const inputRef = useRef<HTMLInputElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -72,8 +72,8 @@ const SearchInput: React.FC<SearchInputProps> = ({
       }
     };
 
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   const loadPopularSearches = async () => {
@@ -81,7 +81,7 @@ const SearchInput: React.FC<SearchInputProps> = ({
       const popular = await searchService.getPopularSearches(5);
       setPopularSearches(popular.map((p: any) => p.query));
     } catch (error) {
-      console.error('Failed to load popular searches:', error);
+      console.error("Failed to load popular searches:", error);
     }
   };
 
@@ -90,12 +90,15 @@ const SearchInput: React.FC<SearchInputProps> = ({
 
     setIsLoading(true);
     try {
-      const results = await searchService.getAutocompleteSuggestions(searchQuery, 8);
+      const results = await searchService.getAutocompleteSuggestions(
+        searchQuery,
+        8,
+      );
       setSuggestions(results);
       setShowSuggestions(true);
       setShowPopular(false);
     } catch (error) {
-      console.error('Failed to fetch suggestions:', error);
+      console.error("Failed to fetch suggestions:", error);
       setSuggestions([]);
     } finally {
       setIsLoading(false);
@@ -105,7 +108,7 @@ const SearchInput: React.FC<SearchInputProps> = ({
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setQuery(value);
-    
+
     if (value.length === 0) {
       setShowSuggestions(false);
     }
@@ -130,7 +133,7 @@ const SearchInput: React.FC<SearchInputProps> = ({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
+    if (e.key === "Escape") {
       setShowSuggestions(false);
       setShowPopular(false);
       inputRef.current?.blur();
@@ -138,7 +141,7 @@ const SearchInput: React.FC<SearchInputProps> = ({
   };
 
   const handleClear = () => {
-    setQuery('');
+    setQuery("");
     setSuggestions([]);
     setShowSuggestions(false);
     setShowPopular(false);
@@ -155,11 +158,11 @@ const SearchInput: React.FC<SearchInputProps> = ({
 
   const getSuggestionIcon = (type: string) => {
     switch (type) {
-      case 'title':
+      case "title":
         return <Search className="w-4 h-4 text-blue-500" />;
-      case 'category':
+      case "category":
         return <TrendingUp className="w-4 h-4 text-green-500" />;
-      case 'creator':
+      case "creator":
         return <Clock className="w-4 h-4 text-purple-500" />;
       default:
         return <Search className="w-4 h-4 text-gray-500" />;
@@ -168,18 +171,18 @@ const SearchInput: React.FC<SearchInputProps> = ({
 
   const highlightMatch = (text: string, query: string) => {
     if (!query) return text;
-    
-    const regex = new RegExp(`(${query})`, 'gi');
+
+    const regex = new RegExp(`(${query})`, "gi");
     const parts = text.split(regex);
-    
-    return parts.map((part, index) => 
+
+    return parts.map((part, index) =>
       regex.test(part) ? (
         <span key={index} className="font-semibold text-blue-600 bg-blue-50">
           {part}
         </span>
       ) : (
         <span key={index}>{part}</span>
-      )
+      ),
     );
   };
 

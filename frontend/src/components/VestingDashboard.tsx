@@ -58,7 +58,10 @@ interface VestingDashboardProps {
   }) => Promise<void>;
   onRelease: (scheduleId: number) => Promise<void>;
   onRevoke: (scheduleId: number) => Promise<void>;
-  onApproveMilestone: (scheduleId: number, milestoneIndex: number) => Promise<void>;
+  onApproveMilestone: (
+    scheduleId: number,
+    milestoneIndex: number,
+  ) => Promise<void>;
 }
 
 export default function VestingDashboard({
@@ -170,7 +173,9 @@ export default function VestingDashboard({
                 : "text-gray-500 hover:text-gray-300"
             }`}
           >
-            {t === "schedules" ? `Schedules (${schedules.length})` : "New Schedule"}
+            {t === "schedules"
+              ? `Schedules (${schedules.length})`
+              : "New Schedule"}
           </button>
         ))}
       </div>
@@ -184,14 +189,19 @@ export default function VestingDashboard({
             </p>
           ) : (
             schedules.map((s) => (
-              <div key={s.id} className="border border-gray-800 rounded-lg overflow-hidden">
+              <div
+                key={s.id}
+                className="border border-gray-800 rounded-lg overflow-hidden"
+              >
                 <button
                   onClick={() => setExpanded(expanded === s.id ? null : s.id)}
                   className="w-full flex items-start justify-between p-3 text-left hover:bg-gray-800/50 transition-colors"
                 >
                   <div className="flex-1 min-w-0 pr-2">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-mono text-gray-400">#{s.id}</span>
+                      <span className="text-xs font-mono text-gray-400">
+                        #{s.id}
+                      </span>
                       <span className="text-xs text-gray-200 truncate">
                         {s.beneficiary.slice(0, 8)}…{s.beneficiary.slice(-4)}
                       </span>
@@ -205,68 +215,94 @@ export default function VestingDashboard({
                       >
                         <div
                           className="absolute inset-y-0 left-0 bg-violet-500"
-                          style={{ width: `${releasedPercent(s) > 0 ? (releasedPercent(s) / vestedPercent(s, nowSec())) * 100 : 0}%` }}
+                          style={{
+                            width: `${releasedPercent(s) > 0 ? (releasedPercent(s) / vestedPercent(s, nowSec())) * 100 : 0}%`,
+                          }}
                         />
                       </div>
                     </div>
                     <p className="text-[10px] text-gray-500 mt-1">
-                      {releasedPercent(s)}% released · {vestedPercent(s, nowSec())}% vested ·{" "}
+                      {releasedPercent(s)}% released ·{" "}
+                      {vestedPercent(s, nowSec())}% vested ·{" "}
                       {s.totalAmount.toLocaleString()} total
                     </p>
                   </div>
                   {expanded === s.id ? (
-                    <ChevronUp size={14} className="text-gray-500 shrink-0 mt-1" />
+                    <ChevronUp
+                      size={14}
+                      className="text-gray-500 shrink-0 mt-1"
+                    />
                   ) : (
-                    <ChevronDown size={14} className="text-gray-500 shrink-0 mt-1" />
+                    <ChevronDown
+                      size={14}
+                      className="text-gray-500 shrink-0 mt-1"
+                    />
                   )}
                 </button>
 
                 {expanded === s.id && (
                   <div className="border-t border-gray-800 p-3 space-y-3 bg-gray-950/50">
                     <div className="grid grid-cols-2 gap-2 text-xs">
-                      <InfoRow label="Token" value={`${s.token.slice(0, 8)}…`} />
-                      <InfoRow label="Total" value={s.totalAmount.toLocaleString()} />
-                      <InfoRow label="Released" value={s.releasedAmount.toLocaleString()} />
+                      <InfoRow
+                        label="Token"
+                        value={`${s.token.slice(0, 8)}…`}
+                      />
+                      <InfoRow
+                        label="Total"
+                        value={s.totalAmount.toLocaleString()}
+                      />
+                      <InfoRow
+                        label="Released"
+                        value={s.releasedAmount.toLocaleString()}
+                      />
                       <InfoRow
                         label="Cliff"
-                        value={new Date(s.cliffTimestamp * 1000).toLocaleDateString()}
+                        value={new Date(
+                          s.cliffTimestamp * 1000,
+                        ).toLocaleDateString()}
                       />
                     </div>
 
                     {/* Milestones */}
-                    {s.vestingType === "Milestone" && s.milestones.length > 0 && (
-                      <div className="space-y-1.5">
-                        <p className="text-[10px] text-gray-500 uppercase tracking-wider">
-                          Milestones
-                        </p>
-                        {s.milestones.map((m) => (
-                          <div
-                            key={m.index}
-                            className="flex items-center justify-between p-2 rounded bg-gray-900 border border-gray-800"
-                          >
-                            <div className="flex items-center gap-2">
-                              {m.approved ? (
-                                <CheckCircle2 size={12} className="text-emerald-400" />
-                              ) : (
-                                <Clock size={12} className="text-gray-500" />
+                    {s.vestingType === "Milestone" &&
+                      s.milestones.length > 0 && (
+                        <div className="space-y-1.5">
+                          <p className="text-[10px] text-gray-500 uppercase tracking-wider">
+                            Milestones
+                          </p>
+                          {s.milestones.map((m) => (
+                            <div
+                              key={m.index}
+                              className="flex items-center justify-between p-2 rounded bg-gray-900 border border-gray-800"
+                            >
+                              <div className="flex items-center gap-2">
+                                {m.approved ? (
+                                  <CheckCircle2
+                                    size={12}
+                                    className="text-emerald-400"
+                                  />
+                                ) : (
+                                  <Clock size={12} className="text-gray-500" />
+                                )}
+                                <span className="text-xs text-gray-300">
+                                  Milestone {m.index + 1} · {m.pctBps / 100}%
+                                </span>
+                              </div>
+                              {!m.approved && !s.revoked && (
+                                <button
+                                  onClick={() =>
+                                    onApproveMilestone(s.id, m.index)
+                                  }
+                                  disabled={isLoading}
+                                  className="text-[10px] px-2 py-0.5 bg-emerald-900/30 hover:bg-emerald-900/50 border border-emerald-800/50 text-emerald-400 rounded transition-colors"
+                                >
+                                  Approve
+                                </button>
                               )}
-                              <span className="text-xs text-gray-300">
-                                Milestone {m.index + 1} · {m.pctBps / 100}%
-                              </span>
                             </div>
-                            {!m.approved && !s.revoked && (
-                              <button
-                                onClick={() => onApproveMilestone(s.id, m.index)}
-                                disabled={isLoading}
-                                className="text-[10px] px-2 py-0.5 bg-emerald-900/30 hover:bg-emerald-900/50 border border-emerald-800/50 text-emerald-400 rounded transition-colors"
-                              >
-                                Approve
-                              </button>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                          ))}
+                        </div>
+                      )}
 
                     {/* Actions */}
                     {!s.revoked && (
@@ -383,7 +419,9 @@ export default function VestingDashboard({
                     value={m.hash}
                     onChange={(e) =>
                       setMilestones((prev) =>
-                        prev.map((x, j) => (j === i ? { ...x, hash: e.target.value } : x))
+                        prev.map((x, j) =>
+                          j === i ? { ...x, hash: e.target.value } : x,
+                        ),
                       )
                     }
                     placeholder={`Hash ${i + 1}`}
@@ -394,7 +432,9 @@ export default function VestingDashboard({
                     value={m.bps}
                     onChange={(e) =>
                       setMilestones((prev) =>
-                        prev.map((x, j) => (j === i ? { ...x, bps: e.target.value } : x))
+                        prev.map((x, j) =>
+                          j === i ? { ...x, bps: e.target.value } : x,
+                        ),
                       )
                     }
                     placeholder="bps"
@@ -406,7 +446,11 @@ export default function VestingDashboard({
           )}
 
           <button
-            onClick={createType === "Linear" ? handleCreateLinear : handleCreateMilestone}
+            onClick={
+              createType === "Linear"
+                ? handleCreateLinear
+                : handleCreateMilestone
+            }
             disabled={isLoading || !beneficiary || !token || !amount}
             className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium bg-violet-600 hover:bg-violet-500 disabled:bg-gray-800 disabled:text-gray-600 text-white transition-colors"
           >
@@ -428,7 +472,13 @@ export default function VestingDashboard({
 const inputCls =
   "w-full bg-gray-950 border border-gray-800 rounded-md py-1.5 px-2 text-xs text-gray-200 focus:outline-none focus:border-violet-500 font-mono";
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div>
       <label className="block text-[10px] text-gray-500 mb-1 uppercase tracking-wider">
@@ -442,13 +492,21 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-[10px] text-gray-500 uppercase tracking-wider">{label}</p>
+      <p className="text-[10px] text-gray-500 uppercase tracking-wider">
+        {label}
+      </p>
       <p className="text-xs text-gray-300 font-mono truncate">{value}</p>
     </div>
   );
 }
 
-function VestingBadge({ type, revoked }: { type: VestingType; revoked: boolean }) {
+function VestingBadge({
+  type,
+  revoked,
+}: {
+  type: VestingType;
+  revoked: boolean;
+}) {
   if (revoked)
     return (
       <span className="text-[10px] px-1.5 py-0.5 rounded border bg-rose-900/30 text-rose-400 border-rose-800/50">
@@ -490,5 +548,7 @@ function vestedPercent(s: VestingScheduleData, ts: number): number {
 }
 
 function releasedPercent(s: VestingScheduleData): number {
-  return s.totalAmount === 0 ? 0 : Math.round((s.releasedAmount / s.totalAmount) * 100);
+  return s.totalAmount === 0
+    ? 0
+    : Math.round((s.releasedAmount / s.totalAmount) * 100);
 }

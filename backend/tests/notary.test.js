@@ -1,19 +1,23 @@
 import { jest } from '@jest/globals';
 
-jest.unstable_mockModule('../src/services/notaryService.js', () => ({
+jest.mock('../src/services/notaryService.js', () => ({
   notarizeFile: jest.fn(),
   verifyFile: jest.fn(),
   revokeNotarization: jest.fn(),
   listNotarizations: jest.fn(),
 }));
 
-const { notarizeFile, verifyFile, revokeNotarization, listNotarizations } =
-  await import('../src/services/notaryService.js');
+const {
+  notarizeFile,
+  verifyFile,
+  revokeNotarization,
+  listNotarizations,
+} = require('../src/services/notaryService.js');
 
 import express from 'express';
 import request from 'supertest';
-const { default: notaryRoute } = await import('../src/routes/notary.js');
-const { errorHandler } = await import('../src/middleware/errorHandler.js');
+const { default: notaryRoute } = require('../src/routes/notary.js');
+const { errorHandler } = require('../src/middleware/errorHandler.js');
 
 const app = express();
 app.use(express.json());

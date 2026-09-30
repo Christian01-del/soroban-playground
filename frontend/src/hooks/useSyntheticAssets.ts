@@ -3,10 +3,10 @@
  * Handles data fetching and caching for frontend
  */
 
-'use client';
+"use client";
 
-import { useState, useCallback, useEffect } from 'react';
-import { useSyntheticAssetsAPI } from './useSyntheticAssetsAPI';
+import { useState, useCallback, useEffect } from "react";
+import { useSyntheticAssetsAPI } from "./useSyntheticAssetsAPI";
 
 export interface Asset {
   symbol: string;
@@ -24,7 +24,7 @@ export interface Position {
   createdAt: string;
   healthFactor: number;
   ratio: number;
-  status: 'OPEN' | 'CLOSED' | 'LIQUIDATED';
+  status: "OPEN" | "CLOSED" | "LIQUIDATED";
 }
 
 export interface ProtocolParams {
@@ -38,16 +38,14 @@ export const useSyntheticAssets = (userAddress?: string) => {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
   const [prices, setPrices] = useState<Record<string, number>>({});
-  const [protocolParams, setProtocolParams] = useState<ProtocolParams | undefined>(undefined);
+  const [protocolParams, setProtocolParams] = useState<
+    ProtocolParams | undefined
+  >(undefined);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
 
-  const {
-    getRegisteredAssets,
-    getAssetPrice,
-    getPosition,
-    getProtocolParams,
-  } = useSyntheticAssetsAPI();
+  const { getRegisteredAssets, getAssetPrice, getPosition, getProtocolParams } =
+    useSyntheticAssetsAPI();
 
   const refreshAssets = useCallback(async () => {
     try {
@@ -65,7 +63,7 @@ export const useSyntheticAssets = (userAddress?: string) => {
         setError(undefined);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch assets');
+      setError(err instanceof Error ? err.message : "Failed to fetch assets");
     } finally {
       setIsLoading(false);
     }
@@ -87,7 +85,7 @@ export const useSyntheticAssets = (userAddress?: string) => {
       setPrices(priceData);
       setError(undefined);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch prices');
+      setError(err instanceof Error ? err.message : "Failed to fetch prices");
     }
   }, [assets, getAssetPrice]);
 
@@ -101,7 +99,9 @@ export const useSyntheticAssets = (userAddress?: string) => {
       setPositions([]);
       setError(undefined);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch positions');
+      setError(
+        err instanceof Error ? err.message : "Failed to fetch positions",
+      );
     } finally {
       setIsLoading(false);
     }
@@ -115,7 +115,9 @@ export const useSyntheticAssets = (userAddress?: string) => {
         setError(undefined);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch protocol params');
+      setError(
+        err instanceof Error ? err.message : "Failed to fetch protocol params",
+      );
     }
   }, [getProtocolParams]);
 

@@ -25,7 +25,9 @@ pub fn is_initialized(env: &Env) -> bool {
 }
 
 pub fn set_initialized(env: &Env, value: bool) {
-    env.storage().instance().set(&InstanceKey::Initialized, &value);
+    env.storage()
+        .instance()
+        .set(&InstanceKey::Initialized, &value);
 }
 
 pub fn get_oracle_address(env: &Env) -> Result<Address, Error> {
@@ -47,7 +49,9 @@ pub fn get_collateral_token(env: &Env) -> Result<Address, Error> {
 }
 
 pub fn set_collateral_token(env: &Env, token: &Address) {
-    env.storage().instance().set(&InstanceKey::CollateralToken, token);
+    env.storage()
+        .instance()
+        .set(&InstanceKey::CollateralToken, token);
 }
 
 /// ============ PROTOCOL PARAMETERS ============
@@ -99,7 +103,9 @@ pub fn get_fee_percentage(env: &Env) -> Result<u32, Error> {
 }
 
 pub fn set_fee_percentage(env: &Env, fee: u32) {
-    env.storage().instance().set(&InstanceKey::FeePercentage, &fee);
+    env.storage()
+        .instance()
+        .set(&InstanceKey::FeePercentage, &fee);
 }
 
 /// ============ POSITION COUNTER ============
@@ -111,11 +117,13 @@ pub fn get_position_counter(env: &Env) -> u64 {
         .unwrap_or(1)
 }
 
-pub fn increment_position_counter(env: &Env, amount: u64) {
+pub fn increment_position_counter(env: &Env, amount: u64) -> Result<(), Error> {
     let current = get_position_counter(env);
+    let next = current.checked_add(amount).ok_or(Error::Overflow)?;
     env.storage()
         .instance()
-        .set(&InstanceKey::PositionCounter, &(current + amount));
+        .set(&InstanceKey::PositionCounter, &next);
+    Ok(())
 }
 
 pub fn set_position_counter(env: &Env, value: u64) {
@@ -162,21 +170,14 @@ pub fn add_registered_asset_symbol(env: &Env, symbol: &Symbol) {
 
 /// ============ COLLATERAL POSITIONS ============
 
-pub fn get_collateral_position(
-    env: &Env,
-    position_id: u64,
-) -> Result<CollateralPosition, Error> {
+pub fn get_collateral_position(env: &Env, position_id: u64) -> Result<CollateralPosition, Error> {
     env.storage()
         .persistent()
         .get(&DataKey::CollateralPosition(position_id))
         .ok_or(Error::PositionNotFound)
 }
 
-pub fn set_collateral_position(
-    env: &Env,
-    position_id: u64,
-    position: &CollateralPosition,
-) {
+pub fn set_collateral_position(env: &Env, position_id: u64, position: &CollateralPosition) {
     env.storage()
         .persistent()
         .set(&DataKey::CollateralPosition(position_id), position);
@@ -190,10 +191,7 @@ pub fn remove_collateral_position(env: &Env, position_id: u64) {
 
 /// ============ TRADING POSITIONS ============
 
-pub fn get_trading_position(
-    env: &Env,
-    position_id: u64,
-) -> Result<TradingPosition, Error> {
+pub fn get_trading_position(env: &Env, position_id: u64) -> Result<TradingPosition, Error> {
     env.storage()
         .persistent()
         .get(&DataKey::TradingPosition(position_id))
@@ -218,7 +216,7 @@ pub fn get_price(env: &Env, symbol: &Symbol) -> Result<PriceData, Error> {
     env.storage()
         .temporary()
         .get(&DataKey::Price(symbol.clone()))
-        .ok_or(Error::InvalidPrice)
+        .ok_or(Error::PriceNotAvailable)
 }
 
 pub fn set_price(env: &Env, symbol: &Symbol, price_data: &PriceData) {

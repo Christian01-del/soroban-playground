@@ -1,8 +1,8 @@
-import TokenBurnDashboard from '@/components/TokenBurnDashboard';
+import TokenBurnDashboard from "@/components/TokenBurnDashboard";
 
 export const metadata = {
-  title: 'Token Burn | Soroban Playground',
-  description: 'Burn tokens and track deflationary supply on Stellar Soroban.',
+  title: "Token Burn | Soroban Playground",
+  description: "Burn tokens and track deflationary supply on Stellar Soroban.",
 };
 
 export default function TokenBurnPage() {

@@ -1,9 +1,9 @@
 ---
 name: Pull Request
 about: Submit changes to Soroban Playground
-title: ''
-labels: ''
-assignees: ''
+title: ""
+labels: ""
+assignees: ""
 ---
 
 ## What does this PR do?
@@ -11,9 +11,11 @@ assignees: ''
 <!-- Briefly describe the changes. What problem does it solve? -->
 
 ## Related Issue
+
 Closes #<!-- issue number -->
 
 ## Type of Change
+
 - [ ] Bug fix
 - [ ] New feature
 - [ ] Documentation update
@@ -21,6 +23,7 @@ Closes #<!-- issue number -->
 - [ ] Other (please describe):
 
 ## 🗂️ Affected Area(s)
+
 - [ ] frontend/ — Next.js UI / Monaco editor
 - [ ] backend/ — Express API routes (/compile, /deploy, /invoke)
 - [ ] contracts/ — Example Soroban contracts
@@ -57,6 +60,7 @@ Closes #<!-- issue number -->
 - [ ] New and existing tests pass locally
 
 ## Related Issues or References
+
 <!-- Any related PRs, issues, docs, or external links. -->
 
 ## Additional Context

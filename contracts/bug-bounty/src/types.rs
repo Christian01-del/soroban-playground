@@ -119,4 +119,19 @@ pub enum Error {
     AlreadyHasOpenReport = 11,
     ReportAlreadyClosed = 12,
     NothingToClaim = 13,
+
+    // ── Enhanced error codes ──────────────────────────────────────────────────
+    /// fund_pool amount must be positive (> 0).
+    NonPositiveFundAmount = 14,
+    /// Title exceeds the 128-character on-chain limit.
+    TitleTooLong = 15,
+    /// Description hash exceeds the 256-character on-chain limit.
+    DescriptionHashTooLong = 16,
+    /// A single reward tier must not exceed 10 000 XLM (in stroops) to prevent
+    /// pool exhaustion on a single payout.
+    RewardTooLarge = 17,
+    /// Funding this amount would overflow the i128 pool balance.
+    PoolOverflow = 18,
+    /// Initial pool amount must be ≥ 0.
+    NegativeInitialPool = 19,
 }

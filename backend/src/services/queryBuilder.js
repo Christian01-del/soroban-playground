@@ -1,6 +1,13 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
+import {
+  buildCursorClause,
+  buildPageInfo,
+  normalizeSort,
+} from '../utils/cursorPagination.js';
+import { rlsRules } from '../config/rlsRules.js';
+
 export class QueryBuilder {
   constructor(tableName = 'contract_events') {
     this.tableName = tableName;
@@ -16,11 +23,34 @@ export class QueryBuilder {
   }
 
   /**
+   * Applies Row-Level Security restrictions to the query filter
+   */
+  applyRLS(filter, user, action) {
+    const rule = rlsRules[this.tableName];
+    if (rule) {
+      const restriction = rule(user, action);
+      if (restriction) {
+        if (!filter || Object.keys(filter).length === 0) {
+          return restriction;
+        }
+        return {
+          $and: [filter, restriction],
+        };
+      }
+    }
+    return filter;
+  }
+
+  /**
    * Main entry point to build a full SQL statement from a unified query object
    */
-  buildFullQuery(jsonQuery) {
+  buildFullQuery(jsonQuery, user = null, action = 'read') {
     this.params = []; // Reset parameters for new query
-    const { filter = {}, sort = [], limit = 50, cursor, aggregate } = jsonQuery;
+    let { filter = {}, sort = [], limit = 50, cursor, aggregate } = jsonQuery;
+
+    if (user) {
+      filter = this.applyRLS(filter, user, action);
+    }
 
     const where = this._parseNode(filter);
     const { select, groupBy } = this.buildAggregation(aggregate);
@@ -56,9 +86,17 @@ export class QueryBuilder {
     for (const [key, value] of Object.entries(node)) {
       if (key === '$or' || key === '$and') {
         const subOp = key === '$or' ? 'OR' : 'AND';
-        const subExpressions = value.map((subNode) => this._parseNode(subNode));
-        expressions.push(`(${subExpressions.join(` ${subOp} `)})`);
-      } else if (typeof value === 'object' && !Array.isArray(value)) {
+        const subExpressions = value
+          .map((subNode) => this._parseNode(subNode))
+          .filter(Boolean);
+        if (subExpressions.length > 0) {
+          expressions.push(`(${subExpressions.join(` ${subOp} `)})`);
+        }
+      } else if (
+        value !== null &&
+        typeof value === 'object' &&
+        !Array.isArray(value)
+      ) {
         for (const [op, opVal] of Object.entries(value)) {
           if (this.operators[op])
             expressions.push(this._buildExpression(key, op, opVal));
@@ -102,19 +140,38 @@ export class QueryBuilder {
     return { select: `SELECT ${selectCols}`, groupBy };
   }
 
-  buildPagination({ limit, sort, cursor }) {
+  buildPagination({ limit, sort, cursor } = {}) {
     const safeLimit = Math.min(limit || 50, this.MAX_LIMIT);
-    const orderBy =
-      sort.length > 0
-        ? `ORDER BY ${sort.map((s) => `${s.field} ${s.order || s.direction || 'ASC'}`).join(', ')}`
-        : 'ORDER BY id ASC';
+
+    // Normalize the sort (always ending on the `id` tiebreaker) so ordering and
+    // cursors stay deterministic.
+    const order = normalizeSort(sort);
+    const orderBy = `ORDER BY ${order
+      .map((s) => `${s.field} ${s.direction}`)
+      .join(', ')}`;
 
     let cursorClause = '';
     if (cursor) {
-      this.params.push(cursor);
-      cursorClause = `id > $${this.params.length}`;
+      // Base64 cursor → WHERE comparison clause (no OFFSET). Keep this builder's
+      // $N placeholder style so the fragment composes with the rest of the SQL.
+      const { clause, params } = buildCursorClause({
+        sort,
+        cursor,
+        paramOffset: this.params.length,
+        placeholder: (index) => `$${index}`,
+      });
+      this.params.push(...params);
+      cursorClause = clause;
     }
 
     return { limitClause: `LIMIT ${safeLimit}`, orderBy, cursorClause };
+  }
+
+  /**
+   * Builds the connection payload (edges + pageInfo) from an over-fetched row
+   * set. Callers request `limit + 1` rows so `hasNextPage` can be detected.
+   */
+  buildPageInfo(rows, limit, sort, cursor = null) {
+    return buildPageInfo(rows, limit, sort, cursor);
   }
 }

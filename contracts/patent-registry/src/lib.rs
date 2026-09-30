@@ -10,6 +10,7 @@
 //! - Transfers: patent owners can transfer ownership to another address.
 //! - Disputes: anyone can file a dispute; admin resolves it.
 //! - Emergency pause: admin can pause/unpause all state-changing operations.
+//! - Milestone Escrow: escrow agreements with milestone-based payment releases.
 
 #![no_std]
 
@@ -20,12 +21,15 @@ mod types;
 use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String};
 
 use crate::storage::{
-    get_admin, get_dispute, get_dispute_count, get_license, get_license_count, get_patent,
-    get_patent_count, is_initialized, is_paused, next_dispute_id, next_license_id, next_patent_id,
-    set_admin, set_dispute, set_license, set_patent, set_paused,
+    get_admin, get_dispute, get_dispute_count, get_escrow, get_escrow_count, get_license,
+    get_license_count, get_milestone, get_milestone_count, get_patent, get_patent_count,
+    is_initialized, is_paused, next_dispute_id, next_escrow_id, next_license_id, next_milestone_id,
+    next_patent_id, set_admin, set_dispute, set_escrow, set_license, set_milestone, set_patent,
+    set_paused,
 };
 use crate::types::{
-    Dispute, DisputeStatus, Error, License, LicenseType, Patent, PatentStatus,
+    Dispute, DisputeStatus, Error, Escrow, EscrowStatus, License, LicenseType, Milestone,
+    MilestoneStatus, Patent, PatentStatus,
 };
 
 #[contract]
@@ -116,8 +120,7 @@ impl PatentRegistryContract {
         };
         set_patent(&env, id, &patent);
 
-        env.events()
-            .publish((symbol_short!("filed"), inventor), id);
+        env.events().publish((symbol_short!("filed"), inventor), id);
 
         Ok(id)
     }
@@ -152,8 +155,7 @@ impl PatentRegistryContract {
         patent.status = PatentStatus::Revoked;
         set_patent(&env, patent_id, &patent);
 
-        env.events()
-            .publish((symbol_short!("revoked"),), patent_id);
+        env.events().publish((symbol_short!("revoked"),), patent_id);
 
         Ok(())
     }
@@ -300,6 +302,260 @@ impl PatentRegistryContract {
         Ok(())
     }
 
+    // ── Escrow with Milestones ────────────────────────────────────────────────
+
+    /// Create an escrow agreement for a patent license. Returns the escrow ID.
+    pub fn create_escrow(
+        env: Env,
+        payer: Address,
+        patent_id: u32,
+        license_id: u32,
+        total_amount: i128,
+    ) -> Result<u32, Error> {
+        Self::assert_not_paused(&env)?;
+        payer.require_auth();
+
+        if total_amount <= 0 {
+            return Err(Error::InvalidFee);
+        }
+
+        // Verify patent and license exist
+        let patent = get_patent(&env, patent_id)?;
+        let license = get_license(&env, license_id)?;
+
+        // Verify payer is the licensee
+        if license.licensee != payer {
+            return Err(Error::Unauthorized);
+        }
+
+        // Verify patent is active
+        if patent.status != PatentStatus::Active {
+            return Err(Error::InvalidStatus);
+        }
+
+        let now = env.ledger().timestamp();
+        let escrow_id = next_escrow_id(&env);
+        let escrow = Escrow {
+            id: escrow_id,
+            patent_id,
+            license_id,
+            payer: payer.clone(),
+            payee: patent.owner,
+            total_amount,
+            deposited_amount: 0,
+            released_amount: 0,
+            status: EscrowStatus::Funded,
+            created_at: now,
+            milestone_count: 0,
+        };
+        set_escrow(&env, escrow_id, &escrow);
+
+        env.events()
+            .publish((symbol_short!("escrow"), patent_id), escrow_id);
+
+        Ok(escrow_id)
+    }
+
+    /// Fund an escrow by depositing the full amount.
+    pub fn fund_escrow(env: Env, payer: Address, escrow_id: u32) -> Result<(), Error> {
+        Self::assert_not_paused(&env)?;
+        payer.require_auth();
+
+        let mut escrow = get_escrow(&env, escrow_id)?;
+        if escrow.payer != payer {
+            return Err(Error::Unauthorized);
+        }
+
+        let remaining = escrow.total_amount - escrow.deposited_amount;
+        if remaining <= 0 {
+            return Err(Error::AlreadyExists);
+        }
+
+        // In a real contract, this would transfer tokens via the token contract
+        // For now, we just update the accounting
+        escrow.deposited_amount = escrow.total_amount;
+        set_escrow(&env, escrow_id, &escrow);
+
+        env.events().publish((symbol_short!("funded"),), escrow_id);
+
+        Ok(())
+    }
+
+    /// Add a milestone to an escrow. Returns the milestone ID.
+    pub fn add_milestone(
+        env: Env,
+        owner: Address,
+        escrow_id: u32,
+        description: String,
+        amount: i128,
+        due_date: u64,
+    ) -> Result<u32, Error> {
+        Self::assert_not_paused(&env)?;
+        owner.require_auth();
+
+        if description.len() == 0 {
+            return Err(Error::EmptyField);
+        }
+        if amount <= 0 {
+            return Err(Error::InvalidFee);
+        }
+
+        let mut escrow = get_escrow(&env, escrow_id)?;
+        if escrow.payee != owner {
+            return Err(Error::Unauthorized);
+        }
+
+        // Verify total milestones don't exceed escrow amount
+        let total_milestone_amount = Self::get_total_milestone_amount(&env, escrow_id) + amount;
+        if total_milestone_amount > escrow.total_amount {
+            return Err(Error::InsufficientDeposit);
+        }
+
+        let _now = env.ledger().timestamp();
+        let milestone_id = next_milestone_id(&env);
+        let milestone = Milestone {
+            id: milestone_id,
+            escrow_id,
+            description,
+            amount,
+            status: MilestoneStatus::Pending,
+            due_date,
+            completed_at: None,
+            verified_at: None,
+        };
+        set_milestone(&env, milestone_id, &milestone);
+
+        escrow.milestone_count += 1;
+        set_escrow(&env, escrow_id, &escrow);
+
+        env.events()
+            .publish((symbol_short!("milestone"), escrow_id), milestone_id);
+
+        Ok(milestone_id)
+    }
+
+    /// Complete a milestone (payer confirms delivery).
+    pub fn complete_milestone(env: Env, payer: Address, milestone_id: u32) -> Result<(), Error> {
+        Self::assert_not_paused(&env)?;
+        payer.require_auth();
+
+        let mut milestone = get_milestone(&env, milestone_id)?;
+        let escrow = get_escrow(&env, milestone.escrow_id)?;
+
+        if escrow.payer != payer {
+            return Err(Error::Unauthorized);
+        }
+
+        if milestone.status != MilestoneStatus::Pending {
+            return Err(Error::InvalidMilestoneStatus);
+        }
+
+        let now = env.ledger().timestamp();
+        milestone.status = MilestoneStatus::Completed;
+        milestone.completed_at = Some(now);
+        set_milestone(&env, milestone_id, &milestone);
+
+        env.events()
+            .publish((symbol_short!("complete"),), milestone_id);
+
+        Ok(())
+    }
+
+    /// Verify a milestone and release payment (payee confirms and receives funds).
+    pub fn verify_and_release(env: Env, payee: Address, milestone_id: u32) -> Result<(), Error> {
+        Self::assert_not_paused(&env)?;
+        payee.require_auth();
+
+        let mut milestone = get_milestone(&env, milestone_id)?;
+        let mut escrow = get_escrow(&env, milestone.escrow_id)?;
+
+        if escrow.payee != payee {
+            return Err(Error::Unauthorized);
+        }
+
+        if milestone.status != MilestoneStatus::Completed {
+            return Err(Error::InvalidMilestoneStatus);
+        }
+
+        let now = env.ledger().timestamp();
+        milestone.status = MilestoneStatus::Verified;
+        milestone.verified_at = Some(now);
+        set_milestone(&env, milestone_id, &milestone);
+
+        // Release payment
+        escrow.released_amount += milestone.amount;
+        if escrow.released_amount >= escrow.total_amount {
+            escrow.status = EscrowStatus::FullyReleased;
+        } else {
+            escrow.status = EscrowStatus::PartiallyReleased;
+        }
+        set_escrow(&env, milestone.escrow_id, &escrow);
+
+        env.events()
+            .publish((symbol_short!("release"),), milestone_id);
+
+        Ok(())
+    }
+
+    /// Reject a milestone (payee rejects delivery).
+    pub fn reject_milestone(env: Env, payee: Address, milestone_id: u32) -> Result<(), Error> {
+        Self::assert_not_paused(&env)?;
+        payee.require_auth();
+
+        let mut milestone = get_milestone(&env, milestone_id)?;
+        let escrow = get_escrow(&env, milestone.escrow_id)?;
+
+        if escrow.payee != payee {
+            return Err(Error::Unauthorized);
+        }
+
+        if milestone.status != MilestoneStatus::Completed {
+            return Err(Error::InvalidMilestoneStatus);
+        }
+
+        milestone.status = MilestoneStatus::Rejected;
+        set_milestone(&env, milestone_id, &milestone);
+
+        env.events()
+            .publish((symbol_short!("reject"),), milestone_id);
+
+        Ok(())
+    }
+
+    /// Refund the remaining balance to the payer (admin only, for dispute resolution).
+    pub fn refund_escrow(env: Env, admin: Address, escrow_id: u32) -> Result<(), Error> {
+        Self::assert_not_paused(&env)?;
+        Self::assert_admin(&env, &admin)?;
+
+        let mut escrow = get_escrow(&env, escrow_id)?;
+
+        if escrow.status == EscrowStatus::FullyReleased || escrow.status == EscrowStatus::Refunded {
+            return Err(Error::EscrowAlreadyReleased);
+        }
+
+        let refund_amount = escrow.deposited_amount - escrow.released_amount;
+        escrow.released_amount += refund_amount;
+        escrow.status = EscrowStatus::Refunded;
+        set_escrow(&env, escrow_id, &escrow);
+
+        env.events()
+            .publish((symbol_short!("refund"),), (escrow_id, refund_amount));
+
+        Ok(())
+    }
+
+    /// Helper to calculate total milestone amounts for an escrow.
+    fn get_total_milestone_amount(env: &Env, escrow_id: u32) -> i128 {
+        let escrow = get_escrow(env, escrow_id).unwrap_or_else(|_| panic!("escrow not found"));
+        let mut total = 0i128;
+        for i in 1..=escrow.milestone_count {
+            if let Ok(m) = get_milestone(env, escrow_id * 10000 + i) {
+                total += m.amount;
+            }
+        }
+        total
+    }
+
     // ── Read-only queries ─────────────────────────────────────────────────────
 
     pub fn get_patent(env: Env, patent_id: u32) -> Result<Patent, Error> {
@@ -312,6 +568,14 @@ impl PatentRegistryContract {
 
     pub fn get_dispute(env: Env, dispute_id: u32) -> Result<Dispute, Error> {
         get_dispute(&env, dispute_id)
+    }
+
+    pub fn get_escrow(env: Env, escrow_id: u32) -> Result<Escrow, Error> {
+        get_escrow(&env, escrow_id)
+    }
+
+    pub fn get_milestone(env: Env, milestone_id: u32) -> Result<Milestone, Error> {
+        get_milestone(&env, milestone_id)
     }
 
     pub fn get_admin(env: Env) -> Result<Address, Error> {
@@ -328,6 +592,14 @@ impl PatentRegistryContract {
 
     pub fn get_dispute_count(env: Env) -> u32 {
         get_dispute_count(&env)
+    }
+
+    pub fn get_escrow_count(env: Env) -> u32 {
+        get_escrow_count(&env)
+    }
+
+    pub fn get_milestone_count(env: Env) -> u32 {
+        get_milestone_count(&env)
     }
 
     pub fn is_paused(env: Env) -> bool {

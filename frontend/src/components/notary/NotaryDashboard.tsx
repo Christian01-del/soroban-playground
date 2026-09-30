@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Shield, CheckCircle2, XCircle, Loader2, Search } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { Shield, CheckCircle2, XCircle, Loader2, Search } from "lucide-react";
 
 interface NotaryRecord {
   fileHash: string;
@@ -31,30 +31,28 @@ export default function NotaryDashboard() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
-  const [search, setSearch] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [search, setSearch] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const loaderRef = useRef<HTMLDivElement>(null);
 
-  const fetchPage = useCallback(
-    async (pageNum: number, reset = false) => {
-      setLoading(true);
-      try {
-        const res = await fetch(
-          `/api/notary/history?page=${pageNum}&limit=${PAGE_SIZE}`
-        );
-        const json: { success: boolean; data: HistoryResponse } = await res.json();
-        if (!res.ok) return;
-        const { records: newRecords, total: newTotal } = json.data;
-        setRecords((prev) => (reset ? newRecords : [...prev, ...newRecords]));
-        setTotal(newTotal);
-        setHasMore(pageNum * PAGE_SIZE < newTotal);
-      } finally {
-        setLoading(false);
-      }
-    },
-    []
-  );
+  const fetchPage = useCallback(async (pageNum: number, reset = false) => {
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `/api/notary/history?page=${pageNum}&limit=${PAGE_SIZE}`,
+      );
+      const json: { success: boolean; data: HistoryResponse } =
+        await res.json();
+      if (!res.ok) return;
+      const { records: newRecords, total: newTotal } = json.data;
+      setRecords((prev) => (reset ? newRecords : [...prev, ...newRecords]));
+      setTotal(newTotal);
+      setHasMore(pageNum * PAGE_SIZE < newTotal);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   // Initial load
   useEffect(() => {
@@ -72,7 +70,7 @@ export default function NotaryDashboard() {
           fetchPage(next);
         }
       },
-      { threshold: 0.1 }
+      { threshold: 0.1 },
     );
     observer.observe(loaderRef.current);
     return () => observer.disconnect();
@@ -83,7 +81,8 @@ export default function NotaryDashboard() {
     if (search && !r.fileHash.includes(search) && !r.owner.includes(search)) {
       return false;
     }
-    if (dateFrom && r.timestamp < new Date(dateFrom).getTime() / 1000) return false;
+    if (dateFrom && r.timestamp < new Date(dateFrom).getTime() / 1000)
+      return false;
     if (dateTo && r.timestamp > new Date(dateTo).getTime() / 1000) return false;
     return true;
   });
@@ -96,7 +95,9 @@ export default function NotaryDashboard() {
           <Shield className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
         </div>
         <div>
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Notary Dashboard</h2>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
+            Notary Dashboard
+          </h2>
           <p className="text-sm text-slate-500">{total} total records</p>
         </div>
       </div>
@@ -104,7 +105,10 @@ export default function NotaryDashboard() {
       {/* Filters */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" aria-hidden="true" />
+          <Search
+            className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400"
+            aria-hidden="true"
+          />
           <input
             type="text"
             value={search}
@@ -115,7 +119,9 @@ export default function NotaryDashboard() {
           />
         </div>
         <div>
-          <label htmlFor="date-from" className="sr-only">From date</label>
+          <label htmlFor="date-from" className="sr-only">
+            From date
+          </label>
           <input
             id="date-from"
             type="date"
@@ -126,7 +132,9 @@ export default function NotaryDashboard() {
           />
         </div>
         <div>
-          <label htmlFor="date-to" className="sr-only">To date</label>
+          <label htmlFor="date-to" className="sr-only">
+            To date
+          </label>
           <input
             id="date-to"
             type="date"
@@ -142,7 +150,11 @@ export default function NotaryDashboard() {
       {filtered.length === 0 && !loading ? (
         <p className="text-center text-slate-500 py-8">No records found.</p>
       ) : (
-        <div className="grid gap-3" role="list" aria-label="Notarization records">
+        <div
+          className="grid gap-3"
+          role="list"
+          aria-label="Notarization records"
+        >
           {filtered.map((r) => (
             <div
               key={r.fileHash}
@@ -150,14 +162,20 @@ export default function NotaryDashboard() {
               className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-100 dark:border-slate-700"
             >
               <div className="min-w-0">
-                <p className="font-mono text-sm text-slate-900 dark:text-white truncate" title={r.fileHash}>
+                <p
+                  className="font-mono text-sm text-slate-900 dark:text-white truncate"
+                  title={r.fileHash}
+                >
                   {truncate(r.fileHash, 24)}
                 </p>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  {new Date(r.timestamp * 1000).toLocaleString()} · {truncate(r.owner, 12)}
+                  {new Date(r.timestamp * 1000).toLocaleString()} ·{" "}
+                  {truncate(r.owner, 12)}
                 </p>
                 {r.metadata && (
-                  <p className="text-xs text-slate-400 mt-0.5 truncate">{r.metadata}</p>
+                  <p className="text-xs text-slate-400 mt-0.5 truncate">
+                    {r.metadata}
+                  </p>
                 )}
               </div>
               <div className="ml-4 shrink-0">
@@ -179,9 +197,16 @@ export default function NotaryDashboard() {
       )}
 
       {/* Infinite scroll sentinel */}
-      <div ref={loaderRef} className="mt-4 flex justify-center" aria-live="polite">
+      <div
+        ref={loaderRef}
+        className="mt-4 flex justify-center"
+        aria-live="polite"
+      >
         {loading && (
-          <Loader2 className="w-5 h-5 animate-spin text-slate-400" aria-label="Loading more records" />
+          <Loader2
+            className="w-5 h-5 animate-spin text-slate-400"
+            aria-label="Loading more records"
+          />
         )}
         {!hasMore && records.length > 0 && (
           <p className="text-xs text-slate-400">All records loaded.</p>

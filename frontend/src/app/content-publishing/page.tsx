@@ -20,10 +20,13 @@ type PlatformAnalytics = {
 };
 
 const API_BASE =
-  process.env.NEXT_PUBLIC_BACKEND_URL?.replace(/\/$/, "") ?? "http://localhost:5000";
+  process.env.NEXT_PUBLIC_BACKEND_URL?.replace(/\/$/, "") ??
+  (process.env.NEXT_PUBLIC_BACKEND_URL ||
+    "https://soroban-playground.onrender.com");
 const API = `${API_BASE}/api/content`;
 
-const FALLBACK_ADDRESS = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const FALLBACK_ADDRESS =
+  "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
 async function jsonOrThrow<T>(res: Response): Promise<T> {
   const body = await res.json().catch(() => ({}));
@@ -40,13 +43,17 @@ export default function ContentPublishingPage() {
   const [feed, setFeed] = useState<Article[]>([]);
   const [stats, setStats] = useState<AuthorStats | undefined>(undefined);
   const [subscribers, setSubscribers] = useState<SubscriberRow[]>([]);
-  const [platform, setPlatform] = useState<PlatformAnalytics | undefined>(undefined);
+  const [platform, setPlatform] = useState<PlatformAnalytics | undefined>(
+    undefined,
+  );
   const [error, setError] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(false);
 
   const refreshFeed = useCallback(async () => {
     try {
-      const data = await jsonOrThrow<Article[]>(await fetch(`${API}/articles/latest?limit=20`));
+      const data = await jsonOrThrow<Article[]>(
+        await fetch(`${API}/articles/latest?limit=20`),
+      );
       setFeed(data);
     } catch (err) {
       console.warn("feed unavailable", err);
@@ -56,12 +63,18 @@ export default function ContentPublishingPage() {
   const refreshAuthor = useCallback(async (addr: string) => {
     if (!addr) return;
     try {
-      const data = await jsonOrThrow<AuthorProfile>(await fetch(`${API}/authors/${addr}`));
+      const data = await jsonOrThrow<AuthorProfile>(
+        await fetch(`${API}/authors/${addr}`),
+      );
       setProfile(data);
       const [a, s, subs] = await Promise.all([
         jsonOrThrow<Article[]>(await fetch(`${API}/authors/${addr}/articles`)),
-        jsonOrThrow<AuthorStats>(await fetch(`${API}/authors/${addr}/analytics`)),
-        jsonOrThrow<SubscriberRow[]>(await fetch(`${API}/authors/${addr}/subscribers`)),
+        jsonOrThrow<AuthorStats>(
+          await fetch(`${API}/authors/${addr}/analytics`),
+        ),
+        jsonOrThrow<SubscriberRow[]>(
+          await fetch(`${API}/authors/${addr}/subscribers`),
+        ),
       ]);
       setArticles(a);
       setStats(s);
@@ -81,7 +94,9 @@ export default function ContentPublishingPage() {
 
   const refreshPlatform = useCallback(async () => {
     try {
-      const data = await jsonOrThrow<PlatformAnalytics>(await fetch(`${API}/analytics/platform`));
+      const data = await jsonOrThrow<PlatformAnalytics>(
+        await fetch(`${API}/analytics/platform`),
+      );
       setPlatform(data);
     } catch (err) {
       console.warn("platform analytics unavailable", err);
@@ -97,7 +112,9 @@ export default function ContentPublishingPage() {
     refreshAuthor(address);
   }, [address, refreshAuthor]);
 
-  const handleRegister: React.ComponentProps<typeof ContentPublishingPanel>["onRegister"] = async (input) => {
+  const handleRegister: React.ComponentProps<
+    typeof ContentPublishingPanel
+  >["onRegister"] = async (input) => {
     setIsLoading(true);
     setError(undefined);
     try {
@@ -106,7 +123,7 @@ export default function ContentPublishingPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ address, ...input }),
-        })
+        }),
       );
       setProfile(data);
       await refreshAuthor(address);
@@ -117,7 +134,9 @@ export default function ContentPublishingPage() {
     }
   };
 
-  const handlePublish: React.ComponentProps<typeof ContentPublishingPanel>["onPublish"] = async (input) => {
+  const handlePublish: React.ComponentProps<
+    typeof ContentPublishingPanel
+  >["onPublish"] = async (input) => {
     setIsLoading(true);
     setError(undefined);
     try {
@@ -126,9 +145,13 @@ export default function ContentPublishingPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ author: address, ...input }),
-        })
+        }),
       );
-      await Promise.all([refreshAuthor(address), refreshFeed(), refreshPlatform()]);
+      await Promise.all([
+        refreshAuthor(address),
+        refreshFeed(),
+        refreshPlatform(),
+      ]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Publish failed");
     } finally {
@@ -136,7 +159,9 @@ export default function ContentPublishingPage() {
     }
   };
 
-  const handleTip: React.ComponentProps<typeof ContentPublishingPanel>["onTip"] = async (id, amount) => {
+  const handleTip: React.ComponentProps<
+    typeof ContentPublishingPanel
+  >["onTip"] = async (id, amount) => {
     setError(undefined);
     try {
       await jsonOrThrow(
@@ -144,7 +169,7 @@ export default function ContentPublishingPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ from: address, amount }),
-        })
+        }),
       );
       await Promise.all([refreshAuthor(address), refreshFeed()]);
     } catch (err) {
@@ -152,7 +177,9 @@ export default function ContentPublishingPage() {
     }
   };
 
-  const handleLike: React.ComponentProps<typeof ContentPublishingPanel>["onLike"] = async (id) => {
+  const handleLike: React.ComponentProps<
+    typeof ContentPublishingPanel
+  >["onLike"] = async (id) => {
     setError(undefined);
     try {
       await jsonOrThrow(
@@ -160,7 +187,7 @@ export default function ContentPublishingPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ reader: address }),
-        })
+        }),
       );
       await Promise.all([refreshAuthor(address), refreshFeed()]);
     } catch (err) {
@@ -168,10 +195,9 @@ export default function ContentPublishingPage() {
     }
   };
 
-  const handleSubscribe: React.ComponentProps<typeof ContentPublishingPanel>["onSubscribe"] = async (
-    author,
-    periods
-  ) => {
+  const handleSubscribe: React.ComponentProps<
+    typeof ContentPublishingPanel
+  >["onSubscribe"] = async (author, periods) => {
     setError(undefined);
     try {
       await jsonOrThrow(
@@ -179,7 +205,7 @@ export default function ContentPublishingPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ author, subscriber: address, periods }),
-        })
+        }),
       );
       await Promise.all([refreshAuthor(address), refreshPlatform()]);
     } catch (err) {
@@ -190,12 +216,19 @@ export default function ContentPublishingPage() {
   return (
     <div className="min-h-screen bg-slate-950 p-8 text-slate-100">
       <div className="mx-auto max-w-6xl space-y-8">
-        <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs text-slate-500">
-          <Link href="/" className="hover:text-slate-300">Dashboard</Link>
+        <nav
+          aria-label="Breadcrumb"
+          className="flex items-center gap-2 text-xs text-slate-500"
+        >
+          <Link href="/" className="hover:text-slate-300">
+            Dashboard
+          </Link>
           <ChevronRight size={10} aria-hidden />
           <span className="text-slate-400">Apps</span>
           <ChevronRight size={10} aria-hidden />
-          <span className="font-medium text-violet-400">Content Publishing</span>
+          <span className="font-medium text-violet-400">
+            Content Publishing
+          </span>
         </nav>
 
         <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
@@ -207,12 +240,15 @@ export default function ContentPublishingPage() {
               Decentralized Content Publishing
             </h1>
             <p className="mt-2 max-w-2xl text-sm text-slate-400">
-              Publish articles, accept tips, and sell subscriptions on Soroban. Off-chain content is
-              addressed by hash; tips and subscriber analytics are settled on-chain.
+              Publish articles, accept tips, and sell subscriptions on Soroban.
+              Off-chain content is addressed by hash; tips and subscriber
+              analytics are settled on-chain.
             </p>
           </div>
           <label className="text-xs text-slate-400">
-            <span className="block font-semibold uppercase tracking-widest">Acting as</span>
+            <span className="block font-semibold uppercase tracking-widest">
+              Acting as
+            </span>
             <input
               value={address}
               onChange={(e) => setAddress(e.target.value.trim())}
@@ -230,7 +266,10 @@ export default function ContentPublishingPage() {
           >
             <PlatformStat label="Authors" value={platform.authors} />
             <PlatformStat label="Articles" value={platform.articles} />
-            <PlatformStat label="Active subscriptions" value={platform.activeSubscriptions} />
+            <PlatformStat
+              label="Active subscriptions"
+              value={platform.activeSubscriptions}
+            />
             <PlatformStat label="Lifetime tips" value={platform.totalTips} />
           </section>
         )}
@@ -254,9 +293,14 @@ export default function ContentPublishingPage() {
   );
 }
 
-const PlatformStat: React.FC<{ label: string; value: number }> = ({ label, value }) => (
+const PlatformStat: React.FC<{ label: string; value: number }> = ({
+  label,
+  value,
+}) => (
   <div>
-    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</p>
+    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+      {label}
+    </p>
     <p className="text-lg font-bold text-white">{value.toLocaleString()}</p>
   </div>
 );

@@ -7,28 +7,33 @@ This PR implements a comprehensive test suite for the Synthetic Assets backend f
 ## Changes
 
 ### New Test Files
+
 - `tests/syntheticAssets.unit.test.js`: Unit tests for all service methods
 - `tests/syntheticAssets.integration.test.js`: Integration tests for all API routes
 - `tests/syntheticAssets.e2e.test.js`: End-to-end tests for complete business flows
 - `tests/syntheticAssets/README.md`: Documentation for the test suite
 
 ### Configuration Updates
+
 - Updated `package.json` with new test scripts (`test:integration`, `test:e2e`, `test:synthetic`, `test:all`)
 - Updated `jest.config.cjs` to include synthetic assets test files in test match pattern
 
 ## Testing Strategy
 
 ### Unit Tests (100% coverage of service methods)
+
 - Individual method testing with mocked dependencies
 - Edge case validation (invalid inputs, error conditions)
 - Business logic correctness verification
 
 ### Integration Tests (100% coverage of API endpoints)
+
 - HTTP request/response validation
 - Validation and error handling scenarios
 - Authentication flow testing
 
 ### End-to-End Tests (Complete business flows)
+
 - Mint → Trade → Close → Burn flow
 - Price Oracle integration flow
 - Protocol parameters management flow

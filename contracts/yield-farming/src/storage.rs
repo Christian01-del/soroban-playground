@@ -3,7 +3,7 @@
 
 use soroban_sdk::{Address, Env};
 
-use crate::types::{DataKey, Error, InstanceKey, Position, Strategy};
+use crate::types::{DataKey, Error, InstanceKey, PoolConfig, Position, Strategy};
 
 // ── Admin ────────────────────────────────────────────────────────────────────
 
@@ -54,6 +54,18 @@ pub fn get_strategy(env: &Env, id: u32) -> Result<Strategy, Error> {
 
 pub fn has_strategy(env: &Env, id: u32) -> bool {
     env.storage().persistent().has(&DataKey::Strategy(id))
+}
+
+// -- Optimizer configuration -------------------------------------------------
+
+pub fn set_pool_config(env: &Env, id: u32, config: &PoolConfig) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::PoolConfig(id), config);
+}
+
+pub fn get_pool_config(env: &Env, id: u32) -> Option<PoolConfig> {
+    env.storage().persistent().get(&DataKey::PoolConfig(id))
 }
 
 // ── Position ─────────────────────────────────────────────────────────────────
