@@ -19,7 +19,7 @@ mod test;
 mod types;
 
 use soroban_sdk::{
-    contract, contractclient, contractimpl, symbol_short, token, Address, Env, String,
+    contract, contractclient, contractimpl, symbol_short, token, vec, Address, Env, String, Vec,
 };
 
 use crate::storage::{
@@ -30,8 +30,9 @@ use crate::storage::{
     set_product_count, set_reserve_config, set_total_reserved,
 };
 pub use crate::types::{
-    CropTerms, DataSourceType, Error, OracleReading, Policy, PolicyStatus, Product, ReserveConfig,
-    SatelliteWeatherData, TriggerDirection, WeatherDataStatus,
+    CropProductConfig, CropTerms, DataSourceType, Error, OracleReading, Policy, PolicyStatus,
+    Product, ProductConfig, ReserveConfig, SatelliteWeatherData, TriggerDirection,
+    WeatherDataStatus,
 };
 
 /// Maximum staleness window for oracle data (24 hours).
@@ -99,10 +100,10 @@ impl ParametricInsurance {
             parameter_key: parameter_key.clone(),
             value,
             timestamp: now,
-            source_type,
-            status,
+            source_type: source_type.clone(),
+            status: status.clone(),
             confirmations,
-            location,
+            location: location.clone(),
         };
         set_oracle_reading(&env, &oracle, &parameter_key, &reading);
         env.events()
@@ -177,52 +178,42 @@ impl ParametricInsurance {
     pub fn create_product(
         env: Env,
         admin: Address,
-        name: String,
-        premium: i128,
-        coverage_amount: i128,
-        oracle: Address,
-        parameter_key: String,
-        trigger_threshold: i128,
-        trigger_direction: TriggerDirection,
-        term_secs: u64,
-        authorized_sources: Vec<DataSourceType>,
-        min_confirmations: u32,
-        required_location: Option<String>,
+        config: ProductConfig,
     ) -> Result<u32, Error> {
         Self::assert_admin(&env, &admin)?;
-        if name.len() == 0 {
+        if config.name.len() == 0 {
             return Err(Error::EmptyName);
         }
-        if premium <= 0 {
+        if config.premium <= 0 {
             return Err(Error::ZeroPremium);
         }
-        if coverage_amount <= 0 {
+        if config.coverage_amount <= 0 {
             return Err(Error::ZeroCoverage);
         }
-        if term_secs == 0 {
+        if config.term_secs == 0 {
             return Err(Error::InvalidTrigger);
         }
-        if authorized_sources.is_empty() {
+        if config.authorized_sources.is_empty() {
             return Err(Error::InvalidConfig);
         }
-        if min_confirmations == 0 {
+        if config.min_confirmations == 0 {
             return Err(Error::InvalidConfig);
         }
 
         let id = get_product_count(&env) + 1;
         let product = Product {
-            name,
-            premium,
-            coverage_amount,
-            oracle,
-            parameter_key,
-            trigger_threshold,
-            trigger_direction,
-            term_secs,
+            name: config.name,
+            premium: config.premium,
+            coverage_amount: config.coverage_amount,
+            oracle: config.oracle,
+            parameter_key: config.parameter_key,
+            trigger_threshold: config.trigger_threshold,
+            trigger_direction: config.trigger_direction,
+            term_secs: config.term_secs,
             is_active: true,
-            authorized_sources,
-            min_confirmations,
-            required_location,
+            authorized_sources: config.authorized_sources,
+            min_confirmations: config.min_confirmations,
+            required_location: config.required_location,
         };
         set_product(&env, id, &product);
         set_product_count(&env, id);
@@ -242,37 +233,27 @@ impl ParametricInsurance {
         get_product(&env, product_id)
     }
 
-    /// Create a drought/flood product settled from verified satellite rainfall.
-    /// Rainfall threshold units match the weather oracle: millimetres × 10.
+    /// Create a new crop insurance product. Returns the product ID.
     pub fn create_crop_product(
         env: Env,
         admin: Address,
-        name: String,
-        premium: i128,
-        coverage_amount: i128,
-        satellite_oracle: Address,
-        region: String,
-        rainfall_threshold: i128,
-        trigger_direction: TriggerDirection,
-        term_secs: u64,
-        max_observation_age: u64,
-        min_confirmations: u32,
+        config: CropProductConfig,
     ) -> Result<u32, Error> {
         Self::assert_admin(&env, &admin)?;
-        if name.is_empty() || region.is_empty() {
+        if config.name.is_empty() || config.region.is_empty() {
             return Err(Error::EmptyName);
         }
-        if premium <= 0 {
+        if config.premium <= 0 {
             return Err(Error::ZeroPremium);
         }
-        if coverage_amount <= 0 {
+        if config.coverage_amount <= 0 {
             return Err(Error::ZeroCoverage);
         }
-        if rainfall_threshold < 0
-            || term_secs == 0
-            || max_observation_age == 0
-            || max_observation_age > MAX_CROP_OBSERVATION_AGE_SECS
-            || min_confirmations == 0
+        if config.rainfall_threshold < 0
+            || config.term_secs == 0
+            || config.max_observation_age == 0
+            || config.max_observation_age > MAX_CROP_OBSERVATION_AGE_SECS
+            || config.min_confirmations == 0
         {
             return Err(Error::InvalidConfig);
         }
@@ -280,26 +261,26 @@ impl ParametricInsurance {
             .checked_add(1)
             .ok_or(Error::Overflow)?;
         let product = Product {
-            name,
-            premium,
-            coverage_amount,
-            oracle: satellite_oracle,
+            name: config.name,
+            premium: config.premium,
+            coverage_amount: config.coverage_amount,
+            oracle: config.satellite_oracle,
             parameter_key: String::from_str(&env, "SAT_RAIN"),
-            trigger_threshold: rainfall_threshold,
-            trigger_direction,
-            term_secs,
+            trigger_threshold: config.rainfall_threshold,
+            trigger_direction: config.trigger_direction,
+            term_secs: config.term_secs,
             is_active: true,
             authorized_sources: vec![&env, DataSourceType::Satellite],
-            min_confirmations,
-            required_location: Some(region.clone()),
+            min_confirmations: config.min_confirmations,
+            required_location: Some(config.region.clone()),
         };
         set_product(&env, id, &product);
         set_crop_terms(
             &env,
             id,
             &CropTerms {
-                region,
-                max_observation_age,
+                region: config.region,
+                max_observation_age: config.max_observation_age,
             },
         );
         set_product_count(&env, id);

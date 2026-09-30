@@ -2,8 +2,8 @@
 
 use super::{
     types::{
-        DataSourceType, Error, PolicyStatus, SatelliteWeatherData, TriggerDirection,
-        WeatherDataStatus,
+        CropProductConfig, DataSourceType, Error, PolicyStatus, ProductConfig,
+        SatelliteWeatherData, TriggerDirection, WeatherDataStatus,
     },
     ParametricInsurance, ParametricInsuranceClient,
 };
@@ -11,7 +11,7 @@ use soroban_sdk::{
     contract, contractimpl,
     testutils::{Address as _, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
-    Address, Env, String,
+    vec, Address, Env, String, Vec,
 };
 
 const PREMIUM: i128 = 10_000_000;
@@ -36,17 +36,19 @@ fn setup() -> (
     client.set_oracle(&admin, &oracle, &true);
     let product_id = client.create_product(
         &admin,
-        &String::from_str(&env, "Drought Cover"),
-        &PREMIUM,
-        &COVERAGE,
-        &oracle,
-        &String::from_str(&env, "RAINFALL_MM"),
-        &THRESHOLD,
-        &TriggerDirection::AtOrBelow,
-        &TERM,
-        vec![&env, DataSourceType::WeatherAPI],
-        &1,
-        None::<String>,
+        &ProductConfig {
+            name: String::from_str(&env, "Drought Cover"),
+            premium: PREMIUM,
+            coverage_amount: COVERAGE,
+            oracle: oracle.clone(),
+            parameter_key: String::from_str(&env, "RAINFALL_MM"),
+            trigger_threshold: THRESHOLD,
+            trigger_direction: TriggerDirection::AtOrBelow,
+            term_secs: TERM,
+            authorized_sources: vec![&env, DataSourceType::WeatherAPI],
+            min_confirmations: 1,
+            required_location: None,
+        },
     );
     (env, client, admin, oracle, product_id)
 }
@@ -74,17 +76,19 @@ fn test_create_product_increments_count() {
     let (env, client, admin, oracle, _) = setup();
     let id2 = client.create_product(
         &admin,
-        &String::from_str(&env, "Flood Cover"),
-        &PREMIUM,
-        &COVERAGE,
-        &oracle,
-        &String::from_str(&env, "WATER_LEVEL_CM"),
-        &100_0000000i128,
-        &TriggerDirection::AtOrAbove,
-        &TERM,
-        vec![&env, DataSourceType::GroundStation],
-        &1,
-        None::<String>,
+        &ProductConfig {
+            name: String::from_str(&env, "Flood Cover"),
+            premium: PREMIUM,
+            coverage_amount: COVERAGE,
+            oracle: oracle.clone(),
+            parameter_key: String::from_str(&env, "WATER_LEVEL_CM"),
+            trigger_threshold: 100_0000000i128,
+            trigger_direction: TriggerDirection::AtOrAbove,
+            term_secs: TERM,
+            authorized_sources: vec![&env, DataSourceType::GroundStation],
+            min_confirmations: 1,
+            required_location: None,
+        },
     );
     assert_eq!(id2, 2);
     assert_eq!(client.product_count(), 2);
@@ -95,17 +99,19 @@ fn test_create_product_empty_name_fails() {
     let (env, client, admin, oracle, _) = setup();
     let result = client.try_create_product(
         &admin,
-        &String::from_str(&env, ""),
-        &PREMIUM,
-        &COVERAGE,
-        &oracle,
-        &String::from_str(&env, "X"),
-        &THRESHOLD,
-        &TriggerDirection::AtOrBelow,
-        &TERM,
-        vec![&env, DataSourceType::WeatherAPI],
-        &1,
-        None::<String>,
+        &ProductConfig {
+            name: String::from_str(&env, ""),
+            premium: PREMIUM,
+            coverage_amount: COVERAGE,
+            oracle,
+            parameter_key: String::from_str(&env, "X"),
+            trigger_threshold: THRESHOLD,
+            trigger_direction: TriggerDirection::AtOrBelow,
+            term_secs: TERM,
+            authorized_sources: vec![&env, DataSourceType::WeatherAPI],
+            min_confirmations: 1,
+            required_location: None,
+        },
     );
     assert!(matches!(result, Err(Ok(Error::EmptyName))));
 }
@@ -116,17 +122,19 @@ fn test_create_product_non_admin_fails() {
     let stranger = Address::generate(&env);
     let result = client.try_create_product(
         &stranger,
-        &String::from_str(&env, "X"),
-        &PREMIUM,
-        &COVERAGE,
-        &oracle,
-        &String::from_str(&env, "X"),
-        &THRESHOLD,
-        &TriggerDirection::AtOrBelow,
-        &TERM,
-        vec![&env, DataSourceType::WeatherAPI],
-        &1,
-        None::<String>,
+        &ProductConfig {
+            name: String::from_str(&env, "X"),
+            premium: PREMIUM,
+            coverage_amount: COVERAGE,
+            oracle: oracle.clone(),
+            parameter_key: String::from_str(&env, "X"),
+            trigger_threshold: THRESHOLD,
+            trigger_direction: TriggerDirection::AtOrBelow,
+            term_secs: TERM,
+            authorized_sources: vec![&env, DataSourceType::WeatherAPI],
+            min_confirmations: 1,
+            required_location: None,
+        },
     );
     assert!(matches!(result, Err(Ok(Error::Unauthorized))));
 }
@@ -167,7 +175,7 @@ fn test_submit_reading_unknown_oracle_fails() {
         &DataSourceType::WeatherAPI,
         &WeatherDataStatus::Verified,
         &1,
-        None::<String>,
+        &None,
     );
     assert!(matches!(result, Err(Ok(Error::UnknownOracle))));
 }
@@ -182,7 +190,7 @@ fn test_submit_reading_stored_correctly() {
         &DataSourceType::WeatherAPI,
         &WeatherDataStatus::Verified,
         &1,
-        None::<String>,
+        &None,
     );
     let reading = client
         .get_reading(&oracle, &String::from_str(&env, "RAINFALL_MM"))
@@ -206,7 +214,7 @@ fn test_process_claim_trigger_met_pays_out() {
         &DataSourceType::WeatherAPI,
         &WeatherDataStatus::Verified,
         &1,
-        None::<String>,
+        &None,
     );
 
     let payout = client.process_claim(&policy_id);
@@ -232,7 +240,7 @@ fn test_process_claim_trigger_not_met_fails() {
         &DataSourceType::WeatherAPI,
         &WeatherDataStatus::Verified,
         &1,
-        None::<String>,
+        &None,
     );
 
     let result = client.try_process_claim(&policy_id);
@@ -261,7 +269,7 @@ fn test_process_claim_stale_oracle_data_fails() {
         &DataSourceType::WeatherAPI,
         &WeatherDataStatus::Verified,
         &1,
-        None::<String>,
+        &None,
     );
 
     // Advance past the 24h staleness window
@@ -283,7 +291,7 @@ fn test_process_claim_double_claim_fails() {
         &DataSourceType::WeatherAPI,
         &WeatherDataStatus::Verified,
         &1,
-        None::<String>,
+        &None,
     );
     client.process_claim(&policy_id);
     let result = client.try_process_claim(&policy_id);
@@ -302,7 +310,7 @@ fn test_process_claim_expired_policy_fails() {
         &DataSourceType::WeatherAPI,
         &WeatherDataStatus::Verified,
         &1,
-        None::<String>,
+        &None,
     );
 
     // Advance past policy term
@@ -317,17 +325,19 @@ fn test_at_or_above_trigger_fires_correctly() {
     let (env, client, admin, oracle, _) = setup();
     let flood_product = client.create_product(
         &admin,
-        &String::from_str(&env, "Flood Cover"),
-        &PREMIUM,
-        &COVERAGE,
-        &oracle,
-        &String::from_str(&env, "WATER_LEVEL_CM"),
-        &100_0000000i128,
-        &TriggerDirection::AtOrAbove,
-        &TERM,
-        vec![&env, DataSourceType::GroundStation],
-        &1,
-        None::<String>,
+        &ProductConfig {
+            name: String::from_str(&env, "Flood Cover"),
+            premium: PREMIUM,
+            coverage_amount: COVERAGE,
+            oracle: oracle.clone(),
+            parameter_key: String::from_str(&env, "WATER_LEVEL_CM"),
+            trigger_threshold: 100_0000000i128,
+            trigger_direction: TriggerDirection::AtOrAbove,
+            term_secs: TERM,
+            authorized_sources: vec![&env, DataSourceType::GroundStation],
+            min_confirmations: 1,
+            required_location: None,
+        },
     );
     let holder = Address::generate(&env);
     let policy_id = client.buy_policy(&holder, &flood_product);
@@ -340,7 +350,7 @@ fn test_at_or_above_trigger_fires_correctly() {
         &DataSourceType::GroundStation,
         &WeatherDataStatus::Verified,
         &1,
-        None::<String>,
+        &None,
     );
     let payout = client.process_claim(&policy_id);
     assert_eq!(payout, COVERAGE);
@@ -373,7 +383,7 @@ fn test_unverified_oracle_data_rejected() {
         &DataSourceType::WeatherAPI,
         &WeatherDataStatus::Pending,
         &1,
-        None::<String>,
+        &None,
     );
 
     let result = client.try_process_claim(&policy_id);
@@ -386,17 +396,19 @@ fn test_insufficient_confirmations_rejected() {
     // Create product requiring 3 confirmations
     let product_id = client.create_product(
         &admin,
-        &String::from_str(&env, "High Security Cover"),
-        &PREMIUM,
-        &COVERAGE,
-        &oracle,
-        &String::from_str(&env, "RAINFALL_MM"),
-        &THRESHOLD,
-        &TriggerDirection::AtOrBelow,
-        &TERM,
-        vec![&env, DataSourceType::WeatherAPI],
-        &3,
-        None::<String>,
+        &ProductConfig {
+            name: String::from_str(&env, "High Security Cover"),
+            premium: PREMIUM,
+            coverage_amount: COVERAGE,
+            oracle: oracle.clone(),
+            parameter_key: String::from_str(&env, "RAINFALL_MM"),
+            trigger_threshold: THRESHOLD,
+            trigger_direction: TriggerDirection::AtOrBelow,
+            term_secs: TERM,
+            authorized_sources: vec![&env, DataSourceType::WeatherAPI],
+            min_confirmations: 3,
+            required_location: None,
+        },
     );
 
     let holder = Address::generate(&env);
@@ -410,7 +422,7 @@ fn test_insufficient_confirmations_rejected() {
         &DataSourceType::WeatherAPI,
         &WeatherDataStatus::Verified,
         &1,
-        None::<String>,
+        &None,
     );
 
     let result = client.try_process_claim(&policy_id);
@@ -423,17 +435,19 @@ fn test_unauthorized_data_source_rejected() {
     // Create product that only accepts Satellite data
     let product_id = client.create_product(
         &admin,
-        &String::from_str(&env, "Satellite Only Cover"),
-        &PREMIUM,
-        &COVERAGE,
-        &oracle,
-        &String::from_str(&env, "RAINFALL_MM"),
-        &THRESHOLD,
-        &TriggerDirection::AtOrBelow,
-        &TERM,
-        vec![&env, DataSourceType::Satellite],
-        &1,
-        None::<String>,
+        &ProductConfig {
+            name: String::from_str(&env, "Satellite Only Cover"),
+            premium: PREMIUM,
+            coverage_amount: COVERAGE,
+            oracle: oracle.clone(),
+            parameter_key: String::from_str(&env, "RAINFALL_MM"),
+            trigger_threshold: THRESHOLD,
+            trigger_direction: TriggerDirection::AtOrBelow,
+            term_secs: TERM,
+            authorized_sources: vec![&env, DataSourceType::Satellite],
+            min_confirmations: 1,
+            required_location: None,
+        },
     );
 
     let holder = Address::generate(&env);
@@ -447,7 +461,7 @@ fn test_unauthorized_data_source_rejected() {
         &DataSourceType::WeatherAPI,
         &WeatherDataStatus::Verified,
         &1,
-        None::<String>,
+        &None,
     );
 
     let result = client.try_process_claim(&policy_id);
@@ -460,17 +474,19 @@ fn test_location_mismatch_rejected() {
     // Create product with location requirement
     let product_id = client.create_product(
         &admin,
-        &String::from_str(&env, "Regional Cover"),
-        &PREMIUM,
-        &COVERAGE,
-        &oracle,
-        &String::from_str(&env, "RAINFALL_MM"),
-        &THRESHOLD,
-        &TriggerDirection::AtOrBelow,
-        &TERM,
-        vec![&env, DataSourceType::WeatherAPI],
-        &1,
-        Some(String::from_str(&env, "US-Texas-001")),
+        &ProductConfig {
+            name: String::from_str(&env, "Regional Cover"),
+            premium: PREMIUM,
+            coverage_amount: COVERAGE,
+            oracle: oracle.clone(),
+            parameter_key: String::from_str(&env, "RAINFALL_MM"),
+            trigger_threshold: THRESHOLD,
+            trigger_direction: TriggerDirection::AtOrBelow,
+            term_secs: TERM,
+            authorized_sources: vec![&env, DataSourceType::WeatherAPI],
+            min_confirmations: 1,
+            required_location: Some(String::from_str(&env, "US-Texas-001")),
+        },
     );
 
     let holder = Address::generate(&env);
@@ -484,7 +500,7 @@ fn test_location_mismatch_rejected() {
         &DataSourceType::WeatherAPI,
         &WeatherDataStatus::Verified,
         &1,
-        Some(String::from_str(&env, "US-California-001")),
+        &Some(String::from_str(&env, "US-California-001")),
     );
 
     let result = client.try_process_claim(&policy_id);
@@ -497,17 +513,19 @@ fn test_missing_location_when_required_rejected() {
     // Create product with location requirement
     let product_id = client.create_product(
         &admin,
-        &String::from_str(&env, "Regional Cover"),
-        &PREMIUM,
-        &COVERAGE,
-        &oracle,
-        &String::from_str(&env, "RAINFALL_MM"),
-        &THRESHOLD,
-        &TriggerDirection::AtOrBelow,
-        &TERM,
-        vec![&env, DataSourceType::WeatherAPI],
-        &1,
-        Some(String::from_str(&env, "US-Texas-001")),
+        &ProductConfig {
+            name: String::from_str(&env, "Regional Cover"),
+            premium: PREMIUM,
+            coverage_amount: COVERAGE,
+            oracle: oracle.clone(),
+            parameter_key: String::from_str(&env, "RAINFALL_MM"),
+            trigger_threshold: THRESHOLD,
+            trigger_direction: TriggerDirection::AtOrBelow,
+            term_secs: TERM,
+            authorized_sources: vec![&env, DataSourceType::WeatherAPI],
+            min_confirmations: 1,
+            required_location: Some(String::from_str(&env, "US-Texas-001")),
+        },
     );
 
     let holder = Address::generate(&env);
@@ -521,7 +539,7 @@ fn test_missing_location_when_required_rejected() {
         &DataSourceType::WeatherAPI,
         &WeatherDataStatus::Verified,
         &1,
-        None::<String>,
+        &None,
     );
 
     let result = client.try_process_claim(&policy_id);
@@ -547,7 +565,7 @@ fn test_future_timestamp_rejected() {
         &DataSourceType::WeatherAPI,
         &WeatherDataStatus::Verified,
         &1,
-        None::<String>,
+        &None,
     );
 
     // This test validates the timestamp check exists
@@ -562,18 +580,20 @@ fn test_empty_authorized_sources_rejected() {
     let (env, client, admin, oracle, _) = setup();
     let result = client.try_create_product(
         &admin,
-        &String::from_str(&env, "Invalid Product"),
-        &PREMIUM,
-        &COVERAGE,
-        &oracle,
-        &String::from_str(&env, "RAINFALL_MM"),
-        &THRESHOLD,
-        &TriggerDirection::AtOrBelow,
-        &TERM,
-        vec
+        &ProductConfig {
+            name: String::from_str(&env, "Invalid Product"),
+            premium: PREMIUM,
+            coverage_amount: COVERAGE,
+            oracle: oracle.clone(),
+            parameter_key: String::from_str(&env, "RAINFALL_MM"),
+            trigger_threshold: THRESHOLD,
+            trigger_direction: TriggerDirection::AtOrBelow,
+            term_secs: TERM,
+            authorized_sources: vec
 ![&env], // Empty vector
-        &1,
-        None::<String>,
+            min_confirmations: 1,
+            required_location: None,
+        },
     );
     assert!(matches!(result, Err(Ok(Error::InvalidConfig))));
 }
@@ -583,17 +603,19 @@ fn test_zero_min_confirmations_rejected() {
     let (env, client, admin, oracle, _) = setup();
     let result = client.try_create_product(
         &admin,
-        &String::from_str(&env, "Invalid Product"),
-        &PREMIUM,
-        &COVERAGE,
-        &oracle,
-        &String::from_str(&env, "RAINFALL_MM"),
-        &THRESHOLD,
-        &TriggerDirection::AtOrBelow,
-        &TERM,
-        vec![&env, DataSourceType::WeatherAPI],
-        &0, // Invalid: zero confirmations
-        None::<String>,
+        &ProductConfig {
+            name: String::from_str(&env, "Invalid Product"),
+            premium: PREMIUM,
+            coverage_amount: COVERAGE,
+            oracle: oracle.clone(),
+            parameter_key: String::from_str(&env, "RAINFALL_MM"),
+            trigger_threshold: THRESHOLD,
+            trigger_direction: TriggerDirection::AtOrBelow,
+            term_secs: TERM,
+            authorized_sources: vec![&env, DataSourceType::WeatherAPI],
+            min_confirmations: 0, // Invalid: zero confirmations
+            required_location: None,
+        },
     );
     assert!(matches!(result, Err(Ok(Error::InvalidConfig))));
 }
@@ -604,17 +626,19 @@ fn test_verified_with_sufficient_confirmations_succeeds() {
     // Create product requiring 2 confirmations
     let product_id = client.create_product(
         &admin,
-        &String::from_str(&env, "High Security Cover"),
-        &PREMIUM,
-        &COVERAGE,
-        &oracle,
-        &String::from_str(&env, "RAINFALL_MM"),
-        &THRESHOLD,
-        &TriggerDirection::AtOrBelow,
-        &TERM,
-        vec![&env, DataSourceType::WeatherAPI],
-        &2,
-        None::<String>,
+        &ProductConfig {
+            name: String::from_str(&env, "High Security Cover"),
+            premium: PREMIUM,
+            coverage_amount: COVERAGE,
+            oracle: oracle.clone(),
+            parameter_key: String::from_str(&env, "RAINFALL_MM"),
+            trigger_threshold: THRESHOLD,
+            trigger_direction: TriggerDirection::AtOrBelow,
+            term_secs: TERM,
+            authorized_sources: vec![&env, DataSourceType::WeatherAPI],
+            min_confirmations: 2,
+            required_location: None,
+        },
     );
 
     let holder = Address::generate(&env);
@@ -628,7 +652,7 @@ fn test_verified_with_sufficient_confirmations_succeeds() {
         &DataSourceType::WeatherAPI,
         &WeatherDataStatus::Verified,
         &2,
-        None::<String>,
+        &None::<String>,
     );
 
     let payout = client.process_claim(&policy_id);
@@ -688,16 +712,18 @@ fn setup_crop(reserve_amount: i128) -> CropSetup {
     let oracle = MockSatelliteOracleClient::new(&env, &oracle_id);
     let product_id = client.create_crop_product(
         &admin,
-        &String::from_str(&env, "Satellite Drought Cover"),
-        &10,
-        &1_000,
-        &oracle_id,
-        &String::from_str(&env, "KE-Nakuru-001"),
-        &500,
-        &TriggerDirection::AtOrBelow,
-        &86_400,
-        &3_600,
-        &2,
+        &CropProductConfig {
+            name: String::from_str(&env, "Satellite Drought Cover"),
+            premium: 10,
+            coverage_amount: 1_000,
+            satellite_oracle: oracle_id.clone(),
+            rainfall_threshold: 500,
+            trigger_direction: TriggerDirection::AtOrBelow,
+            term_secs: 86_400,
+            max_observation_age: 3_600,
+            min_confirmations: 2,
+            region: String::from_str(&env, "KE-Nakuru-001"),
+        },
     );
     CropSetup {
         env,
@@ -940,16 +966,18 @@ fn test_crop_configuration_validation_and_single_reserve_asset() {
     assert_eq!(
         setup.client.try_create_crop_product(
             &setup.admin,
-            &String::from_str(&setup.env, "Invalid"),
-            &10,
-            &1_000,
-            &setup.oracle_address,
-            &String::from_str(&setup.env, "KE-Nakuru-001"),
-            &500,
-            &TriggerDirection::AtOrBelow,
-            &86_400,
-            &(7 * 86_400 + 1),
-            &2,
+            &CropProductConfig {
+                name: String::from_str(&setup.env, "Invalid"),
+                premium: 10,
+                coverage_amount: 1_000,
+                satellite_oracle: setup.oracle_address,
+                rainfall_threshold: 500,
+                trigger_direction: TriggerDirection::AtOrBelow,
+                term_secs: 86_400,
+                max_observation_age: 7 * 86_400 + 1,
+                min_confirmations: 2,
+                region: String::from_str(&setup.env, "KE-Nakuru-001"),
+            },
         ),
         Err(Ok(Error::InvalidConfig))
     );
