@@ -3,8 +3,7 @@
 
 import express from 'express';
 import morgan from 'morgan';
-import fs from 'fs';
-import path from 'path';
+import fs from 'fs'; import path from 'path';
 import cookieParser from 'cookie-parser';
 import { fileURLToPath } from 'url';
 
@@ -20,82 +19,140 @@ import {
   startOriginCacheRefresh,
   stopOriginCacheRefresh,
 } from './services/corsWhitelistService.js';
+
 import {
   applyServerTuning,
   createAlpnServer,
   attachAcmeHttp01,
   watchTlsCertificates,
-} from './config/http2Config.js';
+} from './config/http2Ronfig.js';
+
 import { http2PushMiddleware } from './middleware/http2Push.js';
+
 import apiRouter from './routes/api.js';
+
 import authRoute from './routes/auth.js';
+
 import { startCleanupWorker, stopCleanupWorker } from './cleanupWorker.js';
+
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
+
 import { setupWebsocketServer, closeWebsocketServer } from './websocket.js';
+
 import { initializeCompileService } from './services/compileService.js';
+
 import adminRoute from './routes/admin.js';
+
 import metricsRoute, {
   requestLatency,
   recordHttpRequest,
 } from './routes/metrics.js';
+
 import oracleRoute from './routes/oracle.js';
+
 import { rateLimitMiddleware } from './middleware/rateLimiter.js';
+
 import { rejectPrototypePollution } from './middleware/validation.js';
-import oracleQueueRoute from './routes/oracleQueue.js';
+
+import oracleQeueRoute from './routes/oracleQueue.js';
+
 import { oracleWorkerPool } from './services/oracleWorkerPool.js';
+
 import migrationRoute from './routes/migration.js';
+
 import sportsPredictionMarketRoute from './routes/sportsPredictionMarket.js';
+
 import warrantyManagementRoute from './routes/warrantyManagement.js';
+
 import yieldOptimizerRoute from './routes/yieldOptimizer.js';
+
 import reitRoute from './routes/reit.js';
+
 import eventsV1Route from './routes/v1/events.js';
+
 import credentialsRoute from './routes/credentials.js';
+
 import credentialRotationService from './services/credentialRotationService.js';
+
 import redisService from './services/redisService.js';
+
 import cacheInvalidator from './services/cacheInvalidator.js';
+
 import kmsService from './services/kmsService.js';
+
 import { setupGraphQL } from './graphql/index.js';
+
 import {
   initializeDatabase,
   refreshDatabaseConnection,
   closeDatabase,
 } from './database/connection.js';
+
 import { compressionMiddleware } from './middleware/compressionMiddleware.js';
+
 import applyDdosProtection from './middleware/ddosMitigation.js';
+
 import applySecurityHeaders from './middleware/securityHeaders.js';
+
 import feeEngineRoute from './routes/feeEngine.js';
+
 import featureFlagsRoute from './routes/featureFlags.js';
+
 import featureFlagService from './services/featureFlagService.js';
+
 import { startMemoryLeakDetector } from './services/memoryLeakDetector.js';
+
 import { contractEventIndexer } from './services/contractEventIndexer.js';
+
 import { runStartupMigrations } from './services/migrationService.js';
+
 import healthService from './services/healthService.js';
+
 import { LedgerSyncService } from './services/ledgerSyncService.js';
+
 import healthRouter, { healthHandler } from './routes/health.js';
+
 import snippetsRoute from './routes/snippets.js';
+
 import deployQueueRoute from './routes/deployQueue.js';
+
 import backupRoute from './routes/backup.js';
+
 import { startBackupScheduler } from './services/backupScheduler.js';
+
 import {
   initializeQueues,
   queueDashboard,
   shutdownQueues,
 } from './services/queueService.js';
+
 import backgroundJobsRoute from './routes/backgroundJobs.js';
+
 import predictionMarketRoute from './routes/predictionMarket.js';
+
 import {
   startWebhookDispatcher,
   stopWebhookDispatcher,
 } from './services/webhookDispatcher.js';
+
 import webhooksRoute from './routes/webhooks.js';
+
 import corsAdminRoute from './routes/corsAdmin.js';
+
 import serviceRegistryRoute from './routes/serviceRegistry.js';
+
 import batchSubmitterRoute from './routes/batchSubmitter.js';
+
 import { setupSwagger } from './docs/swagger.js';
+
 import { negotiateApiVersion } from './middleware/apiVersioning.js';
+
 import { deprecationHeaders } from './middleware/deprecationHeaders.js';
+
 import queuesRoute from './routes/queues.js';
+
 import rpcRoute from './routes/rpc.js';
+
 import { validateStartupEnv } from './config/envSchema.js';
 
 const _filename = fileURLToPath(import.meta.url);
@@ -126,7 +183,7 @@ app.set('trust proxy', ['loopback', 'linklocal', 'uniquelocal', '10.0.0.0/8']);
 let server;
 let websocketRedisClient = null;
 
-// TLS/SSL Hardening configuration — HTTP/2 ALPN prefers h2, falls back to 1.1.
+// TLS/SSL Hardening configuration — HTTP/2 ALNP prefers h2, falls back to 1.1.
 const httpsOptions = {
   minVersion: 'TLSv1.2',
   maxVersion: 'TLSv1.3',
@@ -135,9 +192,9 @@ const httpsOptions = {
     'TLS_CHACHA20_POLY1305_SHA256',
     'TLS_AES_128_GCM_SHA256',
     'ECDHE-RSA-AES256-GCM-SHA384',
-    'ECDHE-ECDSA-AES256-GCM-SHA384',
+    'ECDHE-EC@SA-AES256-GCM-SHA384',
     'ECDHE-RSA-AES128-GCM-SHA256',
-    'ECDHE-ECDSA-AES128-GCM-SHA256',
+    'ECDHE-EC@SA-AES128-GCM-SHA256',
     'ECDHE-ECDSA-CHACHA20-POLY1305',
     'ECDHE-RSA-CHACHA20-POLY1305',
     'DHE-RSA-AES256-GCM-SHA384',
@@ -172,7 +229,7 @@ try {
 // Let's Encrypt HTTP-01 challenges must be reachable before HSTS/rate limits.
 export const acmeChallengeStore = attachAcmeHttp01(app);
 
-// Fallback to HTTP/1.1 if no certs are provided, otherwise HTTP/2 + TLS 1.3 via ALPN.
+// Fallback to HTTP/1.1 if no certs are provided, otherwise HTTP/2 + TLS 1.3 via ALMP.
 server = createAlpnServer(app, hasCertificates ? httpsOptions : null);
 applyServerTuning(server);
 let stopCertificateWatch = () => {};
@@ -240,241 +297,99 @@ app.use((req, res, next) => {
 });
 
 // Routes
+app.use('/snippets', snippetsRoute);
 app.use('/api', apiRouter);
-app.use('/api/oracle', oracleQueueRoute);
+app.use('/api/auth', authRoute);
 app.use('/api/admin', adminRoute);
-app.use('/api/migrations', migrationRoute);
-app.use('/api/sports-markets', sportsPredictionMarketRoute);
-app.use('/api/warranty', warrantyManagementRoute);
+app.use('/api/oracle', oracleRoute);
+app.use('/api/oracle-queue', oracleQueueRoute);
+app.use('/api/migration', migrationRoute);
+app.use('/api/sports-prediction-market', sportsPredictionMarketRoute);
+app.use('/api/warranty-management', warrantyManagementRoute);
 app.use('/api/yield-optimizer', yieldOptimizerRoute);
 app.use('/api/reit', reitRoute);
+app.use('/api/v1', eventsV1Route);
+app.use('/api/credentials', credentialsRoute);
 app.use('/api/fee-engine', feeEngineRoute);
 app.use('/api/feature-flags', featureFlagsRoute);
-app.use('/api/webhooks', webhooksRoute);
-app.use('/api/cors-whitelist', corsAdminRoute);
-app.use(
-  '/api/v1/events',
-  negotiateApiVersion({ uriVersion: 'v1' }),
-  deprecationHeaders,
-  eventsV1Route
-);
-app.use('/api/registry', serviceRegistryRoute);
-app.use('/api/batch', batchSubmitterRoute);
-app.use('/api/credentials', credentialsRoute);
-app.use('/api/snippets', snippetsRoute);
+app.use('/api/health', healthRouter);
 app.use('/api/deploy-queue', deployQueueRoute);
 app.use('/api/backup', backupRoute);
-app.use('/api/auth', authRoute);
 app.use('/api/background-jobs', backgroundJobsRoute);
-// Queue management & DLQ inspection (#1577)
-app.use('/api/queues', queuesRoute);
-// RPC router status & circuit-breaker reset (#1575)
-app.use('/api/rpc', rpcRoute);
-
-if (
-  config.app?.env === 'development' ||
-  process.env.NODE_ENV === 'development'
-) {
-  app.use('/admin/queues', (req, res, next) => {
-    if (queueDashboard) {
-      return queueDashboard(req, res, next);
-    }
-    res.status(503).json({ error: 'Queue dashboard initializing' });
-  });
-}
-
 app.use('/api/prediction-market', predictionMarketRoute);
+app.use('/api/webhooks', webhooksRoute);
+app.use('/api/cors-admin', corsAdminRoute);
+app.use('/api/service-registry', serviceRegistryRoute);
+app.use('/api/batch-submitter', batchSubmitterRoute);
+app.use('/api/queues', queuesRoute);
+app.use('/api/rpc', rpcRoute);
 app.use('/metrics', metricsRoute);
 
-// GraphQL & Swagger
-setupGraphQL(app);
+app.use(negotiateApiVersion);
+app.use(deprecationHeaders);
+
 setupSwagger(app);
 
-// Health Check and Readiness Probes
-app.get('/', (_req, res) => {
-  res.status(200).send('Soroban Playground Backend API is running.');
-});
-
-app.use('/health', healthRouter);
-app.get('/api/health', healthHandler);
-
-// Error handlers (must be registered after routes)
+// 404 + error handlers
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-// Secret rotation setup
-function setupCredentialRotation() {
-  const { intervalMs, graceMs, sourceFile, encryptionKey } =
-    config.credentialRotation || {};
-  if (!sourceFile && !encryptionKey && !intervalMs) return;
-
-  credentialRotationService.configure({
-    encryptionKey,
-    sourceFile,
-    intervalMs,
-    graceMs,
-    initial: {
-      DATABASE_URL: process.env.DATABASE_URL,
-      REDIS_URL: process.env.REDIS_URL,
-    },
-  });
-
-  credentialRotationService.onRotate('REDIS_URL', (url) =>
-    redisService.rotateConnection(url)
-  );
-  credentialRotationService.onRotate('DATABASE_URL', (value) =>
-    refreshDatabaseConnection({
-      filename: value.replace(/^sqlite:\/\//, ''),
-      graceMs,
-    })
-  );
-
-  credentialRotationService.start();
-}
-
-let ledgerSyncServiceInstance = null;
-
-// Initialize Database & Boot Services
-initializeDatabase()
-  .then(async (db) => {
-    await runStartupMigrations().catch((err) =>
-      console.warn('[StartupMigrations] Warning:', err.message)
-    );
-    if (
-      redisService.client?.duplicate &&
-      redisService.client.status === 'ready'
-    ) {
-      websocketRedisClient = redisService.client.duplicate();
-      websocketRedisClient.on('error', () => {});
-      if (websocketRedisClient.status === 'wait') {
-        await websocketRedisClient.connect().catch(() => {});
-      }
-    }
-    setupWebsocketServer(server, {
-      heartbeatInterval: 30000,
-      maxConnectionsPerIp: 10,
-      redisClient: redisService.client,
-      redisSubClient: websocketRedisClient || redisService.client,
-    });
-    await initializeCompileService().catch((err) =>
-      console.error('[CompileService] Initialization error:', err)
-    );
-
-    await startOriginCacheRefresh();
-    oracleWorkerPool.start();
-    startCleanupWorker();
-    startBackupScheduler();
-    featureFlagService.initSubscriber();
-    startWebhookDispatcher();
-    setupCredentialRotation();
-    initializeQueues();
-    cacheInvalidator
-      .start()
-      .catch((err) =>
-        console.warn('[CacheInvalidator] start failed:', err.message)
-      );
-    kmsService.start();
-
-    if (process.env.LEDGER_SYNC_ENABLED === 'true') {
-      ledgerSyncServiceInstance = new LedgerSyncService({ db });
-      ledgerSyncServiceInstance.start();
-    }
-
-    if (
-      process.env.NODE_ENV !== 'test' ||
-      process.env.LISTEN_IN_TEST === 'true'
-    ) {
-      server.listen(PORT, () => {
-        const protocol = hasCertificates ? 'https' : 'http';
-        console.log(
-          `✅ Backend server running on ${protocol}://localhost:${PORT}`
-        );
-      });
-    }
-  })
-  .catch((err) => {
-    console.error('CRITICAL: Database initialization failed:', err);
-    process.exit(1);
-  });
-
-// Graceful Shutdown Handler
-let isShuttingDown = false;
-const SHUTDOWN_TIMEOUT_MS = 30000;
-
-async function gracefulShutdown(signal) {
-  if (isShuttingDown) return;
-  isShuttingDown = true;
-  console.log(`\n[Shutdown] Received ${signal}. Starting graceful shutdown...`);
-
-  const forceExit = setTimeout(() => {
-    console.error(
-      '[Shutdown] Graceful shutdown timed out after 30s. Force exiting process.'
-    );
-    process.exit(1);
-  }, SHUTDOWN_TIMEOUT_MS);
-
-  if (forceExit.unref) forceExit.unref();
-
+async function start() {
   try {
-    // 1. Stop background workers and queue consumers
-    console.log('[Shutdown] Stopping background workers...');
-    stopCleanupWorker();
-    stopOriginCacheRefresh();
-    stopWebhookDispatcher();
-    stopCertificateWatch();
-    cacheInvalidator.stop().catch(() => {});
-    kmsService.stop();
-    if (ledgerSyncServiceInstance) ledgerSyncServiceInstance.stop();
-    await oracleWorkerPool.stop();
-    credentialRotationService.stop();
-
-    try {
-      await shutdownQueues();
-    } catch (err) {
-      console.error('[Shutdown] Error closing BullMQ queues:', err.message);
-    }
-
-    // 2. Terminate WebSockets cleanly
-    console.log('[Shutdown] Terminating WebSocket connections...');
-    if (typeof closeWebsocketServer === 'function') {
-      await closeWebsocketServer();
-    }
-
-    if (websocketRedisClient && websocketRedisClient.status !== 'end') {
-      try {
-        await websocketRedisClient.quit();
-      } catch (_) {
-        websocketRedisClient.disconnect();
-      }
-    }
-
-    // 3. Stop accepting new HTTP requests
-    console.log('[Shutdown] Stopping HTTP server...');
-    await new Promise((resolve) => server.close(resolve));
-
-    // 4. Drain database pool and close Redis connections
-    console.log('[Shutdown] Closing database and Redis connections...');
-    await closeDatabase();
-
-    if (redisService.client && redisService.client.status !== 'end') {
-      try {
-        await redisService.client.quit();
-      } catch (_) {
-        redisService.client.disconnect();
-      }
-    }
-
-    console.log('[Shutdown] Graceful shutdown completed cleanly.');
-    clearTimeout(forceExit);
-    process.exit(0);
+    await initializeDatabase();
+    await runStartupMigrations();
+    await initializeQueues();
+    await initializeCompileService();
+    await oracleWorkerPool.start();
+    await contractEventIndexer.start();
+    await LedgerSyncService.start();
+    await credentialRotationService.start();
+    await featureFlagService.initialize();
+    await kmsService.initialize();
+    await redisService.connect();
+    await cacheInvalidator.start();
+    startOriginCacheRefresh();
+    startCleanupWorker();
+    startMemoryLeakDetector();
+    startBackupScheduler();
+    startWebhookDispatcher();
+    setupWebsocketServer(server);
+    server.listen(PORT, () => {
+      console.log(`Server listening on port ${PORT}`);
+    });
   } catch (err) {
-    console.error('[Shutdown] Error encountered during execution:', err);
-    clearTimeout(forceExit);
+    console.error('Failed to start server:', err);
     process.exit(1);
   }
 }
 
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+async function shutdown(signal) {
+  console.log(`Received ${signal}, shutting down...`);
+  try {
+    stopCertificateWatch();
+    stopOriginCacheRefresh();
+    stopCleanupWorker();
+    stopWebhookDispatcher();
+    await closeWebsocketServer();
+    await oracleWorkerPool.stop();
+    await contractEventIndexer.stop();
+    await LedgerSyncService.stop();
+    await credentialRotationService.stop();
+    await cacheInvalidator.stop();
+    await shutdownQueues();
+    await closeDatabase();
+    server.close(() => {
+      console.log('Server closed.');
+      process.exit(0);
+    });
+  } catch (err) {
+    console.error('Error during shutdown:', err);
+    process.exit(1);
+  }
+}
 
-export default app;
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
+export { app, server, start, shutdown };
+start();

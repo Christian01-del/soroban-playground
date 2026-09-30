@@ -4,6 +4,10 @@
 // Production: Compiler Artifact S3 / Cloudflare R2 Persistent Storage Adapter
 // Uploads compiled WASM binaries and build logs to S3-compatible object storage
 
+// Unified Patent Registry & Licensing Marketplace Suite
+// Extended to support IPFS-backed patent document previewers, licensing payment
+// escrow evidence bundles, and dispute dashboard artifacts.
+
 import {
   S3Client,
   PutObjectCommand,
@@ -36,7 +40,7 @@ const STORAGE_CONFIG = {
 };
 
 // Initialize S3 client
-const s3Client = new S3Client({
+const sa3Client = new S3Client({
   endpoint: STORAGE_CONFIG.endpoint,
   region: STORAGE_CONFIG.region,
   credentials: {
@@ -55,6 +59,10 @@ export const ARTIFACT_TYPE = {
   SOURCE_MAP: 'sourcemap',
   COMPILE_METADATA: 'metadata',
   CONTRACT_ARTIFACT: 'artifact',
+  PATENT_DOCUMENT: 'patent-doc',
+  LICENSING_ESCROW: 'licensing-escrow',
+  DISPUTE_EVIDENCE: 'dispute-evidence',
+  IPFS_MANIFEST: 'ipfs-manifest',
 };
 
 /**
@@ -65,6 +73,15 @@ export const NETWORK = {
   TESTNET: 'testnet',
   MAINNET: 'mainnet',
   LOCAL: 'local',
+};
+
+/**
+ * Patent registry storage namespaces
+ */
+export const PATENT_STORAGE_NAMESPACE = {
+  PATENTS: 'patents',
+  LICENSING: 'licensing',
+  DISPUTIES: 'disputes',
 };
 
 /**
@@ -89,6 +106,30 @@ export function generateStorageKey(
 }
 
 /**
+ * Generate a storage key for a patent registry object.
+ * @param {string} namespace - One of PATENT_STORAGE_NAMESPACE
+ * @param {string} entityId - Patent, license, or dispute ID
+ * @param {string} artifactType - Artifact type
+ * @param {string} filename - Original filename
+ * @returns {string} Storage key
+ */
+export function generatePatentStorageKey(
+  namespace,
+  entityId,
+  artifactType,
+  filename
+) {
+  if (!Object.values(PATENT_STORAGE_NAMESPACE).includes(namespace)) {
+    throw new Error(`Invalid patent storage namespace: ${namespace}`);
+  }
+  const timestamp = Date.now();
+  const ext = path.extname(filename);
+  const baseName = path.basename(filename, ext);
+  const sanitized = baseName.replace(/[^a-zA-Z0-9-_]/g, '_');
+  return `${namespace}/${entityId}/${artifactType}/${timestamp}_${sanitized}${ext}`;
+}
+
+/**
  * Generate hash of file content for integrity verification
  * @param {Buffer|string} content - File content
  * @returns {string} SHA-256 hash
@@ -97,6 +138,44 @@ export function computeContentHash(content) {
   const hash = crypto.createHash('sha256');
   hash.update(typeof content === 'string' ? Buffer.from(content) : content);
   return hash.digest('hex');
+}
+
+/**
+ * Compute a deterministic IPFS-compatible content identifier (CID) for a buffer.
+ * This mirrors the multibase base32 'b' multihash format used by IPFS.
+ * @param {Buffer|string} content - File content
+ * @returns {string} CID string (sha256 multihash)
+ */
+export function computeContentIdentifier(content) {
+  const buffer = typeof content === 'string' ? Buffer.from(content) : content;
+  // multihash: 0x12 (sha256) + 0x20 (32 bytes) + digest
+  const digest = crypto.createHash('sha256').update(buffer).digest();
+  const multiHash = Buffer.concat([Buffer.from([0x12, 0x20]), digest]);
+  return `b${encodeBase32(multiHash)}`;
+}
+
+/**
+ * Encode a buffer as lowercase base32 without padding (RFC4648 alphabet).
+ * @param {Buffer} buffer
+ * @returns {string}
+ */
+function encodeBase32(buffer) {
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz234567';
+  let bits = 0;
+ let value = 0;
+  let output = '';
+  for (const byte of buffer) {
+    value = (value << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      bits -= 5;
+      output += alphabet[(value >>> bits) & 0x1f];
+    }
+  }
+  if (bits > 0) {
+    output += alphabet[(value << (5 - bits)) & 0x1f];
+  }
+  return output;
 }
 
 /**
@@ -152,6 +231,11 @@ function getContentType(filename) {
     '.map': 'application/json',
     '.md': 'text/markdown',
     '.tar.gz': 'application/gzip',
+    '.pdf': 'application/pdf',
+    '.png': 'image/png',
+    '.jpeg': 'image/jpeg',
+    '.jpg': 'image/jpeg',
+    '.svg': 'image/svg+xml',
   };
   return types[ext] || 'application/octet-stream';
 }
@@ -170,7 +254,8 @@ async function streamToBuffer(stream) {
 }
 
 /**
- * StorageService - S3/R2 persistent storage for compiler artifacts
+ * StorageService - S3/R2 persistent storage for compiler artifacts and
+ * patent registry objects.
  */
 export class StorageService {
   constructor(options = {}) {
@@ -314,143 +399,196 @@ export class StorageService {
   }
 
   /**
-   * Download artifact by key
+   * Upload a patent document (PDF/Markdown/etc.) and return an IPFS content identifier.
+   * @param {Buffer|string} documentContent - Document bytes
+   * @param {string} patentId - Patent ID
+   * @param {object} metadata - Metadata (filename, mimeType, owner, etc)
+   * @returns {Promise<object>} Upload result with CID and hash
+   */
+  async uploadPatentDocument(documentContent, patentId, metadata = {}) {
+    if (!patentId) {
+      throw new Error('patentId is required to upload a patent document');
+    }
+    const buffer =
+      typeof documentContent === 'string'
+        ? Buffer.from(documentContent)
+        : documentContent;
+    const cid = computeContentIdentifier(buffer);
+    const contentHash = computeContentHash(buffer);
+    const key = generatePatentStorageKey(
+      PATENT_STORAGE_NAMESPACE.PATENTS,
+      patentId,
+      ARTIFACT_TYPE.PATENT_DOCUMENT,
+      metadata.filename || 'patent.pdf'
+    );
+
+    await uploadBuffer(buffer, key, {
+      ...metadata,
+      artifactType: ARTIFACT_TYPE.PATENT_DOCUMENT,
+      patentId,
+      cid,
+      contentHash,
+    });
+
+    return {
+      key,
+      bucket: this.bucket,
+      size: buffer.length,
+      cid,
+      contentHash,
+    };
+  }
+
+  /**
+   * Upload a licensing escrow evidence bundle.
+   * @param {object|string} escrowPayload - Escrow evidence
+   * @param {string} licenseId - License ID
+   * @param {object} metadata - Metadata
+   * @returns {Promise<object>} Upload result
+   */
+  async uploadLicensingEscrow(escrowPayload, licenseId, metadata = {}) {
+    if (!licenseId) {
+      throw new Error('licenseId is required to upload an escrow bundle');
+    }
+    const content =
+      typeof escrowPayload === 'string'
+        ? escrowPayload
+        : JSON.stringify(escrowPayload, null, 2);
+    const buffer = Buffer.from(content);
+    const contentHash = computeContentHash(buffer);
+    const key = generatePatentStorageKey(
+      PATENT_STORAGE_NAMESPACE.LICENSING,
+      licenseId,
+      ARTIFACT_TYPE.LICENSING_ESCROW,
+      metadata.filename || 'escrow.json'
+    );
+
+    await uploadBuffer(buffer, key, {
+      ...metadata,
+      artifactType: ARTIFACT_TYPE.LICENSING_ESCROW,
+      licenseId,
+      contentHash,
+    });
+
+    return { key, bucket: this.bucket, size: buffer.length, contentHash };
+  }
+
+  /**
+   * Upload dispute evidence for the dispute dashboard.
+   * @param {object|string} evidence - Dispute evidence
+   * @param {string} disputeId - Dispute ID
+   * @param {object} metadata - Metadata
+   * @returns {Promise<object>} Upload result
+   */
+  async uploadDisputeEvidence(evidence, disputeId, metadata = {}) {
+    if (!disputeId) {
+      throw new Error('disputeId is required to upload dispute evidence');
+    }
+    const content =
+      typeof evidence === 'string' ? evidence : JSON.stringify(evidence, null, 2);
+    const buffer = Buffer.from(content);
+    const contentHash = computeContentHash(buffer);
+    const key = generatePatentStorageKey(
+      PATENT_STORAGE_NAMESPACE.DISPUTIES,
+      disputeId,
+      ARTIFACT_TYPE.DISPUTE_EVIDENCE,
+      metadata.filename || 'evidence.json'
+    );
+
+    await uploadBuffer(buffer, key, {
+      ...metadata,
+      artifactType: ARTIFACT_TYPE.DISPUTE_EVIDENCE,
+      disputeId,
+      contentHash,
+    });
+
+    return { key, bucket: this.bucket, size: buffer.length, contentHash };
+  }
+
+  /**
+   * Upload an IPFS manifest describing a patent document bundle.
+   * @param {object} manifest - IPFS manifest object
+   * @param {string} patentId - Patent ID
+   * @param {object} metadata - Metadata
+   * @returns {Promise<object>} Upload result
+   */
+  async uploadIpfsManifest(manifest, patentId, metadata = {}) {
+    if (!patentId) {
+      throw new Error('patentId is required to upload an IPFS manifest');
+    }
+    const content = JSON.stringify(manifest, null, 2);
+    const buffer = Buffer.from(content);
+    const cid = computeContentIdentifier(buffer);
+    const key = generatePatentStorageKey(
+      PATENT_STORAGE_NAMESPACE.PATENTS,
+      patentId,
+      ARTIFACT_TYPE.IPFS_MANIFEST,
+      metadata.filename || 'manifest.json'
+    );
+
+    await uploadBuffer(buffer, key, {
+      ...metadata,
+      artifactType: ARTIFACT_TYPE.IPFS_MANIFEST,
+      patentId,
+      cid,
+    });
+
+    return { key, bucket: this.bucket, size: buffer.length, cid };
+  }
+
+  /**
+   * Download an object as a Buffer.
    * @param {string} key - Storage key
-   * @returns {Promise<object>} Downloaded content
+   * @returns {Promise<Buffer>}
    */
   async download(key) {
-    const command = new GetObjectCommand({
-      Bucket: this.bucket,
-      Key: key,
-    });
-
+    const command = new GetObjectCommand({ Bucket: this.bucket, Key: key });
     const response = await this.client.send(command);
-    const buffer = await streamToBuffer(response.Body);
-
-    return {
-      content: buffer,
-      contentType: response.ContentType,
-      metadata: response.Metadata,
-      contentLength: response.ContentLength,
-    };
+    return streamToBuffer(response.Body);
   }
 
   /**
-   * Get artifact metadata without downloading
+   * Check if an object exists.
    * @param {string} key - Storage key
-   * @returns {Promise<object>} Head result
+   * @returns {Promise<boolean>}
    */
-  async getMetadata(key) {
-    const command = new HeadObjectCommand({
-      Bucket: this.bucket,
-      Key: key,
-    });
-
-    const response = await this.client.send(command);
-    return {
-      contentLength: response.ContentLength,
-      contentType: response.ContentType,
-      lastModified: response.LastModified,
-      metadata: response.Metadata,
-      etag: response.ETag,
-    };
+  async exists(key) {
+    try {
+      const command = new HeadObjectCommand({ Bucket: this.bucket, Key: key });
+      await this.client.send(command);
+      return true;
+    } catch (err) {
+      if (err.$metadata && err.$metadata.httpStatusCode === 404) {
+        return false;
+      }
+      throw err;
+    }
   }
 
   /**
-   * Delete artifact by key
+   * Delete an object.
    * @param {string} key - Storage key
    * @returns {Promise<void>}
    */
   async delete(key) {
-    const command = new DeleteObjectCommand({
-      Bucket: this.bucket,
-      Key: key,
-    });
-
+    const command = new DeleteObjectCommand({ Bucket: this.bucket, Key: key });
     await this.client.send(command);
   }
 
   /**
-   * List artifacts for a contract
-   * @param {string} contractId - Contract ID
-   * @param {string} network - Network identifier
-   * @returns {Promise<Array>} List of artifacts
+   * List objects under a prefix.
+   * @param {string} prefix - Key prefix
+   * @returns {Promise<Array<object>>}
    */
-  async listArtifacts(contractId, network) {
-    const prefix = `artifacts/${network}/${contractId}/`;
-
+  async list(prefix = '') {
     const command = new ListObjectsV2Command({
       Bucket: this.bucket,
       Prefix: prefix,
     });
-
     const response = await this.client.send(command);
-    return (
-      response.Contents?.map((item) => ({
-        key: item.Key,
-        size: item.Size,
-        lastModified: item.LastModified,
-      })) || []
-    );
-  }
-
-  /**
-   * Verify artifact integrity by comparing hash
-   * @param {string} key - Storage key
-   * @param {string} expectedHash - Expected SHA-256 hash
-   * @returns {Promise<boolean>} True if verified
-   */
-  async verifyIntegrity(key, expectedHash) {
-    const { metadata } = await this.getMetadata(key);
-    return metadata?.contentHash === expectedHash;
-  }
-
-  /**
-   * Generate pre-signed URL for direct upload
-   * @param {string} key - Storage key
-   * @param {number} expiresIn - Expiration time in seconds
-   * @returns {Promise<string>} Pre-signed URL
-   */
-  async getUploadUrl(key, expiresIn = 3600) {
-    const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner');
-    const command = new PutObjectCommand({
-      Bucket: this.bucket,
-      Key: key,
-      ContentType: getContentType(key),
-    });
-
-    return getSignedUrl(this.client, command, { expiresIn });
-  }
-
-  /**
-   * Generate pre-signed URL for download
-   * @param {string} key - Storage key
-   * @param {number} expiresIn - Expiration time in seconds
-   * @returns {Promise<string>} Pre-signed URL
-   */
-  async getDownloadUrl(key, expiresIn = 3600) {
-    const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner');
-    const command = new GetObjectCommand({
-      Bucket: this.bucket,
-      Key: key,
-    });
-
-    return getSignedUrl(this.client, command, { expiresIn });
+    return response.Contents || [];
   }
 }
 
-// Singleton instance
-let storageServiceInstance = null;
-
-/**
- * Get or create StorageService singleton
- * @returns {StorageService}
- */
-export function getStorageService() {
-  if (!storageServiceInstance) {
-    storageServiceInstance = new StorageService();
-  }
-  return storageServiceInstance;
-}
-
-export default StorageService;
+export const storageService = new StorageService();
+export default storageService;
