@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: MIT
 
 // Zod schemas for the core compile / deploy / invoke API (issue #1573).
+// Extended for the Pre-Flight Simulation Engine (issue FE-EPIC-18):
+// simulate / profile / gas-estimation request validation.
+//
+// Zod schemas for the core compile / deploy / invoke API (issue #1573).
 //
 // z.object() strips unknown keys by default, so anything a client sends that
 // is not listed here never reaches a handler — this is the mass-assignment
@@ -13,6 +17,8 @@ import { z } from 'zod';
 const IDENTIFIER_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 // Stellar StrKey contract IDs: 'C' + 55 base32 characters.
 const CONTRACT_ID_RE = /^C[A-Z2-7]{55}$/;
+// Stellar StrKey account IDs: 'G' + 55 base32 characters.
+const ACCOUNT_ID_RE = /^G[A-Z2-7]{55}$/;
 const NETWORK_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,31}$/;
 // Identity alias (stellar keys) or a G/S StrKey — never a CLI flag.
 const SOURCE_ACCOUNT_RE = /^[a-zA-Z0-9_][a-zA-Z0-9_-]{0,63}$/;
@@ -23,6 +29,13 @@ function requiredString(field, message) {
     required_error: `${field} is required`,
     invalid_type_error: message || `${field} must be a string`,
   });
+}
+
+function optionalString(field, message) {
+  return z
+    .string({ invalid_type_error: message || `${field} must be a string` })
+    .nullish()
+    .transform((v) => v ?? undefined);
 }
 
 const optional = (schema) => schema.nullish().transform((v) => v ?? undefined);
@@ -60,6 +73,18 @@ export const invokeArgs = z
   .refine((value) => Object.keys(value).length <= 64, {
     message: 'args may contain at most 64 entries',
   });
+
+// XDR-encoded ScVal arguments (base64) — used by the pre-flight simulator
+// when the client already holds serialized invocation data.
+export const xdrArgs = z
+  .array(
+    z
+      .string({ invalid_type_error: 'xdrArgs must be an array of strings' })
+      .min(1, 'xdrArgs entries must not be empty')
+      .max(65536, 'xdrArgs entries must be at most 65536 characters'),
+    { invalid_type_error: 'xdrArgs must be an array of strings' }
+  )
+  .max(64, 'xdrArgs may contain at most 64 entries');
 
 const wasmPath = (field) =>
   requiredString(field)
@@ -189,4 +214,128 @@ export const jobIdParams = z.object({
   jobId: z
     .string()
     .regex(/^[a-zA-Z0-9_-]{1,128}$/, 'jobId must be a valid job identifier'),
+});
+
+// ── Pre-Flight Simulation (FE-EPIC-18) ──────────────────────────────────────
+// Simulation runs a contract invocation against an RPC node without
+// submitting it, returning CPU instruction counts, RAM footprint, ledger
+// entry read/write counts and a fee estimate. The schemas below validate
+// the request envelope; the resource breakdown itself is produced by the
+// simulation handler and validated by simulationResultSchema.
+
+const footprintMode = z
+  .enum(['enforce', 'record', 'record_allow_non_root'], {
+    invalid_type_error:
+      'footprintMode must be one of enforce, record, record_allow_non_root',
+  });
+
+const resourceLeeway = z
+  .number({ invalid_type_error: 'resourceLeeway must be a number' })
+  .int('resourceLeeway must be an integer')
+  .min(0, 'resourceLeeway must be >= 0')
+  .max(1_000_000_000, 'resourceLeeway is too large');
+
+const authMode = z.enum(['enforce', 'record', 'record_allow_non_root'], {
+  invalid_type_error:
+    'authMode must be one of enforce, record, record_allow_non_root',
+});
+
+export const simulateBodyV1 = z.object({
+  contractId: contractId('contractId'),
+  functionName: functionName('functionName'),
+  args: optional(invokeArgs),
+  xdrArgs: optional(xdrArgs),
+  network: optional(network('network')),
+  sourceAccount: optional(sourceAccount('sourceAccount')),
+  footprintMode: optional(footprintMode),
+  authMode: optional(authMode),
+  resourceLeeway: optional(resourceLeeway),
+  // When true the handler returns the raw diagnostic events alongside the
+  // aggregated resource profile.
+  includeDiagnostics: optional(z.boolean()),
+});
+
+export const simulateBodyV2 = z.object({
+  contract_id: contractId('contract_id'),
+  function_name: functionName('function_name'),
+  args: optional(invokeArgs),
+  xdr_args: optional(xdrArgs),
+  network: optional(network('network')),
+  source_account: optional(sourceAccount('source_account')),
+  footprint_mode: optional(footprintMode),
+  auth_mode: optional(authMode),
+  resource_leeway: optional(resourceLeeway),
+  include_diagnostics: optional(z.boolean()),
+});
+
+// ── Resource Profiler ───────────────────────────────────────────────────────
+// Aggregated resource profile returned by the simulator. Used to validate
+// handler output before it is persisted or streamed to the client.
+
+export const resourceProfileSchema = z.object({
+  cpuInsns: z.number().int().nonnegative(),
+  memBytes: z.number().int().nonnegative(),
+  ledgerEntriesRead: z.number().int().nonnegative(),
+  ledgerEntriesWritten: z.number().int().nonnegative(),
+  ledgerEntriesArchived: z.number().int().nonnegative().optional(),
+  minResourceFee: z.string().regex(/^\d+$/, 'minResourceFee must be a uint64 string'),
+  refundableFee: z.string().regex(/^\d+$/, 'refundableFee must be a uint64 string'),
+  nonRefundableFee: z.string().regex(/^\d+$/, 'nonRefundableFee must be a uint64 string'),
+  totalFee: z.string().regex(/^\d+$/, 'totalFee must be a uint64 string'),
+});
+
+export const simulationResultSchema = z.object({
+  success: z.boolean(),
+  latestLedger: z.number().int().nonnegative(),
+  transactionData: z.string().optional(),
+  events: z.array(z.string()).optional(),
+  diagnostics: z.array(z.string()).optional(),
+  error: z.string().optional(),
+  profile: resourceProfileSchema.optional(),
+});
+
+// ── Gas Visualizer ──────────────────────────────────────────────────────────
+// Historical gas / fee samples used to render the fee estimator chart.
+
+export const gasHistoryQuery = z.object({
+  contractId: contractId('contractId'),
+  functionName: optional(functionName('functionName')),
+  network: optional(network('network')),
+  limit: optional(
+    z
+      .coerce
+      .number({ invalid_type_error: 'limit must be a number' })
+      .int('limit must be an integer')
+      .min(1, 'limit must be >= 1')
+      .max(500, 'limit must be <= 500')
+  ),
+  sinceLedger: optional(
+    z
+      .coerce
+      .number({ invalid_type_error: 'sinceLedger must be a number' })
+      .int('sinceLedger must be an integer')
+      .nonnegative('sinceLedger must be >= 0')
+  ),
+});
+
+export const gasEstimateBody = z.object({
+  contractId: contractId('contractId'),
+  functionName: functionName('functionName'),
+  args: optional(invokeArgs),
+  network: optional(network('network')),
+  sourceAccount: optional(sourceAccount('sourceAccount')),
+  // Optional override of the base fee (in stroops) used for the estimate.
+  baseFee: optional(
+    z
+      .coerce
+      .number({ invalid_type_error: 'baseFee must be a number' })
+      .int('baseFee must be an integer')
+      .min(0, 'baseFee must be >= 0')
+  ),
+  // Optional explicit account ID for fee-source simulation.
+  feeSource: optional(
+    z
+      .string({ invalid_type_error: 'feeSource must be a string' })
+      .regex(ACCOUNT_ID_RE, 'feeSource must be a valid Stellar account ID')
+  ),
 });

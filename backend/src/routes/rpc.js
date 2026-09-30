@@ -40,4 +40,48 @@ router.post(
   })
 );
 
+/**
+ * POST /api/rpc/simulate
+ * Pre-flight simulation engine endpoint (#FE-EPIC-18).
+ *
+ * Runs a contract simulation against the active RPC endpoint and returns a
+ * detailed breakdown of CPU instructions, RAM footprint, ledger entry
+ * read/write counts, and fee estimates.
+ *
+ * Body:
+ *   { contractId: string,
+ *     method: string,
+ *     args?: Array<unknown>,
+ *     sourceAccount?: string,
+ *     fee?: string,
+ *     netword?: string }
+ */
+router.post(
+  '/simulate',
+  asyncHandler(async (req, res) => {
+    const { contractId, method, args = [], sourceAccount, fee, network } = req.body || {};
+
+    if (!contractId || typeof contractId !== 'string') {
+      return res.status(400).json({ success: false, error: 'contractId is required' });
+    }
+    if (!method || typeof method !== 'string') {
+      return res.status(400).json({ success: false, error: 'method is required' });
+    }
+    if (!Array.isArray(args)) {
+      return res.status(400).json({ success: false, error: 'args must be an array' });
+    }
+
+    const result = await sorobanRpcManager.simulateContractCall({
+      contractId,
+      method,
+      args,
+      sourceAccount,
+      fee,
+      network,
+    });
+
+    return res.json({ success: true, ...result });
+  })
+);
+
 export default router;

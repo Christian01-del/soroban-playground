@@ -7,8 +7,8 @@ import {
   addSpanEvent,
   injectTraceContext,
 } from '../utils/tracing.js';
-import { recordTamperEvidentAuditLog } from './tamperEvidentAuditLogger.js';
-import { spawnTracked, terminateChildProcess } from './childProcessManager.js';
+const { recordTamperEvidentAuditLog } = await import('./tamperEvidentAuditLogger.js');
+const { spawnTracked, terminateChildProcess } = await import('./childProcessManager.js');
 
 const MAX_CONCURRENT = Number.parseInt(process.env.INVOKE_POOL_SIZE || '3', 10);
 const INVOKE_TIMEOUT_MS = Number.parseInt(
