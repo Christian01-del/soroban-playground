@@ -9,6 +9,8 @@ import React, {
   useState,
 } from "react";
 import { useCompileStore } from "@/state/compileStore";
+import { formatRustInWorker } from "@/lib/rustfmtClient";
+import type { RustFormatDiagnostic } from "@/lib/rustfmtDiagnostics";
 import {
   Activity,
   BookOpen,
@@ -300,6 +302,9 @@ export default function Home() {
   }, []);
 
   const [code, setCode] = useState(DEFAULT_CODE);
+  const [formatDiagnostics, setFormatDiagnostics] =
+    useState<RustFormatDiagnostic[]>([]);
+  const [isFormatting, setIsFormatting] = useState(false);
   const [logs, setLogs] = useState<string[]>([
     `Soroban Playground ready.`,
     `Frontend connected to ${DEFAULT_API_BASE_URL}`,
@@ -2371,15 +2376,22 @@ export default function Home() {
     }
   };
 
-  const handleFormat = async () => {
+  const handleFormat = async (source = code) => {
+    setIsFormatting(true);
     try {
-      const rustfmt = await import("rustfmt");
-      // ensure we're accessing the format function properly, it might be a default export or named export
-      const formatted = rustfmt.format(code);
-      setCode(formatted);
-      appendLog("[editor] Code formatted successfully");
+      const result = await formatRustInWorker(source);
+      if ("diagnostics" in result) {
+        setFormatDiagnostics(result.diagnostics);
+        appendLog(`[editor] rustfmt found ${result.diagnostics.length} syntax error(s)`);
+      } else {
+        setFormatDiagnostics([]);
+        setCode(result.formatted);
+        appendLog("[editor] Code formatted successfully");
+      }
     } catch (error) {
       appendLog(`[error] Format failed: ${String(error)}`);
+    } finally {
+      setIsFormatting(false);
     }
   };
 
@@ -2490,11 +2502,18 @@ export default function Home() {
                   </div>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={handleFormat}
+                      type="button"
+                      onClick={() => void handleFormat()}
+                      disabled={isFormatting}
+                      aria-busy={isFormatting}
                       className="inline-flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1.5 text-xs font-medium text-emerald-200 transition hover:bg-emerald-400/20"
                     >
-                      <Code2 size={14} />
-                      Format
+                      {isFormatting ? (
+                        <LoaderCircle size={14} className="animate-spin" />
+                      ) : (
+                        <Code2 size={14} />
+                      )}
+                      {isFormatting ? "Formatting..." : "Format"}
                     </button>
                     <a
                       href="https://developers.stellar.org/docs/build/smart-contracts/getting-started"
@@ -2511,7 +2530,12 @@ export default function Home() {
                     />
                   </div>
                 </div>
-                <Editor code={code} setCode={setCode} />
+                <Editor
+                  code={code}
+                  setCode={setCode}
+                  onFormat={handleFormat}
+                  formatDiagnostics={formatDiagnostics}
+                />
               </section>
             }
             output={
