@@ -66,6 +66,7 @@ members = [
     "contracts/interest-rate-model",
     "contracts/job-marketplace",
     "contracts/key-value-store",
+    "contracts/lending-pool",
     "contracts/lending-protocol",
     "contracts/limit-order-book",
     "contracts/loan-syndication",
