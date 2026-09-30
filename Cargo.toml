@@ -143,6 +143,7 @@ members = [
     "crates/common-security",
     "crates/common-math",
     "crates/common-ttl",
+    "contracts/account-abstraction",
 ]
 
 # Dependencies shared by the root crate and the `indexer` service. Declaring
