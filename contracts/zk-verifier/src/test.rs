@@ -154,3 +154,40 @@ fn verifies_a_public_input_msm() {
         &soroban_sdk::vec![&env, BytesN::from_array(&env, &two)]
     ));
 }
+
+#[test]
+fn consumes_a_verified_nullifier_only_once() {
+    let env = Env::default();
+    let g1 = G1Affine::generator();
+    let g2 = G2Affine::generator();
+    let five_g1 = (G1Projective::from(g1) * ark_bn254::Fr::from(5u64)).into_affine();
+    let vk = VerificationKey {
+        alpha_g1: g1_bytes(&env, g1),
+        beta_g2: g2_bytes(&env, g2),
+        gamma_g2: g2_bytes(&env, g2),
+        delta_g2: g2_bytes(&env, g2),
+        ic: soroban_sdk::vec![&env, g1_bytes(&env, g1), g1_bytes(&env, g1)],
+    };
+    let proof = Proof {
+        a: g1_bytes(&env, five_g1),
+        b: g2_bytes(&env, g2),
+        c: g1_bytes(&env, g1),
+    };
+    let mut nullifier_bytes = [0u8; 32];
+    nullifier_bytes[31] = 2;
+    let public_inputs = soroban_sdk::vec![&env, BytesN::from_array(&env, &nullifier_bytes)];
+
+    assert_eq!(
+        ZkVerifier::verify_and_consume_nullifier(
+            env.clone(),
+            vk.clone(),
+            proof.clone(),
+            public_inputs.clone(),
+        ),
+        Ok(true)
+    );
+    assert_eq!(
+        ZkVerifier::verify_and_consume_nullifier(env, vk, proof, public_inputs),
+        Err(Error::NullifierAlreadyUsed)
+    );
+}
