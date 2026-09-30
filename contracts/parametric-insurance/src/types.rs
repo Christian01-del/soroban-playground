@@ -33,6 +33,14 @@ pub enum Error {
     InvalidObservation = 24,
     InvalidConfig = 25,
     Overflow = 26,
+    /// Oracle reading lacks required verification.
+    UnverifiedOracleData = 27,
+    /// Oracle reading has insufficient confirmations.
+    InsufficientConfirmations = 28,
+    /// Oracle data source type not authorized for this product.
+    UnauthorizedDataSource = 29,
+    /// Oracle reading timestamp is invalid (future or too old).
+    InvalidTimestamp = 30,
 }
 
 /// Verification status mirrored from `weather-data-oracle`.
@@ -133,6 +141,12 @@ pub struct Product {
     pub term_secs: u64,
     /// Whether new policies can be purchased.
     pub is_active: bool,
+    /// Authorized data source types for this product.
+    pub authorized_sources: Vec<DataSourceType>,
+    /// Minimum confirmations required for oracle readings.
+    pub min_confirmations: u32,
+    /// Optional location requirement for geo-specific products.
+    pub required_location: Option<String>,
 }
 
 /// A purchased policy instance.
@@ -169,6 +183,14 @@ pub struct OracleReading {
     pub value: i128,
     /// Ledger timestamp of the reading.
     pub timestamp: u64,
+    /// Data source provenance (e.g., Satellite, GroundStation, WeatherAPI).
+    pub source_type: DataSourceType,
+    /// Verification status of the reading.
+    pub status: WeatherDataStatus,
+    /// Number of confirmations from independent oracles.
+    pub confirmations: u32,
+    /// Optional location identifier for geo-specific readings.
+    pub location: Option<String>,
 }
 
 #[contracttype]

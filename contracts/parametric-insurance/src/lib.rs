@@ -78,26 +78,35 @@ impl ParametricInsurance {
         Ok(())
     }
 
-    /// Oracle submits a reading for a specific parameter.
+    /// Oracle submits a reading for a specific parameter with verification metadata.
     pub fn submit_reading(
         env: Env,
         oracle: Address,
         parameter_key: String,
         value: i128,
+        source_type: DataSourceType,
+        status: WeatherDataStatus,
+        confirmations: u32,
+        location: Option<String>,
     ) -> Result<(), Error> {
         Self::assert_initialized(&env)?;
         oracle.require_auth();
         if !is_oracle(&env, &oracle) {
             return Err(Error::UnknownOracle);
         }
+        let now = env.ledger().timestamp();
         let reading = OracleReading {
             parameter_key: parameter_key.clone(),
             value,
-            timestamp: env.ledger().timestamp(),
+            timestamp: now,
+            source_type,
+            status,
+            confirmations,
+            location,
         };
         set_oracle_reading(&env, &oracle, &parameter_key, &reading);
         env.events()
-            .publish((symbol_short!("reading"),), (oracle, parameter_key, value));
+            .publish((symbol_short!("reading"),), (oracle, parameter_key, value, source_type, status));
         Ok(())
     }
 
@@ -176,6 +185,9 @@ impl ParametricInsurance {
         trigger_threshold: i128,
         trigger_direction: TriggerDirection,
         term_secs: u64,
+        authorized_sources: Vec<DataSourceType>,
+        min_confirmations: u32,
+        required_location: Option<String>,
     ) -> Result<u32, Error> {
         Self::assert_admin(&env, &admin)?;
         if name.len() == 0 {
@@ -190,6 +202,12 @@ impl ParametricInsurance {
         if term_secs == 0 {
             return Err(Error::InvalidTrigger);
         }
+        if authorized_sources.is_empty() {
+            return Err(Error::InvalidConfig);
+        }
+        if min_confirmations == 0 {
+            return Err(Error::InvalidConfig);
+        }
 
         let id = get_product_count(&env) + 1;
         let product = Product {
@@ -202,6 +220,9 @@ impl ParametricInsurance {
             trigger_direction,
             term_secs,
             is_active: true,
+            authorized_sources,
+            min_confirmations,
+            required_location,
         };
         set_product(&env, id, &product);
         set_product_count(&env, id);
@@ -235,6 +256,7 @@ impl ParametricInsurance {
         trigger_direction: TriggerDirection,
         term_secs: u64,
         max_observation_age: u64,
+        min_confirmations: u32,
     ) -> Result<u32, Error> {
         Self::assert_admin(&env, &admin)?;
         if name.is_empty() || region.is_empty() {
@@ -250,6 +272,7 @@ impl ParametricInsurance {
             || term_secs == 0
             || max_observation_age == 0
             || max_observation_age > MAX_CROP_OBSERVATION_AGE_SECS
+            || min_confirmations == 0
         {
             return Err(Error::InvalidConfig);
         }
@@ -266,6 +289,9 @@ impl ParametricInsurance {
             trigger_direction,
             term_secs,
             is_active: true,
+            authorized_sources: vec![&env, DataSourceType::Satellite],
+            min_confirmations,
+            required_location: Some(region.clone()),
         };
         set_product(&env, id, &product);
         set_crop_terms(
@@ -379,8 +405,9 @@ impl ParametricInsurance {
     /// The function:
     /// 1. Checks the policy is active and not expired.
     /// 2. Fetches the latest oracle reading for the product's parameter.
-    /// 3. Evaluates the trigger condition.
-    /// 4. If triggered, records the payout; otherwise returns `TriggerNotMet`.
+    /// 3. Verifies the oracle reading (status, confirmations, source type, location, timestamp).
+    /// 4. Evaluates the trigger condition.
+    /// 5. If triggered, records the payout; otherwise returns `TriggerNotMet`.
     ///
     /// Anyone may call this — no policyholder signature required.
     pub fn process_claim(env: Env, policy_id: u32) -> Result<i128, Error> {
@@ -410,6 +437,38 @@ impl ParametricInsurance {
         let reading = get_oracle_reading(&env, &product.oracle, &product.parameter_key)
             .ok_or(Error::OracleDataStale)?;
 
+        // Verify oracle reading status
+        if reading.status != WeatherDataStatus::Verified
+            && reading.status != WeatherDataStatus::Finalized
+        {
+            return Err(Error::UnverifiedOracleData);
+        }
+
+        // Verify confirmations meet product minimum
+        if reading.confirmations < product.min_confirmations {
+            return Err(Error::InsufficientConfirmations);
+        }
+
+        // Verify data source is authorized
+        if !product.authorized_sources.contains(&reading.source_type) {
+            return Err(Error::UnauthorizedDataSource);
+        }
+
+        // Verify location if required
+        if let Some(required_loc) = &product.required_location {
+            if let Some(reading_loc) = &reading.location {
+                if reading_loc != required_loc {
+                    return Err(Error::WrongRegion);
+                }
+            } else {
+                return Err(Error::WrongRegion);
+            }
+        }
+
+        // Verify timestamp is not in the future and not too old
+        if reading.timestamp > now {
+            return Err(Error::InvalidTimestamp);
+        }
         if now.saturating_sub(reading.timestamp) > MAX_ORACLE_STALENESS_SECS {
             return Err(Error::OracleDataStale);
         }

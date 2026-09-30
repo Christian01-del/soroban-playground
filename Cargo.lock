@@ -1223,6 +1223,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-math"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk 22.0.11",
+]
+
+[[package]]
+name = "common-security"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk 22.0.11",
+]
+
+[[package]]
+name = "common-ttl"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk 22.0.11",
+]
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2118,6 +2139,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "guess-the-number"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk 21.7.7",
+]
+
+[[package]]
 name = "h2"
 version = "0.3.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2789,6 +2817,7 @@ dependencies = [
 name = "lending-protocol"
 version = "0.1.0"
 dependencies = [
+ "proptest",
  "soroban-sdk 21.7.7",
 ]
 
@@ -2990,6 +3019,13 @@ dependencies = [
 
 [[package]]
 name = "music-royalty"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk 21.7.7",
+]
+
+[[package]]
+name = "nft-enumerable"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk 21.7.7",
@@ -4195,6 +4231,7 @@ dependencies = [
 name = "soroban-amm-pool"
 version = "0.1.0"
 dependencies = [
+ "proptest",
  "soroban-sdk 21.7.7",
 ]
 
