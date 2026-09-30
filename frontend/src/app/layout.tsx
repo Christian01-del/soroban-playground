@@ -12,6 +12,8 @@ import { THEME_BOOTSTRAP_SCRIPT } from "../lib/theme/engine";
 import SidebarShell from "../components/Sidebar";
 import RenderWarningModal from "../components/RenderWarningModal";
 import OnboardingTour from "../components/onboarding/OnboardingTour";
+import { ErrorBoundary } from "../components/ErrorBoundary";
+import ToastViewport from "../components/ToastViewport";
 
 export const metadata: Metadata = {
   title: "Stellar Soroban Playground",
@@ -56,12 +58,14 @@ export default function RootLayout({
                 <WorkspaceProvider>
                   {/* #1527 — binds Cmd/Ctrl+K and renders the palette once. */}
                   <CommandPaletteProvider>
-                    <SidebarShell>
-                      <RenderWarningModal />
-                      <OnboardingTour />
-                      {children}
-                      <OfflineStatusBar />
-                    </SidebarShell>
+                    <ErrorBoundary level="global">
+                      <SidebarShell>
+                        <RenderWarningModal />
+                        <OnboardingTour />
+                        {children}
+                        <OfflineStatusBar />
+                      </SidebarShell>
+                    </ErrorBoundary>
                   </CommandPaletteProvider>
                   {/* Must live inside OfflineProvider: it drains the outbox. */}
                   <ServiceWorkerRegistrar />
@@ -70,6 +74,7 @@ export default function RootLayout({
             </GraphQLProvider>
           </WalletProvider>
         </ThemeProvider>
+        <ToastViewport />
       </body>
     </html>
   );
