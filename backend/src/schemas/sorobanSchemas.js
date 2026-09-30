@@ -1,7 +1,7 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
-// Zod schemas for the core compile / deploy / invoke API (issue #1573).
+// Zod schemas for the core compile / deploy / invoke / trace API (issue #1573, #FE-EPIC-19).
 //
 // z.object() strips unknown keys by default, so anything a client sends that
 // is not listed here never reaches a handler — this is the mass-assignment
@@ -16,6 +16,8 @@ const CONTRACT_ID_RE = /^C[A-Z2-7]{55}$/;
 const NETWORK_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,31}$/;
 // Identity alias (stellar keys) or a G/S StrKey — never a CLI flag.
 const SOURCE_ACCOUNT_RE = /^[a-zA-Z0-9_][a-zA-Z0-9_-]{0,63}$/;
+// 64-char lowercase hex — Stellar transaction hash.
+const TX_HASH_RE = /^[0-9a-f]{64}$/;
 const MAX_BATCH_SIZE = 20;
 
 function requiredString(field, message) {
@@ -91,6 +93,11 @@ export const invokeBodyV2 = z.object({
   network: optional(network('network')),
   source_account: optional(sourceAccount('source_account')),
 });
+
+// ── Trace ───────────────────────────────────────────────────────────────────
+// Interactive transaction call graph / stack trace canvas (FE-EPIC-19).
+// Accepts either a transaction hash (fetched from the network) or an inline
+// invocation result envelope produced by the invoke endpoint.
 
 // ── Deploy ──────────────────────────────────────────────────────────────────
 
@@ -190,3 +197,59 @@ export const jobIdParams = z.object({
     .string()
     .regex(/^[a-zA-Z0-9_-]{1,128}$/, 'jobId must be a valid job identifier'),
 });
+
+// ── Trace ───────────────────────────────────────────────────────────────────
+
+export const traceIdParams = z.object({
+  traceId: z
+    .string()
+    .regex(
+      /^[a-zA-Z0-9_-]{1,128}$/,
+      'traceId must be a valid trace identifier'
+    ),
+});
+
+const traceFrameSchema = z.object({
+  contractId: optional(contractId('contractId')),
+  functionName: optional(functionName('functionName')),
+  args: optional(invokeArgs),
+  gas: optional(
+    z
+      .number({ invalid_type_error: 'gas must be a number' })
+      .int('gas must be an integer')
+      .nonnegative('gas must be non-negative')
+  ),
+  error: optional(z.string().max(2048)),
+  children: optional(z.array(z.lazy(() => traceFrameSchema)).max(256)),
+});
+
+export const traceBodyV1 = z
+  .object({
+    txHash: optional(
+      z
+        .string({ invalid_type_error: 'txHash must be a string' })
+        .regex(TX_HASH_RE, 'txHash must be a valid Stellar transaction hash')
+    ),
+    network: optional(network('network')),
+    sourceAccount: optional(sourceAccount('sourceAccount')),
+    frame: optional(traceFrameSchema),
+  })
+  .refine((value) => value.txHash !== undefined || value.frame !== undefined, {
+    message: 'either txHash or frame must be provided',
+  });
+
+export const traceBodyV2 = z
+  .object({
+    tx_hash: optional(
+      z
+        .string({ invalid_type_error: 'tx_hash must be a string' })
+        .regex(TX_HASH_RE, 'tx_hash must be a valid Stellar transaction hash')
+    ),
+    network: optional(network('network')),
+    source_account: optional(sourceAccount('source_account')),
+    frame: optional(traceFrameSchema),
+  })
+  .refine(
+    (value) => value.tx_hash !== undefined || value.frame !== undefined,
+    { message: 'either tx_hash or frame must be provided' }
+  );

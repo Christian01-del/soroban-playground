@@ -1,4 +1,5 @@
 import config from '../config/index.js';
+import crypto from 'node:crypto';
 import { createSpan, getTraceId } from '../utils/tracing.js';
 import {
   sorobanRpcCallDuration,
@@ -31,6 +32,13 @@ const HEALTH_CHECK_INTERVAL_MS = Number.parseInt(
 // Latency tracking: EMA (exponential moving average) smoothing factor.
 // A value closer to 1 reacts quickly; closer to 0 smooths out spikes.
 const LATENCY_EMA_ALPHA = 0.25;
+
+// Bounded ring buffer size for recent RPC call records used by the
+// interactive transaction call-graph / stack-trace canvas (FE-EPIC-19).
+const RPC_CALL_HISTORY_LIMIT = Number.parseInt(
+  process.env.RPC_CALL_HISTORY_LIMIT || '500',
+  10
+);
 
 // ─── Endpoint selection heuristics ───────────────────────────────────────────
 
@@ -114,6 +122,12 @@ class SorobanRpcManager {
     this._totalRequests = 0;
     this._totalFailures = 0;
 
+    // Bounded history of RPC call frames for the interactive call-graph
+    // canvas (FE-EPIC-19). Each entry is a normalized "frame" describing
+    // a single RPC invocation, its parent, gas/ledger metadata, and error.
+    this._callHistory = [];
+    this._callHistoryLimit = RPC_CALL_HISTORY_LIMIT;
+
     if (process.env.NODE_ENV !== 'test') this.startHealthChecks();
   }
 
@@ -132,6 +146,97 @@ class SorobanRpcManager {
         ep.state = CIRCUIT_STATES.HALF_OPEN;
       }
     }
+  }
+
+  /**
+   * Record a single RPC call frame into the bounded call history.
+   * Frames are consumed by the frontend call-graph canvas to render
+   * hierarchical execution flows and pinpoint error causes.
+   */
+  _recordCallFrame(frame) {
+    if (!frame || typeof frame !== 'object') return;
+    this._callHistory.push(frame);
+    if (this._callHistory.length > this._callHistoryLimit) {
+      this._callHistory.splice(
+        0,
+        this._callHistory.length - this._callHistoryLimit
+      );
+    }
+  }
+
+  /**
+   * Build a normalized call frame from an RPC invocation result/error.
+   * Extracts Soroban-specific metadata (ledger, gas, contract id, method)
+   * when present so the canvas can render gas consumption per frame.
+   */
+  _buildCallFrame({
+    id,
+    parentId,
+    endpoint,
+    method,
+    status,
+    durationMs,
+    error,
+    result,
+    traceId,
+  }) {
+    const meta = (result && result.meta) || (result && result.diagnosticEvents) || {};
+    const contractId =
+      meta.contractId ||
+      (result && result.contractId) ||
+      (result && result.resultMeta && result.resultMeta.contractId) ||
+      null;
+    const gasUsed =
+      (meta && typeof meta.gasUsed === 'number' && meta.gasUsed) ||
+      (result && typeof result.gasUsed === 'number' && result.gasUsed) ||
+      (result && result.cost && typeof result.cost.cpuInsns === 'number'
+        ? result.cost.cpuInsns
+        : null);
+    const ledger =
+      (result && result.latestLedger) ||
+      (result && result.ledger) ||
+      (meta && meta.ledger) ||
+      null;
+
+    return {
+      id,
+      parentId: parentId || null,
+      endpoint,
+      method: method || 'unknown',
+      status,
+      durationMs,
+      contractId,
+      gasUsed,
+      ledger,
+      traceId: traceId || null,
+      error: error
+        ? {
+            message: error.message || String(error),
+            name: error.name || 'Error',
+            code: error.code || null,
+          }
+        : null,
+      timestamp: Date.now(),
+    };
+  }
+
+  /**
+   * Return a snapshot of the recorded call frames for the call-graph canvas.
+   * Optionally filter by traceId to isolate a single transaction's flow.
+   */
+  getCallGraph(traceId) {
+    const frames = traceId
+      ? this._callHistory.filter((f) => f.traceId === traceId)
+      : this._callHistory.slice();
+    return {
+      traceId: traceId || null,
+      frameCount: frames.length,
+      frames,
+    };
+  }
+
+  clearCallGraph() {
+    this._callHistory = [];
   }
 
   tripCircuitBreaker(ep) {
@@ -247,6 +352,8 @@ class SorobanRpcManager {
 
       const callStartHr = process.hrtime();
       const callStart = Date.now();
+      const frameId = crypto.randomUUID();
+      const frameMethod = 'executeRpcCall';
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
@@ -279,6 +386,20 @@ class SorobanRpcManager {
           ep.isHealthy = true;
           this.activeEndpointIndex = idx;
 
+          this._recordCallFrame(
+            this._buildCallFrame({
+              id: frameId,
+              parentId: null,
+              endpoint: ep.url,
+              method: frameMethod,
+              status: 'success',
+              durationMs: elapsed,
+              error: null,
+              result,
+              traceId: activeTraceId,
+            })
+          );
+
           span?.setStatus?.({ code: 1 });
           span?.end?.();
           return result;
@@ -307,6 +428,20 @@ class SorobanRpcManager {
         ) {
           this.tripCircuitBreaker(ep);
         }
+
+        this._recordCallFrame(
+          this._buildCallFrame({
+            id: frameId,
+            parentId: null,
+            endpoint: ep.url,
+            method: frameMethod,
+            status: 'error',
+            durationMs: Math.round(durationSec * 1000),
+            error: err,
+            result: null,
+            traceId: activeTraceId,
+          })
+        );
       }
     }
 
@@ -352,6 +487,10 @@ class SorobanRpcManager {
         latencySamples: ep.latencySamples,
         lastLatencyMs: ep.lastLatencyMs,
       })),
+      callGraph: {
+        frameCount: this._callHistory.length,
+        limit: this._callHistoryLimit,
+      },
     };
   }
 
@@ -370,6 +509,7 @@ class SorobanRpcManager {
     this.activeEndpointIndex = 0;
     this._totalRequests = 0;
     this._totalFailures = 0;
+    this._callHistory = [];
   }
 }
 
