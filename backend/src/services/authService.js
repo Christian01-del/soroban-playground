@@ -6,20 +6,13 @@ import { v4 as uuid4 } from 'uuid';
 import redisService from './redisService.js';
 import { getDatabase } from '../database/connection.js';
 import apiKeyService from './apiKeyService.js';
-import { randomBytes } from 'crypto';
-import {
-  Account,
-  Keypair,
-  Networks,
-  Operation,
-  StrKey,
-  Transaction,
-  TransactionBuilder,
-} from '@stellar/stellar-sdk';
+import { Keypair, Networks, StrKey, WebAuth } from '@stellar/stellar-sdk';
 
 // EUoi Note: if you need to change the network, use environment variable
 const STELLAR_NETWORK_PASSPHRASE =
   process.env.STELLAR_NETWORK_PASSPHRASE || Networks.TESTNET;
+const HOME_DOMAIN = process.env.SEP10_HOME_DOMAIN || 'localhost';
+const WEB_AUTH_DOMAIN = process.env.SEP10_WEB_AUTH_DOMAIN || HOME_DOMAIN;
 const CHALLENGE_TTL_SEC = 5 * 60; // 5 minutes
 
 const devKeypair = Keypair.random();
@@ -42,10 +35,14 @@ if (STELLAR_SERVER_ACCOUNT && STELLAR_SERVER_SECRET) {
 } else {
   serverKeypair = devKeypair;
   if (process.env.NODE_ENV === 'production') {
-    console.warn(
-      '[auth] Warning: STELLAR_SERVER_ACCOUNT/STELLAR_SERVER_SECRET not set. Using ephemeral server keypair.'
+    throw new Error(
+      'Production wallet authentication requires STELLAR_SERVER_ACCOUNT and STELLAR_SERVER_SECRET'
     );
   }
+}
+
+if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
+  throw new Error('Production wallet authentication requires JWT_SECRET');
 }
 
 const JWT_SECRET =
@@ -64,10 +61,14 @@ class AuthService {
         sub: user.id,
         username: user.username,
         jti: accessTokenJti,
+        familyId,
         type: 'access',
       },
       JWT_SECRET,
-      { expiresIn: ACCESS_TOKEN_EXPIRATION_SEC }
+      {
+        expiresIn: ACCESS_TOKEN_EXPIRATION_SEC,
+        issuer: `https://${WEB_AUTH_DOMAIN}`,
+      }
     );
 
     const refreshToken = jwt.sign(
@@ -101,6 +102,12 @@ class AuthService {
     const isBlacklisted = await redisService.get(`bl_access:${decoded.jti}`);
     if (isBlacklisted) {
       throw new Error('Token is blacklisted');
+    }
+    if (
+      decoded.familyId &&
+      (await redisService.get(`bl_family:${decoded.familyId}`))
+    ) {
+      throw new Error('Token family is blacklisted');
     }
     return decoded;
   }
@@ -159,11 +166,23 @@ class AuthService {
       throw new Error('Refresh token does not match stored record');
     }
 
-    // Mark current refresh token as used
+    // Reserve this token atomically before issuing its replacement.
     const now = Math.floor(Date.now() / 1000);
     const ttl = decoded.exp - now;
     if (ttl > 0) {
-      await redisService.set(`used_refresh:${decoded.jti}`, '1', ttl);
+      const reserved = await redisService.setNX(
+        `used_refresh:${decoded.jti}`,
+        '1',
+        ttl
+      );
+      if (!reserved) {
+        await redisService.set(
+          `bl_family:${decoded.familyId}`,
+          '1',
+          REFRESH_TOKEN_EXPIRATION_SEC
+        );
+        throw new Error('Refresh token reuse detected. Family invalidated.');
+      }
     }
 
     // Issue new tokens
@@ -171,9 +190,17 @@ class AuthService {
     const newRefreshTokenJti = uuid4();
 
     const newAccessToken = jwt.sign(
-      { sub: decoded.sub, jti: newAccessTokenJti, type: 'access' },
+      {
+        sub: decoded.sub,
+        jti: newAccessTokenJti,
+        familyId: decoded.familyId,
+        type: 'access',
+      },
       JWT_SECRET,
-      { expiresIn: ACCESS_TOKEN_EXPIRATION_SEC }
+      {
+        expiresIn: ACCESS_TOKEN_EXPIRATION_SEC,
+        issuer: `https://${WEB_AUTH_DOMAIN}`,
+      }
     );
 
     const newRefreshToken = jwt.sign(
@@ -239,133 +266,98 @@ class AuthService {
       throw new Error('Invalid Stellar public key');
     }
 
-    const nonceBuffer = randomBytes(64);
-    const nonce = nonceBuffer.toString('base64');
-    const now = Math.floor(Date.now() / 1000);
-
-    const serverAccount = new Account(STELLAR_SERVER_ACCOUNT, '0');
-    const tx = new TransactionBuilder(serverAccount, {
-      fee: '100',
-      networkPassphrase: STELLAR_NETWORK_PASSPHRASE,
-    })
-      .setTimebounds(now - CHALLENGE_TTL_SEC, now + CHALLENGE_TTL_SEC)
-      .addOperation(
-        Operation.manageData({
-          source: publicKey,
-          name: 'auth',
-          value: nonceBuffer,
-        })
-      )
-      .build();
-
-    tx.sign(serverKeypair);
-
-    // Store nonce to prevent replay
-    await redisService.set(`challenge:${nonce}`, publicKey, CHALLENGE_TTL_SEC);
-
+    const transaction = WebAuth.buildChallengeTx(
+      serverKeypair,
+      publicKey,
+      HOME_DOMAIN,
+      CHALLENGE_TTL_SEC,
+      STELLAR_NETWORK_PASSPHRASE,
+      WEB_AUTH_DOMAIN
+    );
+    const { tx } = WebAuth.readChallengeTx(
+      transaction,
+      serverKeypair.publicKey(),
+      STELLAR_NETWORK_PASSPHRASE,
+      HOME_DOMAIN,
+      WEB_AUTH_DOMAIN
+    );
+    // Bind the entire transaction, not just the nonce, to its issued account.
+    await redisService.set(
+      `challenge:${Buffer.from(tx.hash()).toString('hex')}`,
+      publicKey,
+      CHALLENGE_TTL_SEC
+    );
     return {
-      transactionXDR: tx.toEnvelope().toXDR('base64'),
-      nonce,
+      transaction,
+      transactionXDR: transaction,
+      network_passphrase: STELLAR_NETWORK_PASSPHRASE,
     };
   }
 
-  /**
-   * Verify a SEP-0010 challenge transaction signature and issue JWT tokens.
-   */
   async verifyStellarChallengeAndIssueTokens(publicKey, transactionXDR) {
     if (!StrKey.isValidEd25519PublicKey(publicKey)) {
       throw new Error('Invalid Stellar public key');
     }
-    let tx;
-    try {
-      tx = new Transaction(transactionXDR, STELLAR_NETWORK_PASSPHRASE);
-    } catch (err) {
-      throw new Error('Invalid transaction XDR');
-    }
-
-    if (tx.source !== STELLAR_SERVER_ACCOUNT) {
-      throw new Error('Transaction source does not match server account');
-    }
-
-    if (String(tx.sequence) !== '0') {
-      throw new Error('Transaction sequence must be 0');
-    }
-
-    // Check timebounds for 5-minute window
-    const now = Math.floor(Date.now() / 1000);
-    const tb = tx.timeBounds;
-    if (!tb || !tb.minTime || !tb.maxTime) {
-      throw new Error('Transaction must have timebounds');
-    }
-    if (
-      tb.minTime > now ||
-      tb.maxTime < now ||
-      tb.maxTime - tb.minTime > CHALLENGE_TTL_SEC * 2
-    ) {
-      throw new Error('Challenge expired or invalid timebounds');
-    }
-
-    // Extract nonce from auth operation
-    const authOps = tx.operations.filter(
-      (op) => op.type === 'manageData' && op.name === 'auth'
+    const { tx, clientAccountID } = WebAuth.readChallengeTx(
+      transactionXDR,
+      serverKeypair.publicKey(),
+      STELLAR_NETWORK_PASSPHRASE,
+      HOME_DOMAIN,
+      WEB_AUTH_DOMAIN
     );
-    if (authOps.length !== 1) {
-      throw new Error('Expected exactly one auth operation');
+    const now = Math.floor(Date.now() / 1000);
+    if (clientAccountID !== publicKey)
+      throw new Error('Challenge account mismatch');
+    if (
+      !tx.timeBounds ||
+      Number(tx.timeBounds.minTime) > now ||
+      Number(tx.timeBounds.maxTime) <= now
+    ) {
+      throw new Error('Challenge expired or not yet valid');
     }
-    const authOp = authOps[0];
-    if (authOp.source !== publicKey) {
-      throw new Error('Auth operation source does not match public key');
-    }
-    const nonceBuffer = authOp.value;
-    if (!nonceBuffer || nonceBuffer.length !== 64) {
-      throw new Error('Invalid auth nonce length');
-    }
-    const nonce = nonceBuffer.toString('base64');
-
-    // Check replay protection (nonce must be active and match public key)
-    const storedPubkey = await redisService.get(`challenge:${nonce}`);
-    if (!storedPubkey || storedPubkey === 'used') {
+    WebAuth.verifyChallengeTxSigners(
+      transactionXDR,
+      serverKeypair.publicKey(),
+      STELLAR_NETWORK_PASSPHRASE,
+      [publicKey],
+      HOME_DOMAIN,
+      WEB_AUTH_DOMAIN
+    );
+    const challengeId = Buffer.from(tx.hash()).toString('hex');
+    if (
+      (await redisService.get(`challenge:${challengeId}`)) !== publicKey ||
+      !(await redisService.consumeChallengeNonce(
+        challengeId,
+        CHALLENGE_TTL_SEC
+      ))
+    ) {
       throw new Error('Challenge not found or already used');
     }
-    if (storedPubkey !== publicKey) {
-      throw new Error('Challenge was issued for a different address');
-    }
-
-    // Verify the server signature, then the client signature
-    if (tx.signatures.length === 0) {
-      throw new Error('Transaction is not signed');
-    }
-    const signatureBase = tx.signatureBase();
-    const hasServerSignature = tx.signatures.some((sig) => {
-      try {
-        return serverKeypair.verify(sig.signature, signatureBase);
-      } catch {
-        return false;
-      }
+    return this.generateTokens({
+      id: publicKey,
+      username: publicKey,
+      role: 'user',
     });
-    if (!hasServerSignature) {
-      throw new Error('Invalid server signature');
+  }
+
+  async revokeRefreshToken(token) {
+    if (!token) return;
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      if (decoded.type !== 'refresh') return;
+      await redisService.set(
+        `bl_family:${decoded.familyId}`,
+        '1',
+        REFRESH_TOKEN_EXPIRATION_SEC
+      );
+      await redisService.del(`refresh:${decoded.jti}`);
+    } catch (error) {
+      if (
+        error.name !== 'JsonWebTokenError' &&
+        error.name !== 'TokenExpiredError'
+      )
+        throw error;
     }
-
-    const keypair = Keypair.fromPublicKey(publicKey);
-    const isValid = tx.signatures.some((sig) => {
-      try {
-        return keypair.verify(sig.signature, signatureBase);
-      } catch {
-        return false;
-      }
-    });
-    if (!isValid) {
-      throw new Error('Invalid signature');
-    }
-
-    // Mark nonce as used to prevent replay for the remaining challenge validity window
-    const replayTtl = Math.max(1, Number(tb.maxTime) - now + 1);
-    await redisService.set(`challenge:${nonce}`, 'used', replayTtl);
-
-    // Issue JWT tokens for this Stellar publickey as the user identifier
-    const user = { id: publicKey, username: publicKey, role: 'user' };
-    return this.generateTokens(user);
   }
 
   /**

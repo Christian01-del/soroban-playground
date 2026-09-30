@@ -28,7 +28,7 @@ const config = {
     "^react-dom/(.*)$": path.resolve(reactDir, "react-dom/$1"),
     "^monaco-editor$": path.resolve(
       rootModules,
-      "monaco-editor/esm/vs/editor/editor.main.js"
+      "monaco-editor/esm/vs/editor/editor.main.js",
     ),
     "^monaco-editor/(.*)$": path.resolve(rootModules, "monaco-editor/$1"),
   },
@@ -60,7 +60,9 @@ const config = {
       },
     ],
   },
-  transformIgnorePatterns: ["/node_modules/(?!(lucide-react|monaco-editor)/)"],
+  transformIgnorePatterns: [
+    "/node_modules/(?!(lucide-react|monaco-editor|@stellar|uint8array-extras|@noble|@exodus|@scure)/)",
+  ],
 };
 
 module.exports = config;

@@ -14,7 +14,7 @@ interface ApiError {
 }
 
 export const useSyntheticAssetsAPI = () => {
-  const { token } = useAuth();
+  const { getAuthToken } = useAuth();
   const [error, setError] = useState<ApiError | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -26,6 +26,7 @@ export const useSyntheticAssetsAPI = () => {
         setIsLoading(true);
         setError(null);
 
+        const token = await getAuthToken();
         const options: RequestInit = {
           method,
           headers: {
@@ -59,7 +60,7 @@ export const useSyntheticAssetsAPI = () => {
         setIsLoading(false);
       }
     },
-    [token, apiUrl],
+    [getAuthToken, apiUrl],
   );
 
   return {
