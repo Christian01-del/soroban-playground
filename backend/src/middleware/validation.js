@@ -84,7 +84,12 @@ export function validateRequest(schemas = {}, optionsOrDocs = {}) {
           }))
         );
       } else {
-        req.query = result.data;
+        Object.defineProperty(req, 'query', {
+          configurable: true,
+          enumerable: true,
+          value: result.data,
+          writable: true,
+        });
       }
     }
 
@@ -132,8 +137,8 @@ export function validateRequest(schemas = {}, optionsOrDocs = {}) {
   return middleware;
 }
 
-export function validateInput(req, res, next) {
-  return next();
+export function validateInput(schemas = {}, optionsOrDocs = {}) {
+  return validateRequest(schemas, optionsOrDocs);
 }
 
 /**
