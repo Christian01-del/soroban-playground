@@ -121,7 +121,7 @@ export default function XdrDecoderInspector({
               try {
                 nativeVal = scValToNative(scval);
               } catch {
-                nativeVal = { arm: scval.switch().name };
+                nativeVal = { arm: scval.type };
               }
               break;
             }

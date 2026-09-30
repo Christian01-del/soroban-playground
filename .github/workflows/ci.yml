@@ -30,6 +30,14 @@ jobs:
         env:
           NODE_ENV: test
 
+      - name: Monaco Lifecycle & View-State Tests
+        run: >-
+          npm run test --workspace=frontend --
+          src/__tests__/lib/monacoLifecycle.test.ts
+          src/__tests__/lib/monacoViewState.test.ts
+        env:
+          NODE_ENV: test
+
       - name: Theme Engine Unit & Integration Tests
         run: npm run test:theme --workspace=frontend
 

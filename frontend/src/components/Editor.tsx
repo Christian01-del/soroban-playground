@@ -8,6 +8,11 @@ import { CollaborativeHeaderIndicator } from "@/components/CollaborativeHeaderIn
 interface EditorProps {
   code: string;
   setCode: (value: string) => void;
+  /**
+   * Stable key used to persist the editor's cursor/scroll position across view
+   * transitions. Defaults to a shared key suitable for a single editor.
+   */
+  viewStateKey?: string;
 }
 
 function EditorLoadingState() {
@@ -23,12 +28,13 @@ function EditorLoadingState() {
   );
 }
 
-export default function Editor({ code, setCode }: EditorProps) {
+export default function Editor({ code, setCode, viewStateKey }: EditorProps) {
   const { peers, isConnected } = useCollaborativeEditor();
   const { containerRef, isEditorReady } = useMonaco({
     language: "rust",
     value: code,
     onChange: setCode,
+    viewStateKey,
   });
 
   return (
