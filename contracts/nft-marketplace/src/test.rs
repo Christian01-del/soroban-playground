@@ -344,6 +344,39 @@ fn test_auction_outbid_refunds_previous_bidder() {
 }
 
 #[test]
+fn test_auction_rejects_payment_token_change_without_moving_escrow() {
+    let s = setup();
+    let seller = Address::generate(&s.env);
+    let bidder1 = Address::generate(&s.env);
+    let bidder2 = Address::generate(&s.env);
+    let listing_id = create_auction_listing(&s, &seller, 100_000, 3600);
+    let bid1 = 200_000i128;
+    let bid2 = 300_000i128;
+    s.payment_sac.mint(&bidder1, &bid1);
+
+    let alternate_admin = Address::generate(&s.env);
+    let alternate_contract = s
+        .env
+        .register_stellar_asset_contract_v2(alternate_admin);
+    let alternate_token = alternate_contract.address();
+    let alternate_sac = StellarAssetClient::new(&s.env, &alternate_token);
+    alternate_sac.mint(&bidder2, &bid2);
+
+    s.client
+        .buy_or_bid(&bidder1, &listing_id, &s.payment_token, &bid1);
+    assert!(s
+        .client
+        .try_buy_or_bid(&bidder2, &listing_id, &alternate_token, &bid2)
+        .is_err());
+
+    let payment_client = TokenClient::new(&s.env, &s.payment_token);
+    let alternate_client = TokenClient::new(&s.env, &alternate_token);
+    assert_eq!(payment_client.balance(&s.client.address), bid1);
+    assert_eq!(payment_client.balance(&bidder1), 0);
+    assert_eq!(alternate_client.balance(&bidder2), bid2);
+}
+
+#[test]
 fn test_auction_bid_after_end_panics() {
     let s = setup();
     let seller = Address::generate(&s.env);
@@ -390,6 +423,34 @@ fn test_settle_auction_with_winner() {
     let expected_seller = bid - marketplace_fee;
     assert_eq!(payment_client.balance(&seller), expected_seller);
     assert_eq!(payment_client.balance(&s.fee_recipient), marketplace_fee);
+}
+
+#[test]
+fn test_settlement_rejects_a_different_token_and_preserves_escrow() {
+    let s = setup();
+    let seller = Address::generate(&s.env);
+    let bidder = Address::generate(&s.env);
+    let bid = 300_000i128;
+    let listing_id = create_auction_listing(&s, &seller, 100_000, 3600);
+    s.payment_sac.mint(&bidder, &bid);
+    s.client
+        .buy_or_bid(&bidder, &listing_id, &s.payment_token, &bid);
+
+    let wrong_admin = Address::generate(&s.env);
+    let wrong_token = s
+        .env
+        .register_stellar_asset_contract_v2(wrong_admin)
+        .address();
+    s.env.ledger().with_mut(|l| l.timestamp += 3601);
+
+    assert!(s
+        .client
+        .try_settle_auction(&listing_id, &wrong_token)
+        .is_err());
+    let payment_client = TokenClient::new(&s.env, &s.payment_token);
+    let nft_client = TokenClient::new(&s.env, &s.nft_contract);
+    assert_eq!(payment_client.balance(&s.client.address), bid);
+    assert_eq!(nft_client.balance(&s.client.address), 1);
 }
 
 #[test]
