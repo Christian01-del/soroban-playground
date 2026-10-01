@@ -50,6 +50,14 @@ jobs:
         env:
           NODE_ENV: test
 
+      # #1537 / #1539 / #1540 - sanitizer, Web Vitals, template catalog and
+      # CSP/header units live outside src/__tests__/components, so the step
+      # above does not pick them up.
+      - name: Run Frontend Library Tests
+        run: npm run test --workspace=frontend -- src/__tests__/lib/securityHeaders.test.ts src/__tests__/lib/sanitize.test.ts src/__tests__/lib/webVitals.test.ts src/__tests__/lib/templates.test.ts
+        env:
+          NODE_ENV: test
+
       - name: Theme Engine Unit & Integration Tests
         run: npm run test:theme --workspace=frontend
 

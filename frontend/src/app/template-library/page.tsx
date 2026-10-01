@@ -9,6 +9,7 @@ import FavoritesFilter, {
 import { useWorkspace } from "@/components/providers/WorkspaceProvider";
 import { writeJson } from "@/lib/offline/storage";
 import { LEGACY_FAVORITES_KEYS } from "@/lib/sync/workspaceStore";
+import { TEMPLATES, type Template } from "@/lib/templates";
 
 /**
  * Pre-workspace key, still written so older cached chunks and bookmarks do not
@@ -17,91 +18,7 @@ import { LEGACY_FAVORITES_KEYS } from "@/lib/sync/workspaceStore";
  */
 const FAVORITES_KEY = LEGACY_FAVORITES_KEYS[0];
 
-export interface Template {
-  id: string;
-  name: string;
-  description: string;
-  category: string;
-  tags: string[];
-  difficulty: "Beginner" | "Intermediate" | "Advanced";
-  code: string;
-}
-
-const TEMPLATES: Template[] = [
-  {
-    id: "hello-world",
-    name: "Hello World",
-    description: "Minimal Soroban contract that returns a greeting string.",
-    category: "Basics",
-    tags: ["beginner", "storage"],
-    difficulty: "Beginner",
-    code: `#![no_std]\nuse soroban_sdk::{contract, contractimpl, Env, Symbol, symbol_short};\n\n#[contract]\npub struct HelloContract;\n\n#[contractimpl]\nimpl HelloContract {\n    pub fn hello(env: Env, to: Symbol) -> Vec<Symbol> {\n        vec![&env, symbol_short!(\"Hello\"), to]\n    }\n}`,
-  },
-  {
-    id: "fungible-token",
-    name: "Fungible Token",
-    description: "SEP-41 compliant token with mint, transfer, and allowance.",
-    category: "Tokens",
-    tags: ["token", "defi", "sep41"],
-    difficulty: "Intermediate",
-    code: `// Fungible Token contract skeleton\n// Implements basic ERC-20-style interface`,
-  },
-  {
-    id: "nft-mint",
-    name: "NFT Mint",
-    description:
-      "Non-fungible token contract with minting and ownership transfer.",
-    category: "Tokens",
-    tags: ["nft", "token"],
-    difficulty: "Intermediate",
-    code: `// NFT Mint contract skeleton`,
-  },
-  {
-    id: "multisig",
-    name: "Multisig Wallet",
-    description: "M-of-N multisig contract for shared treasury control.",
-    category: "Security",
-    tags: ["multisig", "governance", "wallet"],
-    difficulty: "Advanced",
-    code: `// Multisig Wallet contract skeleton`,
-  },
-  {
-    id: "vesting",
-    name: "Token Vesting",
-    description: "Linear vesting schedule with cliff period support.",
-    category: "Finance",
-    tags: ["vesting", "defi", "token"],
-    difficulty: "Intermediate",
-    code: `// Vesting contract skeleton`,
-  },
-  {
-    id: "escrow",
-    name: "Escrow",
-    description: "Two-party escrow with arbiter dispute resolution.",
-    category: "Finance",
-    tags: ["escrow", "defi"],
-    difficulty: "Intermediate",
-    code: `// Escrow contract skeleton`,
-  },
-  {
-    id: "storage-counter",
-    name: "Storage Counter",
-    description: "Simple persistent counter showing ledger storage patterns.",
-    category: "Basics",
-    tags: ["beginner", "storage"],
-    difficulty: "Beginner",
-    code: `// Storage counter skeleton`,
-  },
-  {
-    id: "oracle",
-    name: "Price Oracle",
-    description: "On-chain price feed with admin update and TTL management.",
-    category: "DeFi",
-    tags: ["oracle", "defi", "price-feed"],
-    difficulty: "Advanced",
-    code: `// Oracle contract skeleton`,
-  },
-];
+export type { Template };
 
 const DIFFICULTY_COLOR: Record<Template["difficulty"], string> = {
   Beginner: "text-green-700 bg-green-50",
@@ -295,6 +212,7 @@ export default function TemplateLibraryPage() {
                 return (
                   <div
                     key={template.id}
+                    data-testid={`template-card-${template.id}`}
                     className="bg-white border border-gray-200 rounded-lg p-4 flex flex-col hover:shadow-md transition-shadow"
                   >
                     <div className="flex items-start justify-between mb-2">
