@@ -35,6 +35,20 @@
 #   - Added an opt-in `stellar-rpc` service (stellar/quickstart, standalone
 #     network with Soroban RPC + Friendbot) under the `local-rpc` profile.
 #     See docker-compose.local-rpc.yml for pointing the backend at it.
+#
+# Issue #1373 (network isolation & secret management):
+#   - Split the former shared `soroban-net` into:
+#       * `edge-net`   — frontend only (host-published UI port).
+#       * `api-net`    — frontend <-> backend <-> indexer (app plane).
+#       * `data-net`   — backend/indexer <-> redis/postgres (internal only).
+#   - Stateful services never join `edge-net` or `api-net`.
+#   - Redis and Postgres passwords come from Docker secrets
+#     (`secrets/postgres_password.txt`, `secrets/redis_password.txt`)
+#     instead of compose environment fallbacks.
+#   - Redis enables `requirepass` via secret; TLS cert paths are accepted
+#     through optional env (`REDIS_TLS_CERT_FILE`, etc.) for production.
+#   - Local dev without secrets: copy `secrets/*.example` to `secrets/*`
+#     or use `docker-compose.local-dev.yml` which injects dev-only secrets.
 
 name: soroban-playground
 
@@ -60,7 +74,7 @@ services:
       indexer:
         condition: service_started
     healthcheck:
-      # Node-based probe — works without `wget` in either dev or runtime.
+      # Node-based probe — works without `wget` in either target.
       test:
         - CMD-SHELL
         - node -e "require('http').get('http://localhost:3000/',r=>process.exit(r.statusCode<400?0:1)).on('error',()=>process.exit(1))"
@@ -75,7 +89,8 @@ services:
         max-size: "10m"
         max-file: "3"
     networks:
-      - soroban-net
+      - edge-net
+      - api-net
 
   backend:
     build:
@@ -89,6 +104,8 @@ services:
       - /app/node_modules
     environment:
       - NODE_ENV=${NODE_ENV:-development}
+      # Password supplied via Docker secret (issue #1373); no env fallback.
+      - REDIS_PASSWORD_FILE=/run/secrets/redis_password
       - REDIS_URL=redis://redis:6379
       - SOROBAN_RPC_URL=${SOROBAN_RPC_URL:-https://soroban-testnet.stellar.org}
       - STELLAR_NETWORK_PASSPHRASE=${STELLAR_NETWORK_PASSPHRASE:-Test SDF Network ; September 2015}
@@ -97,6 +114,13 @@ services:
       - TRUSTED_PROXIES=${TRUSTED_PROXIES:-loopback,linklocal,uniquelocal}
       # Trusted browser origin (required once NODE_ENV=production).
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      # Optional Redis TLS (production). When set, the client connects with TLS.
+      - REDIS_TLS_CERT_FILE=${REDIS_TLS_CERT_FILE:-}
+      - REDIS_TLS_KEY_FILE=${REDIS_TLS_KEY_FILE:-}
+      - REDIS_TLS_CA_FILE=${REDIS_TLS_CA_FILE:-}
+    secrets:
+      - redis_password
+      - postgres_password
     depends_on:
       redis:
         condition: service_healthy
@@ -113,7 +137,7 @@ services:
         max-size: "10m"
         max-file: "3"
     networks:
-      - soroban-net
+      - api-net
       - data-net
 
   indexer:
@@ -133,7 +157,11 @@ services:
       - WS_PORT=3001
       - MAX_WS_CONNECTIONS=200
       # Dual-write every indexed event to the Postgres service.
-      - SECONDARY_DATABASE_URL=postgres://${POSTGRES_USER:-soroban}:${POSTGRES_PASSWORD:-soroban_dev_password}@postgres:5432/${POSTGRES_DB:-soroban_playground}
+      # Credentials are injected from Docker secrets, not compose defaults.
+      - SECONDARY_DATABASE_URL_FILE=/run/secrets/postgres_url
+    secrets:
+      - postgres_password
+      - postgres_url
     depends_on:
       postgres:
         condition: service_healthy
@@ -144,25 +172,45 @@ services:
         max-size: "10m"
         max-file: "3"
     networks:
-      - soroban-net
+      - api-net
       - data-net
 
   redis:
     image: redis:7-alpine
+    # Password + optional TLS from secrets/env — never plaintext defaults (#1373).
     command:
-      - redis-server
-      - --appendonly
-      - "yes"
-      - --appendfsync
-      - everysec
-      - --maxmemory
-      - ${REDIS_MAXMEMORY:-256mb}
-      - --maxmemory-policy
-      - noeviction
+      - sh
+      - -c
+      - >-
+        if [ -f /run/secrets/redis_password ]; then
+          redis-server
+            --appendonly yes
+            --appendfsync everysec
+            --maxmemory ${REDIS_MAXMEMORY:-256mb}
+            --maxmemory-policy noeviction
+            --requirepass "$(cat /run/secrets/redis_password)"
+            $${REDIS_TLS_CERT_FILE:+--tls-port 6380 --port 0 --tls-cert-file "$${REDIS_TLS_CERT_FILE}" --tls-key-file "$${REDIS_TLS_KEY_FILE}" --tls-ca-cert-file "$${REDIS_TLS_CA_FILE}"}
+        else
+          echo "redis_password secret missing" >&2; exit 1
+        fi
+    environment:
+      - REDIS_TLS_CERT_FILE=${REDIS_TLS_CERT_FILE:-}
+      - REDIS_TLS_KEY_FILE=${REDIS_TLS_KEY_FILE:-}
+      - REDIS_TLS_CA_FILE=${REDIS_TLS_CA_FILE:-}
+    secrets:
+      - redis_password
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      # Auth-aware ping when a password secret is mounted.
+      test:
+        - CMD-SHELL
+        - >-
+          if [ -f /run/secrets/redis_password ]; then
+            redis-cli -a "$(cat /run/secrets/redis_password)" ping | grep -q PONG
+          else
+            exit 1
+          fi
       interval: 10s
       timeout: 5s
       retries: 5
@@ -181,9 +229,14 @@ services:
     image: postgres:16-alpine
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-soroban}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-soroban_dev_password}
+      # Password file (Docker secret) — no insecure env default (#1373).
+      - POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password
       - POSTGRES_DB=${POSTGRES_DB:-soroban_playground}
       - PGDATA=/var/lib/postgresql/data/pgdata
+      # Optional TLS for production (certs mounted via secrets/volumes).
+      - POSTGRES_SSL_MODE=${POSTGRES_SSL_MODE:-disable}
+    secrets:
+      - postgres_password
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -237,15 +290,28 @@ services:
         max-size: "10m"
         max-file: "3"
     networks:
-      - soroban-net
+      - api-net
 
 networks:
-  soroban-net:
+  # Host-published UI only. No data-store access.
+  edge-net:
     driver: bridge
+  # Application plane: frontend <-> backend <-> indexer.
+  api-net:
+    driver: bridge
+    internal: true
   # Internal-only network for stateful services: no egress, no host exposure.
   data-net:
     driver: bridge
     internal: true
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+  redis_password:
+    file: ./secrets/redis_password.txt
+  postgres_url:
+    file: ./secrets/postgres_url.txt
 
 volumes:
   indexer-db:
