@@ -26,7 +26,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function deepEqual(left: unknown, right: unknown): boolean {
+function deepEqual(left: unknown, right: unknown, seen: Set<unknown> = new Set()): boolean {
   if (Object.is(left, right)) {
     return true;
   }
@@ -40,12 +40,23 @@ function deepEqual(left: unknown, right: unknown): boolean {
       return false;
     }
 
+    // A pair already being compared further up the stack is on a cycle. Two
+    // objects that are both self-referential at the same position are equal
+    // here; comparing further would recurse until the stack overflows.
+    if (seen.has(left)) {
+      return true;
+    }
+
+    seen.add(left);
+
     for (let index = 0; index < left.length; index += 1) {
-      if (!deepEqual(left[index], right[index])) {
+      if (!deepEqual(left[index], right[index], seen)) {
+        seen.delete(left);
         return false;
       }
     }
 
+    seen.delete(left);
     return true;
   }
 
@@ -57,12 +68,20 @@ function deepEqual(left: unknown, right: unknown): boolean {
       return false;
     }
 
+    if (seen.has(left)) {
+      return true;
+    }
+
+    seen.add(left);
+
     for (const key of leftKeys) {
-      if (!(key in right) || !deepEqual(left[key], right[key])) {
+      if (!(key in right) || !deepEqual(left[key], right[key], seen)) {
+        seen.delete(left);
         return false;
       }
     }
 
+    seen.delete(left);
     return true;
   }
 
@@ -118,7 +137,26 @@ function collectBoundaryEntries(
   value: unknown,
   path: string[],
   entries: DiffEntry[],
+  seen: Set<unknown> = new Set(),
 ): void {
+  if (Array.isArray(value) || isRecord(value)) {
+    // Ledger values come off the wire, so a self-referential or mutually
+    // referential object is possible. Recursing into one without tracking
+    // visited nodes overflows the stack and takes the whole panel down, so a
+    // node already on the current path is reported as a single leaf instead.
+    if (seen.has(value)) {
+      entries.push({
+        kind,
+        path: toPath(path),
+        previous: kind === "removed" ? "[circular]" : undefined,
+        current: kind === "added" ? "[circular]" : undefined,
+      });
+      return;
+    }
+
+    seen.add(value);
+  }
+
   if (Array.isArray(value)) {
     if (value.length === 0) {
       entries.push({
@@ -127,12 +165,14 @@ function collectBoundaryEntries(
         previous: kind === "removed" ? value : undefined,
         current: kind === "added" ? value : undefined,
       });
+      seen.delete(value);
       return;
     }
 
     value.forEach((item, index) =>
-      collectBoundaryEntries(kind, item, [...path, String(index)], entries),
+      collectBoundaryEntries(kind, item, [...path, String(index)], entries, seen),
     );
+    seen.delete(value);
     return;
   }
 
@@ -145,12 +185,14 @@ function collectBoundaryEntries(
         previous: kind === "removed" ? value : undefined,
         current: kind === "added" ? value : undefined,
       });
+      seen.delete(value);
       return;
     }
 
     for (const [key, nested] of nestedEntries) {
-      collectBoundaryEntries(kind, nested, [...path, key], entries);
+      collectBoundaryEntries(kind, nested, [...path, key], entries, seen);
     }
+    seen.delete(value);
     return;
   }
 

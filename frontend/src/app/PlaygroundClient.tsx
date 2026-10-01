@@ -9,6 +9,7 @@ import React, {
   useState,
 } from "react";
 import { useCompileStore } from "@/state/compileStore";
+import { findTemplate } from "@/lib/templates";
 import {
   Activity,
   BookOpen,
@@ -300,10 +301,37 @@ export default function Home() {
   }, []);
 
   const [code, setCode] = useState(DEFAULT_CODE);
+  const [loadedTemplateId, setLoadedTemplateId] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([
     `Soroban Playground ready.`,
     `Frontend connected to ${DEFAULT_API_BASE_URL}`,
   ]);
+
+  /**
+   * The template gallery links here as `/playground?template=<id>`. Resolve the
+   * id against the shared catalog so "Open in IDE" actually loads the source
+   * instead of silently keeping the default contract. Read from
+   * `window.location` rather than `useSearchParams` because this tree is
+   * client-only (`ssr: false`) and the hook would demand a Suspense boundary.
+   *
+   * Only the catalog's own sources are ever loaded: an unknown id is ignored so
+   * the query string cannot inject arbitrary text into the editor.
+   */
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const template = findTemplate(params.get("template"));
+
+    if (!template) {
+      return;
+    }
+
+    setCode(template.code);
+    setLoadedTemplateId(template.id);
+    setLogs((previous) => [
+      ...previous,
+      `Loaded template "${template.name}" into the editor.`,
+    ]);
+  }, []);
   const [healthState, setHealthState] = useState<HealthState>("checking");
   const [healthMessage, setHealthMessage] = useState(
     "Checking backend health...",
@@ -2487,6 +2515,14 @@ export default function Home() {
                     <p className="mt-1 text-sm text-slate-300">
                       Edit `lib.rs`, then compile against the backend toolchain.
                     </p>
+                    {loadedTemplateId ? (
+                      <p
+                        data-testid="loaded-template"
+                        className="mt-1 text-xs text-cyan-300"
+                      >
+                        Loaded from template: {loadedTemplateId}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex items-center gap-2">
                     <button
