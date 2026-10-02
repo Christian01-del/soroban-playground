@@ -35,6 +35,10 @@ pub enum Error {
     NothingToClaim = 13,
     /// Property is not listed for sale.
     NotForSale = 14,
+    /// Address has not passed KYC/AML verification and is not whitelisted.
+    NotWhitelisted = 15,
+    /// Address has been revoked / blacklisted and may no longer participate.
+    Blacklisted = 16,
 }
 
 /// A tokenized real estate property.
@@ -67,6 +71,22 @@ pub struct Ownership {
     pub rental_claimed: i128,
 }
 
+/// KYC/AML compliance status for an address.
+///
+/// Only `Approved` addresses may buy shares or receive transfers.
+/// `Revoked` addresses are effectively blacklisted and blocked from all
+/// asset-transfer operations even if they previously held shares.
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum KycStatus {
+    /// Address has not been reviewed yet (default / absent key).
+    Pending = 0,
+    /// Address has passed KYC/AML checks and may participate.
+    Approved = 1,
+    /// Address has been revoked / blacklisted.
+    Revoked = 2,
+}
+
 /// Instance-level storage keys.
 #[contracttype]
 pub enum InstanceKey {
@@ -80,4 +100,6 @@ pub enum DataKey {
     Property(u32),
     /// Ownership record: (property_id, investor).
     Ownership(u32, Address),
+    /// KYC/AML whitelist entry for an address.
+    Kyc(Address),
 }

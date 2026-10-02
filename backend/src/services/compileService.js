@@ -602,21 +602,25 @@ async function compileOnce({ code, dependencies = {}, requestId }) {
       'compile.memory_peak_mb': (result.memoryPeakBytes || 0) / (1024 * 1024),
     });
 
-    if (result.success) {
-      const payload = {
-        hash,
-        requestId,
-        cached: result.cached,
-        durationMs,
-        dependencies,
-        sizeBytes: result.artifact.sizeBytes,
-        path: result.artifact.path,
-        createdAt: nowIso(),
-        completedAt: nowIso(),
-        sourceHash: hash,
-      };
-      await recordArtifact(payload);
+    if (!result.success) {
+      const error = new Error('Cargo compilation failed');
+      error.logs = result.logs || [];
+      throw error;
     }
+
+    const payload = {
+      hash,
+      requestId,
+      cached: result.cached,
+      durationMs,
+      dependencies,
+      sizeBytes: result.artifact.sizeBytes,
+      path: result.artifact.path,
+      createdAt: nowIso(),
+      completedAt: nowIso(),
+      sourceHash: hash,
+    };
+    await recordArtifact(payload);
 
     return result;
   } finally {

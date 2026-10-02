@@ -17,7 +17,9 @@ const PRODUCTION_ENV_SCHEMA = z.object({
     .trim()
     .min(1)
     .default('https://soroban-testnet.stellar.org'),
-  CORS_ALLOWED_ORIGINS: z.string().trim().min(1).default('*'),
+  // No default: an unset allowlist is handled by config/cors.js, which
+  // rejects cross-origin browser requests in production.
+  CORS_ALLOWED_ORIGINS: z.string().trim().optional(),
 });
 
 function validateProductionEnv(env = process.env) {
@@ -43,9 +45,6 @@ function validateProductionEnv(env = process.env) {
       '[config] No SOROBAN_RPC_URL provided, defaulting to Stellar Testnet'
     );
   }
-  if (!env.CORS_ALLOWED_ORIGINS) {
-    env.CORS_ALLOWED_ORIGINS = '*';
-  }
   if (!env.DATABASE_URL) {
     env.DATABASE_URL = 'sqlite://data/soroban.db';
   }
@@ -64,6 +63,8 @@ const DEFAULTS = {
   COMPILE_RATE_LIMIT_MAX: 15,
   DEPLOY_RATE_LIMIT_WINDOW_MS: 60 * 1000,
   DEPLOY_RATE_LIMIT_MAX: 15,
+  INVOKE_RATE_LIMIT_WINDOW_MS: 60 * 1000,
+  INVOKE_RATE_LIMIT_MAX: 30,
   COMPILE_COMMAND: 'cargo build --target wasm32-unknown-unknown --release',
   COMPILE_TIMEOUT_MS: 30000,
   COMPILE_MAX_SOURCE_BYTES: 1024 * 1024,
@@ -352,6 +353,22 @@ export function createConfig(env = process.env, options = {}) {
           env.DEPLOY_RATE_LIMIT_MAX,
           DEFAULTS.DEPLOY_RATE_LIMIT_MAX,
           'DEPLOY_RATE_LIMIT_MAX',
+          warnings,
+          { min: 1 }
+        ),
+      },
+      invoke: {
+        windowMs: toInt(
+          env.INVOKE_RATE_LIMIT_WINDOW_MS,
+          DEFAULTS.INVOKE_RATE_LIMIT_WINDOW_MS,
+          'INVOKE_RATE_LIMIT_WINDOW_MS',
+          warnings,
+          { min: 1 }
+        ),
+        max: toInt(
+          env.INVOKE_RATE_LIMIT_MAX,
+          DEFAULTS.INVOKE_RATE_LIMIT_MAX,
+          'INVOKE_RATE_LIMIT_MAX',
           warnings,
           { min: 1 }
         ),

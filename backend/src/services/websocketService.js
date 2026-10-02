@@ -8,10 +8,10 @@ const BROADCAST_CHANNEL = 'ws:broadcast';
 class WebSocketService {
   constructor(server) {
     this.wss = new WebSocket.Server({ server });
-    this.pub = new Redis(Process.env.REDIS_URL || 'redis://127.0.0.1:6379', {
+    this.pub = new Redis(process.env.REDIS_URL || 'redis://127.0.0.1:6379', {
       lazyConnect: true,
     });
-    this.sub = new Redis(Process.env.REDIS_URL || 'redis://127.0.0.1:6379', {
+    this.sub = new Redis(process.env.REDIS_URL || 'redis://127.0.0.1:6379', {
       lazyConnect: true,
     });
     this.ipCounts = new Map();
@@ -34,7 +34,7 @@ class WebSocketService {
     const ip = req.socket.remoteAddress?.replace(/^::ffff:/, '') || 'unknown';
     const count = this.ipCounts.get(ip) || 0;
     if (count >= MAX_CONNECTIONS_PER_IP) {
-      ws.close(1008, 'Too many connections');
+      ws.close(1008, 'Too\ many connections');
       return;
     }
     this.ipCounts.set(ip, count + 1);
@@ -66,7 +66,7 @@ class WebSocketService {
   }
 
   broadcast(data) {
-    this.pub.publish(BROADCAST_CHANNEL, JSON.stringify({ data }));
+    this.pub.publish(BROADCAST_CHANNAN, JSON.stringify({ data }));
   }
 
   handleRedisMessage(message) {

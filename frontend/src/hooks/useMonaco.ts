@@ -3,6 +3,9 @@ import type { RefObject } from "react";
 import type * as monaco from "monaco-editor";
 import { scheduleEditorLoad } from "@/lib/editorLoadScheduler";
 import { configureMonacoWorkers } from "@/lib/monacoWorkers";
+import { getAppliedTheme } from "@/lib/theme/engine";
+import { MONACO_THEME_NAME, registerMonacoTheme } from "@/lib/theme/monaco";
+import { observeTheme } from "@/lib/theme/observe";
 import "monaco-editor/min/vs/style.css";
 
 interface UseMonacoProps {
@@ -44,6 +47,7 @@ export function useMonaco({
   useEffect(() => {
     let disposed = false;
     let cancel: (() => void) | undefined;
+    let stopObservingTheme: (() => void) | undefined;
     let monacoAPI: typeof import("monaco-editor") | null = null;
 
     async function initEditor() {
@@ -61,10 +65,13 @@ export function useMonaco({
 
           configureMonacoWorkers();
 
+          // Register the design-token theme before the editor reads it.
+          registerMonacoTheme(monacoAPI, getAppliedTheme() ?? "dark");
+
           const editor = monacoAPI.editor.create(containerRef.current, {
             language,
             value: valueRef.current,
-            theme: "vs-dark",
+            theme: MONACO_THEME_NAME,
             minimap: { enabled: false },
             fontSize: 14,
             padding: { top: 16, bottom: 16 },
@@ -91,6 +98,14 @@ export function useMonaco({
           editorRef.current = editor;
           modelRef.current = editor.getModel() ?? null;
           setIsEditorReady(true);
+
+          // Re-register the Monaco theme whenever the app theme changes so the
+          // editor highlights stay aligned with the CSS tokens.
+          stopObservingTheme = observeTheme((mode) => {
+            if (!monacoAPI) return;
+            registerMonacoTheme(monacoAPI, mode);
+            monacoAPI.editor.setTheme(MONACO_THEME_NAME);
+          });
 
           const worker = new Worker(new URL("../workers/rustAnalyzer.worker.ts", import.meta.url));
           workerRef.current = worker;
@@ -150,6 +165,10 @@ export function useMonaco({
     return () => {
       disposed = true;
       if (cancel) cancel();
+      if (stopObservingTheme) {
+        stopObservingTheme();
+        stopObservingTheme = undefined;
+      }
       if (workerRef.current) {
         workerRef.current.terminate();
         workerRef.current = null;

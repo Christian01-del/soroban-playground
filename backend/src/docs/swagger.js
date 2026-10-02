@@ -4,6 +4,7 @@
 import swaggerJsdoc from 'swagger-jsdoc';
 import swaggerUi from 'swagger-ui-express';
 import { versions } from '../config/versions.js';
+import { collectZodOperations, mergeZodOperations } from './zodOpenApi.js';
 
 const versionedRoutePrefixes = [
   '/compile',
@@ -242,25 +243,50 @@ export function withVersionedDocumentation(spec) {
   return documentedSpec;
 }
 
-export const swaggerSpec = withVersionedDocumentation(swaggerJsdoc(options));
+const baseSpec = swaggerJsdoc(options);
+
+// Static JSDoc-only spec (no live routes). Kept for callers that need the
+// spec without an app instance.
+export const swaggerSpec = withVersionedDocumentation(baseSpec);
+
+/**
+ * Build the spec for a running app: JSDoc annotations merged with the Zod
+ * schemas attached to every mounted `validateRequest` route. Generated from
+ * the live router tree, so it always matches what the server validates.
+ */
+export function buildLiveSpec(app) {
+  return withVersionedDocumentation(
+    mergeZodOperations(baseSpec, collectZodOperations(app))
+  );
+}
+
+const uiOptions = (specUrl) => ({
+  customSiteTitle: 'Soroban Playground API Docs',
+  swaggerOptions: {
+    url: specUrl,
+    persistAuthorization: true,
+    displayRequestDuration: true,
+    filter: true,
+    tryItOutEnabled: true,
+  },
+});
 
 export function setupSwagger(app) {
-  app.get('/api-docs/spec.json', (_req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    res.send(swaggerSpec);
-  });
+  const sendSpec = (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(buildLiveSpec(app));
+  };
 
-  app.use(
-    '/api-docs',
-    swaggerUi.serve,
-    swaggerUi.setup(swaggerSpec, {
-      customSiteTitle: 'Soroban Playground API Docs',
-      swaggerOptions: {
-        persistAuthorization: true,
-        displayRequestDuration: true,
-        filter: true,
-        tryItOutEnabled: true,
-      },
-    })
-  );
+  // `/docs` is the canonical location; `/api-docs` is kept for existing links.
+  for (const [base, specPath] of [
+    ['/docs', '/docs/openapi.json'],
+    ['/api-docs', '/api-docs/spec.json'],
+  ]) {
+    app.get(specPath, sendSpec);
+    app.use(
+      base,
+      swaggerUi.serveFiles(null, uiOptions(specPath)),
+      swaggerUi.setup(null, uiOptions(specPath))
+    );
+  }
 }

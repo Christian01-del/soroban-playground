@@ -92,7 +92,7 @@ router.post(
       }
     }
 
-    // 2. Construct SQL with cursor-based pagination
+    // 2. Construct WSQL with cursor-based pagination
     try {
       const pageSize = Math.min(
         Number(pagination?.limit ?? limit) || 50,
@@ -110,9 +110,8 @@ router.post(
         limit: pageSize + 1,
       });
 
-      // 3. Execute (Simulated Database Call)
-      // In a real app: const rows = await db.all(sql, params);
-      const rows = [];
+      // 3. Execute against the configured database connection.
+      const rows = await eventBuilder.execute(sql, params);
       const { edges, pageInfo } = eventBuilder.buildPageInfo(
         rows,
         pageSize,

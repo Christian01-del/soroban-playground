@@ -1,10 +1,15 @@
 "use client";
 
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useFreighterWallet } from "@/hooks/useFreighterWallet";
+import ThemeSwitcher from "@/components/ThemeSwitcher";
 import {
+  Menu,
+  X,
+  Compass,
+  ChevronDown,
   Code2,
   BookOpen,
   Coins,
@@ -27,84 +32,71 @@ import {
   Trophy,
   Target,
   Orbit,
-  Menu,
-  X,
-  Compass,
   Zap,
-  ChevronDown,
   LayoutGrid,
   Search,
+  FileCode2,
+  Gauge,
+  FlaskConical,
+  Landmark,
+  KeyRound,
+  CloudOff,
 } from "lucide-react";
+import {
+  NAVIGATION as NAVIGATION_SOURCE,
+  type NavigationIconKey,
+} from "@/lib/navigation";
 
-type NavItem = {
-  name: string;
-  href: string;
-  icon: React.ComponentType<{ className?: string; size?: number }>;
-  badge?: string;
+/** Resolves the icon keys held in `@/lib/navigation` to lucide components. */
+const ICONS: Record<
+  NavigationIconKey,
+  React.ComponentType<{ className?: string; size?: number }>
+> = {
+  code: Code2,
+  zap: Zap,
+  "layout-grid": LayoutGrid,
+  book: BookOpen,
+  shield: Shield,
+  database: Database,
+  search: Search,
+  send: Send,
+  "file-code": FileCode2,
+  sliders: Sliders,
+  coins: Coins,
+  boxes: Boxes,
+  waves: Waves,
+  "trending-up": TrendingUp,
+  activity: Activity,
+  users: Users,
+  fingerprint: Fingerprint,
+  wallet: Wallet,
+  "alert-triangle": AlertTriangle,
+  building: Building2,
+  "file-text": FileText,
+  music: Music,
+  globe: Globe,
+  trophy: Trophy,
+  target: Target,
+  orbit: Orbit,
+  compass: Compass,
+  gauge: Gauge,
+  flask: FlaskConical,
+  landmark: Landmark,
+  key: KeyRound,
+  "cloud-off": CloudOff,
 };
 
-type NavGroup = {
-  groupName: string;
-  items: NavItem[];
-};
-
-const NAVIGATION: NavGroup[] = [
-  {
-    groupName: "Core IDE & Ops",
-    items: [
-      { name: "IDE Playground", href: "/playground", icon: Code2 },
-      { name: "Compile Dashboard", href: "/compile-dashboard", icon: Zap },
-      { name: "Template Library", href: "/template-library", icon: LayoutGrid },
-      { name: "Docs & Reference", href: "/docs", icon: BookOpen },
-      { name: "Audit Explorer", href: "/audit", icon: Shield },
-      { name: "Storage Browser", href: "/storage-browser", icon: Database },
-      { name: "Search Utility", href: "/search", icon: Search },
-      { name: "Ledger Migration", href: "/migration", icon: Send },
-      { name: "XDR Inspector", href: "/xdr-decoder", icon: Code2 },
-      { name: "Rate Limits", href: "/rate-limits", icon: Sliders },
-    ],
-  },
-  {
-    groupName: "DeFi Suite",
-    items: [
-      { name: "Synthetic Assets", href: "/", icon: Coins },
-      { name: "Limit Order Book", href: "/orderbook", icon: Boxes },
-      { name: "Stablecoin Peg", href: "/stablecoin", icon: Waves },
-      { name: "Yield Optimizer", href: "/yield-optimizer", icon: TrendingUp },
-      { name: "NFT AMM Pool", href: "/nft-amm", icon: Activity },
-    ],
-  },
-  {
-    groupName: "Governance & Trust",
-    items: [
-      { name: "Governance Portal", href: "/governance/history", icon: Users },
-      {
-        name: "Quadratic Voting",
-        href: "/quadratic-voting",
-        icon: Fingerprint,
-      },
-      { name: "Treasury Panel", href: "/treasury", icon: Wallet },
-      { name: "Bug Bounty Program", href: "/bug-bounty", icon: AlertTriangle },
-    ],
-  },
-  {
-    groupName: "Real World Assets",
-    items: [
-      { name: "Tokenized REIT", href: "/reit", icon: Building2 },
-      { name: "Patent Registry", href: "/patents", icon: FileText },
-      { name: "Music Licensing", href: "/music-licensing", icon: Music },
-      { name: "Data Marketplace", href: "/data-marketplace", icon: Database },
-      { name: "Content Publishing", href: "/content-publishing", icon: Globe },
-    ],
-  },
-  {
-    groupName: "Gaming & Sports",
-    items: [
-      { name: "Sports Dashboard", href: "/sports", icon: Trophy },
-      { name: "Sports Prediction", href: "/sports-prediction", icon: Target },
-    ],
-  },
-];
+/**
+ * Drawer-visible routes, with icons bound. The shared model in
+ * `@/lib/navigation` also carries sub-pages that are reachable by drilling
+ * down; those stay out of the drawer but remain searchable in the palette.
+ */
+const NAVIGATION = NAVIGATION_SOURCE.map((group) => ({
+  groupName: group.groupName,
+  items: group.items
+    .filter((item) => !item.hiddenInSidebar)
+    .map((item) => ({ ...item, icon: ICONS[item.icon] })),
+}));
 
 const formatAddress = (addr: string | null) => {
   if (!addr) return "";
@@ -129,6 +121,108 @@ export default function SidebarShell({
       "Gaming & Sports": false,
     },
   );
+
+  const drawerRef = useRef<HTMLElement>(null);
+  const hamburgerRef = useRef<HTMLButtonElement>(null);
+  const touchStartRef = useRef<{ x: number; y: number; at: number } | null>(null);
+  const [reducedMotion, setReducedMotion] = useState(false);
+
+  const closeDrawer = useCallback(() => {
+    setIsOpen(false);
+    hamburgerRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    // Feature-detect: `matchMedia` is missing in older browsers and in the
+    // jsdom test environment, and the sidebar must not throw on mount when the
+    // motion preference cannot be read. Skeletons degrade via CSS
+    // `prefers-reduced-motion` anyway, so a false default is harmless.
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
+    }
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReducedMotion(query.matches);
+    const onChange = (event: MediaQueryListEvent) => setReducedMotion(event.matches);
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeDrawer();
+        return;
+      }
+      if (event.key !== "Tab" || !drawerRef.current) return;
+
+      const focusable = drawerRef.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (focusable.length === 0) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [isOpen, closeDrawer]);
+
+  // Touch: swipe left on the drawer to dismiss it.
+  const handleTouchStart = (event: React.TouchEvent) => {
+    const touch = event.touches[0];
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY, at: Date.now() };
+  };
+
+  const handleDrawerTouchEnd = (event: React.TouchEvent) => {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    if (!start) return;
+
+    const touch = event.changedTouches[0];
+    const deltaX = touch.clientX - start.x;
+    const deltaY = touch.clientY - start.y;
+
+    if (Date.now() - start.at < 600 && deltaX < -60 && Math.abs(deltaY) < 50) {
+      closeDrawer();
+    }
+  };
+
+  // Touch: swipe right from the left screen edge to open the drawer.
+  const handleSurfaceTouchEnd = (event: React.TouchEvent) => {
+    if (isOpen) return;
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    if (!start) return;
+
+    const touch = event.changedTouches[0];
+    const deltaX = touch.clientX - start.x;
+    const deltaY = touch.clientY - start.y;
+
+    if (
+      start.x <= 28 &&
+      Date.now() - start.at < 600 &&
+      deltaX > 60 &&
+      Math.abs(deltaY) < 60
+    ) {
+      setIsOpen(true);
+      window.requestAnimationFrame(() => drawerRef.current?.focus());
+    }
+  };
 
   const toggleGroup = useCallback((groupName: string) => {
     setExpandedGroups((prev) => ({ ...prev, [groupName]: !prev[groupName] }));
@@ -157,8 +251,10 @@ export default function SidebarShell({
 
   return (
     <div
-      className="flex min-h-screen bg-[#060c18] text-[#e6edf7] font-sans antialiased selection:bg-teal-500/30 selection:text-teal-200"
+      className="flex min-h-screen bg-background text-foreground font-sans antialiased selection:bg-teal-500/30 selection:text-teal-200"
       suppressHydrationWarning
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleSurfaceTouchEnd}
     >
       {/* Background Gradients */}
       <div
@@ -186,6 +282,7 @@ export default function SidebarShell({
 
       {/* Desktop Sidebar */}
       <aside
+        data-tour="sidebar"
         className={`fixed inset-y-0 left-0 z-20 hidden md:flex flex-col bg-slate-950/80 border-r border-slate-800/60 backdrop-blur-xl transition-all duration-300 ${
           collapsed ? "w-20" : "w-64"
         }`}
@@ -348,8 +445,22 @@ export default function SidebarShell({
 
       {/* Mobile Sidebar Drawer */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 w-64 bg-slate-950/90 border-r border-slate-800/60 backdrop-blur-2xl flex flex-col md:hidden transition-transform duration-300 ${
-          isOpen ? "translate-x-0" : "-translate-x-full"
+        ref={drawerRef}
+        id="mobile-navigation-drawer"
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Navigation menu"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleDrawerTouchEnd}
+        className={`fixed inset-y-0 left-0 z-40 w-[min(18rem,85vw)] bg-slate-950/95 border-r border-slate-800/60 backdrop-blur-2xl flex flex-col outline-none md:hidden ${
+          reducedMotion
+            ? isOpen
+              ? "translate-x-0"
+              : "-translate-x-full"
+            : `transition-transform duration-300 ${
+                isOpen ? "translate-x-0" : "-translate-x-full"
+              }`
         }`}
         suppressHydrationWarning
       >
@@ -367,8 +478,9 @@ export default function SidebarShell({
             </span>
           </Link>
           <button
-            onClick={() => setIsOpen(false)}
-            className="p-1 rounded-lg text-slate-400 hover:bg-white/5"
+            onClick={closeDrawer}
+            className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-lg text-slate-400 hover:bg-white/5"
+            aria-label="Close navigation menu"
           >
             <X size={18} />
           </button>
@@ -394,8 +506,8 @@ export default function SidebarShell({
                     <Link
                       key={item.name}
                       href={item.href}
-                      onClick={() => setIsOpen(false)}
-                      className={`flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium border border-transparent transition-all ${
+                      onClick={closeDrawer}
+                      className={`flex items-center gap-3 min-h-[44px] px-3 py-2 rounded-xl text-xs font-medium border border-transparent transition-all ${
                         active
                           ? "bg-teal-500/10 border-teal-500/20 text-teal-300"
                           : "text-slate-400 hover:text-slate-200 hover:bg-white/[0.02]"
@@ -468,9 +580,13 @@ export default function SidebarShell({
         >
           <div className="flex items-center gap-3" suppressHydrationWarning>
             <button
+              ref={hamburgerRef}
               onClick={() => setIsOpen(true)}
-              className="p-2 -ml-2 rounded-lg text-slate-400 hover:bg-white/5 md:hidden"
-              aria-label="Open sidebar menu"
+              className="flex items-center justify-center min-h-[44px] min-w-[44px] -ml-2 rounded-lg text-slate-400 hover:bg-white/5 md:hidden"
+              aria-label="Open navigation menu"
+              aria-expanded={isOpen}
+              aria-controls="mobile-navigation-drawer"
+              data-tour="hamburger"
             >
               <Menu size={20} />
             </button>
@@ -489,7 +605,23 @@ export default function SidebarShell({
             </div>
           </div>
 
-          <div className="flex items-center gap-3" suppressHydrationWarning>
+          <div className="flex items-center gap-3" data-tour="wallet" suppressHydrationWarning>
+            {/*
+              #1527 — the palette has no button of its own, so the shortcut has
+              to be advertised. `⌘K` on Apple platforms, `Ctrl K` elsewhere; the
+              provider binds both and toggles on the same gesture.
+            */}
+            <span
+              data-testid="command-palette-hint"
+              className="hidden items-center gap-1 rounded-lg border border-slate-700/40 bg-slate-800/60 px-1.5 py-1 text-[10px] font-semibold tracking-wider text-slate-500"
+            >
+              <Search size={10} />
+              <kbd className="font-sans">K</kbd>
+            </span>
+
+            {/* Light / dark / system theme control */}
+            <ThemeSwitcher />
+
             {/* Network indicator */}
             {wallet.status === "connected" && wallet.network && (
               <span className="hidden xs:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-teal-500/10 border border-teal-500/20 text-teal-400 text-[10px] font-semibold tracking-wider uppercase">
@@ -530,7 +662,9 @@ export default function SidebarShell({
         </header>
 
         {/* Dynamic Children Panel */}
-        <main className="flex-1">{children}</main>
+        <main className="flex-1" data-tour="main">
+          {children}
+        </main>
       </div>
     </div>
   );

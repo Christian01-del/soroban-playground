@@ -4,10 +4,13 @@ import React from "react";
 import { Wallet, ArrowRight, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 import { useWallet } from "./providers/WalletProvider";
+import { useAuth } from "@/hooks/useAuth";
 import WalletModal from "./WalletModal";
 
 export default function WalletConnect() {
   const { status, address, network, activeWallet, openWalletModal } = useWallet();
+
+  const auth = useAuth();
 
   const shortAddress = (addr: string) =>
     `${addr.slice(0, 8)}...${addr.slice(-6)}`;
@@ -44,6 +47,26 @@ export default function WalletConnect() {
               </p>
             </div>
 
+            <button
+              disabled={auth.isLoading}
+              onClick={() => {
+                void (
+                  auth.isAuthenticated ? auth.logout() : auth.login()
+                ).catch(() => {});
+              }}
+              className="w-full py-2.5 rounded-xl bg-cyan-500/10 text-cyan-300 text-xs font-semibold disabled:opacity-50"
+            >
+              {auth.isLoading
+                ? "Signing in..."
+                : auth.isAuthenticated
+                  ? "Sign out"
+                  : "Sign in with wallet"}
+            </button>
+            {auth.error && (
+              <p role="alert" className="text-xs text-red-400">
+                {auth.error}
+              </p>
+            )}
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={openWalletModal}

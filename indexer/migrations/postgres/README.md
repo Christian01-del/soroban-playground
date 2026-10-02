@@ -21,6 +21,11 @@ completely separate from the Node.js backend's Knex migration system.
 | `001_initial_schema.sql`   | Core `events` table — contract events ingested from Soroban RPC  |
 | `002_quorum_system.sql`    | `oracles`, `quorums`, `votes` tables for the quorum engine       |
 | `003_audit_trail.sql`      | `audit_trail` table for the append-only tamper-evident log       |
+| `004_ledger_reorg.sql`     | `ledgers` table — hash chain used for fork detection             |
+| `005_ledger_reorgs.sql`    | `ledger_reorgs` — log of every reorg rollback                    |
+
+The SQLite backend (default for dev/test) uses the equivalent schema in
+`../sqlite/`, which is applied automatically on connect.
 
 ## Running the indexer migrations
 
@@ -28,12 +33,8 @@ completely separate from the Node.js backend's Knex migration system.
 # Set the database URL
 export DATABASE_URL="postgres://user:password@localhost:5432/soroban_indexer"
 
-# Apply all pending migrations (run from the indexer/ directory)
-cd indexer
-cargo run -- migrate   # or however the binary is invoked
-
-# With sqlx CLI directly
-sqlx migrate run --database-url "$DATABASE_URL"
+# Apply all pending migrations with the sqlx CLI (from the repo root)
+sqlx migrate run --source indexer/migrations/postgres --database-url "$DATABASE_URL"
 ```
 
 ## Do NOT use Knex to manage these files
@@ -51,4 +52,6 @@ oracles             ← Registered oracle nodes
 quorums             ← Consensus sessions (bridge, oracle, governance)
 votes               ← Individual oracle votes on a quorum
 audit_trail         ← Tamper-evident log (merkle-chained hashes)
+ledgers             ← Ledger hash chain (sequence, hash, parent hash)
+ledger_reorgs       ← Rollbacks performed by reorg::ReorgHandler
 ```

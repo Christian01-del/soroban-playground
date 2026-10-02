@@ -5,6 +5,11 @@ import {
 } from '../../middleware/errorHandler.js';
 import sorobanRpcManager from '../../services/sorobanRpcManager.js';
 import { rateLimitMiddleware } from '../../middleware/rateLimiter.js';
+import {
+  buildMockAuthEnvelope,
+  encodeMockAuthEnvelopeToXdr,
+  validateMockAuthRequest,
+} from '../../services/mockAuthEngine.js';
 
 const router = express.Router();
 
@@ -110,11 +115,34 @@ async function callSimulateTransaction(xdr) {
   );
 }
 
+function applyMockAuthToResult(rpcResult, mockAuth) {
+  if (!mockAuth) return rpcResult;
+  const results = Array.isArray(rpcResult.results) ? rpcResult.results : [];
+  if (results.length === 0) {
+    return {
+      ...rpcResult,
+      results: [{ auth: mockAuth.entries, xdr: null }],
+    };
+  }
+  return {
+    ...rpcResult,
+    results: results.map((result) => ({
+      ...result,
+      auth: mockAuth.entries,
+    })),
+  };
+}
+
 router.post(
   '/fee',
   rateLimitMiddleware('read'),
   asyncHandler(async (req, res, next) => {
-    const { transactionXdr, transaction, network = 'testnet' } = req.body || {};
+    const {
+      transactionXdr,
+      transaction,
+      network = 'testnet',
+      mockAuth,
+    } = req.body || {};
     const xdrToSimulate = transactionXdr || transaction;
 
     if (!xdrToSimulate || typeof xdrToSimulate !== 'string') {
@@ -124,12 +152,37 @@ router.post(
       });
     }
 
+    let mockAuthEnvelope = null;
+    if (mockAuth !== undefined) {
+      const validationErrors = validateMockAuthRequest(mockAuth);
+      if (validationErrors.length > 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid mockAuth payload',
+          details: validationErrors,
+        });
+      }
+      try {
+        mockAuthEnvelope = buildMockAuthEnvelope(mockAuth);
+      } catch (error) {
+        return res.status(400).json({
+          success: false,
+          error: 'Failed to build mock authorization envelope',
+          details: error.details || [error.message],
+        });
+      }
+    }
+
     try {
       let rpcResult;
       try {
         rpcResult = await callSimulateTransaction(xdrToSimulate);
       } catch {
         rpcResult = estimateFallback(xdrToSimulate);
+      }
+
+      if (mockAuthEnvelope) {
+        rpcResult = applyMockAuthToResult(rpcResult, mockAuthEnvelope);
       }
 
       const minResourceFee = String(
@@ -159,6 +212,11 @@ router.post(
       };
 
       const diagnostics = parseSimulationDiagnostics(rpcResult);
+      if (mockAuthEnvelope) {
+        for (const diagnostic of mockAuthEnvelope.diagnostics) {
+          diagnostics.push(diagnostic.message);
+        }
+      }
 
       return res.json({
         success: true,
@@ -180,12 +238,56 @@ router.post(
             ? rpcResult.events.length
             : 0,
           latestLedger: rpcResult.latestLedger || null,
+          mockAuth: mockAuthEnvelope
+            ? {
+                satisfied: mockAuthEnvelope.satisfied,
+                mode: mockAuthEnvelope.mode,
+                entries: mockAuthEnvelope.entries,
+                authTree: mockAuthEnvelope.authTree,
+                treeResult: mockAuthEnvelope.treeResult,
+                generatedAt: mockAuthEnvelope.generatedAt,
+                encoded: encodeMockAuthEnvelopeToXdr(mockAuthEnvelope),
+              }
+            : null,
         },
       });
     } catch (error) {
       return next(
         createHttpError(500, 'Fee simulation failed', {
           details: error.message,
+        })
+      );
+    }
+  })
+);
+
+router.post(
+  '/mock-auth',
+  rateLimitMiddleware('read'),
+  asyncHandler(async (req, res, next) => {
+    const payload = req.body || {};
+    const validationErrors = validateMockAuthRequest(payload);
+    if (validationErrors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid mock auth request',
+        details: validationErrors,
+      });
+    }
+    try {
+      const envelope = buildMockAuthEnvelope(payload);
+      return res.json({
+        success: true,
+        status: 'success',
+        data: {
+          ...envelope,
+          encoded: encodeMockAuthEnvelopeToXdq(envelope),
+        },
+      });
+    } catch (error) {
+      return next(
+        createHttpError(400, 'Mock auth generation failed', {
+          details: error.details || [error.message],
         })
       );
     }

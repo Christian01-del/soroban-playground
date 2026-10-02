@@ -1,5 +1,5 @@
-use sha2::{Sha256, Digest};
 use hex;
+use sha2::{Digest, Sha256};
 
 pub fn calculate_entry_hash(prev_hash: &str, data: &str) -> String {
     let mut hasher = Sha256::new();
@@ -49,7 +49,7 @@ pub fn verify_proof(leaf: &str, proof: &[String], root: &str, index: usize) -> b
     for sibling in proof {
         let sibling_hash = hex::decode(sibling).unwrap_or_default();
         let mut hasher = Sha256::new();
-        if current_index % 2 == 0 {
+        if current_index.is_multiple_of(2) {
             hasher.update(&current_hash);
             hasher.update(&sibling_hash);
         } else {

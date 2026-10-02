@@ -1,5 +1,5 @@
-use async_trait::async_trait;
 use anyhow::Result;
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
@@ -42,21 +42,22 @@ pub struct Oracle {
     pub active: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+/// A ledger header as tracked for chain-continuity checks.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct Ledger {
     pub sequence: u32,
     pub ledger_hash: String,
     pub parent_ledger_hash: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum LedgerInsert {
-    Inserted,
-    Duplicate,
-    Reorg { fork_sequence: u32 },
+/// Rows removed by a reorg rollback.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RollbackStats {
+    pub ledgers_removed: u64,
+    pub events_removed: u64,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
 pub struct AuditEntry {
     pub id: String,
     pub event_type: String,
@@ -101,9 +102,15 @@ pub trait Database: Send + Sync {
 
     // Ledger continuity & reorg methods
     async fn get_ledger_tip(&self) -> Result<Option<Ledger>>;
-    async fn save_ledger(&self, ledger: &Ledger) -> Result<LedgerInsert>;
-    async fn rollback_from_ledger(&self, sequence: u32) -> Result<()>;
+    async fn get_ledger(&self, sequence: u32) -> Result<Option<Ledger>>;
+    /// Highest stored ledger with a sequence strictly below `sequence`.
+    async fn get_ledger_below(&self, sequence: u32) -> Result<Option<Ledger>>;
+    /// Insert a ledger header. Fails if the sequence is already stored; callers
+    /// resolve conflicts through `reorg::ReorgHandler` first.
+    async fn insert_ledger(&self, ledger: &Ledger) -> Result<()>;
+    /// Atomically delete every ledger and event at or above `sequence` and
+    /// record the rollback in `ledger_reorgs`. `detected_at` is the sequence of
+    /// the incoming ledger that exposed the fork.
+    async fn rollback_from_ledger(&self, sequence: u32, detected_at: u32) -> Result<RollbackStats>;
     async fn find_ledger_gaps(&self) -> Result<Vec<(u32, u32)>>;
 }
-
-

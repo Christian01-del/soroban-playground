@@ -11,7 +11,7 @@ export function validateEnv() {
       REDIS_URL: str({ default: 'redis://localhost:6379' }),
       JWT_SECRET: str({ default: 'soroban-playground-secret-key-2026' }),
       SOROBAN_RPC_URL: str({ default: 'https://soroban-testnet.stellar.org' }),
-      CORS_ALLOWED_ORIGINS: str({ default: '*' }),
+      CORS_ALLOWED_ORIGINS: str({ default: '' }),
     },
     {
       reporter: ({ errors }) => {

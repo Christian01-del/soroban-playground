@@ -1,6 +1,17 @@
 import express from 'express';
 import authService from '../services/authService.js';
+import {
+  generateNonce,
+  verifyJwtMiddleware,
+  signAccessToken,
+  revokeAccessToken,
+} from '../middleware/challengeAuth.js';
+
 const router = express.Router();
+router.use((req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+});
 
 export const requireAuth = async (req, res, next) => {
   try {
@@ -49,6 +60,11 @@ const setCookies = (res, accessToken, refreshToken) => {
 };
 
 router.post('/login', async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(501).json({
+      error: 'Password demo login is disabled; use wallet authentication',
+    });
+  }
   try {
     const { username, password } = req.body;
     if (!username || !password) {
@@ -83,6 +99,30 @@ router.get('/challenge', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/auth/nonce?address=G...
+ * Issues a replay-resistant nonce bound to the given Stellar address (#1576).
+ * The nonce must be included as X-Request-Nonce on subsequent challenge-verify requests.
+ */
+router.get('/nonce', async (req, res) => {
+  const { address } = req.query;
+  if (!address) {
+    return res.status(400).json({ error: 'address query parameter required' });
+  }
+  try {
+    const nonce = await generateNonce(address);
+    return res.json({
+      nonce,
+      expiresInSeconds:
+        Number.parseInt(process.env.SEP10_CHALLENGE_TTL_MS || '300000', 10) /
+        1000,
+      address,
+    });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
 // SEP-0010 Challenge Verification and Token Issuance
 router.post('/verify', async (req, res) => {
   const { address, transactionXDR } = req.body;
@@ -97,7 +137,7 @@ router.post('/verify', async (req, res) => {
       transactionXDR
     );
     setCookies(res, tokens.accessToken, tokens.refreshToken);
-    return res.json({ success: true, ...tokens });
+    return res.json({ success: true, accessToken: tokens.accessToken });
   } catch (error) {
     return res.status(401).json({ error: error.message });
   }
@@ -115,17 +155,24 @@ router.post('/refresh', async (req, res) => {
 
     setCookies(res, newAccess, newRefresh);
 
-    return res
-      .status(200)
-      .json({ success: true, message: 'Token refreshed successfully' });
+    return res.status(200).json({ success: true, accessToken: newAccess });
   } catch (error) {
     return res.status(401).json({ error: error.message });
   }
 });
 
-router.post('/logout', requireAuth, async (req, res) => {
+router.post('/logout', async (req, res) => {
   try {
-    const user = req.user; // populated by requireAuth middleware
+    await authService.revokeRefreshToken(req.cookies?.refreshToken);
+    let user;
+    try {
+      const accessToken =
+        req.cookies?.accessToken ||
+        req.headers.authorization?.replace(/^Bearer /, '');
+      if (accessToken) user = await authService.verifyAccessToken(accessToken);
+    } catch {
+      // Expired access cookies must not prevent refresh-session revocation.
+    }
     if (user && user.jti && user.exp) {
       await authService.blacklistAccessToken(user.jti, user.exp);
     }

@@ -1,9 +1,9 @@
-use async_graphql::{dataloader::Loader, async_trait};
-use std::sync::Arc;
-use std::collections::HashMap;
-use anyhow::Result;
-use crate::db::Database;
 use super::types::{Event, Quorum};
+use crate::db::Database;
+use anyhow::Result;
+use async_graphql::{async_trait, dataloader::Loader};
+use std::collections::HashMap;
+use std::sync::Arc;
 
 pub struct ProjectEventsLoader {
     pub db: Arc<dyn Database>,
@@ -19,7 +19,7 @@ impl Loader<String> for ProjectEventsLoader {
         // If there was a true batch SQL query, we would use it here.
         // For now, we simulate batch loading by making parallel DB calls or sequential ones.
         // Ideally the Database trait should have a get_events_for_contracts(keys) method.
-        
+
         let mut map = HashMap::new();
         for contract_id in keys {
             match self.db.get_events_by_contract(contract_id, 50).await {
