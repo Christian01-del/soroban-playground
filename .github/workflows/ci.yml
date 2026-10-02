@@ -1,5 +1,11 @@
 name: CI Pipeline
 
+env:
+  CARGO_PROFILE_RELEASE_OPT_LEVEL: z
+  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "1"
+  CARGO_PROFILE_RELEASE_LTO: "true"
+  CARGO_PROFILE_RELEASE_STRIP: symbols
+
 on:
   push:
     branches: ["main", "master"]
@@ -173,6 +179,35 @@ jobs:
 
       - name: Run Rust Tests
         run: cargo test --all-targets --all-features
+
+      - name: Build optimized WASM artifacts
+        run: cargo build --release --target wasm32-unknown-unknown --workspace
+
+      - name: Enforce 64KB WASM size limit
+        run: |
+          set -euo pipefail
+          MAX_BYTES=65536
+          fail=0
+          shopt -s nullglob
+          for wasm in target/wasm32-unknown-unknown/release/*.wasm; do
+            size=$(stat -c%s "$wasm")
+            echo "$wasm: $size bytes"
+            if [ "$size" -gt "$MAX_BYTES" ]; then
+              echo "::error file=$wasm::WASM artifact exceeds 64KB limit ($size bytes)"
+              fail=1
+            fi
+          done
+          if [ "$fail" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Verify release profile settings
+        run: |
+          set -euo pipefail
+          grep -Eq 'opt-level\s*=\s*"z"' Cargo.toml
+          grep -Eq 'codegen-units\s*=\s*1' Cargo.toml
+          grep -Eq 'lto\s*=\s*true' Cargo.toml
+          grep -Eq 'strip\s*=\s*"symbols"' Cargo.toml
   backend-security-tests:
     name: Backend Rate Limit & Validation Tests
     runs-on: ubuntu-latest
