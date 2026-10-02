@@ -3,6 +3,7 @@
 
 import express from 'express';
 import { asyncHandler, createHttpError } from '../middleware/errorHandler.js';
+import { validateStellarAddress } from '../lib/stellar.js';
 
 const router = express.Router();
 
@@ -14,6 +15,7 @@ let initialized = false;
 let adminAddress = null;
 let arbiterFeeBps = 200; // 2%
 let escrowCount = 0;
+let paused = false;
 
 const escrows = new Map(); // escrowId -> Escrow
 const milestones = new Map(); // `${escrowId}-${milestoneId}` -> Milestone
@@ -26,6 +28,7 @@ const analytics = {
   cancelledEscrows: 0,
   totalValueLocked: 0,
   totalPaidOut: 0,
+  totalFeesCollected: 0,
 };
 
 // ---------------------------------------------------------------------------
@@ -37,7 +40,12 @@ function nowSecs() {
 }
 
 function validateAddress(addr) {
-  return typeof addr === 'string' && addr.length > 0;
+  return validateStellarAddress(addr);
+}
+
+function requireInitialized() {
+  if (!initialized) throw createHttpError(400, 'Contract not initialized');
+  if (paused) throw createHttpError(503, 'Contract is paused');
 }
 
 function getMilestoneKey(escrowId, milestoneId) {
@@ -69,6 +77,7 @@ router.post(
     initialized = true;
     adminAddress = admin;
     arbiterFeeBps = bps;
+    paused = false;
     res.json({ success: true, data: { admin, arbiterFeeBps: bps } });
   })
 );
@@ -82,7 +91,7 @@ router.get(
   asyncHandler(async (_req, res) => {
     res.json({
       success: true,
-      data: { initialized, admin: adminAddress, arbiterFeeBps, escrowCount },
+      data: { initialized, admin: adminAddress, arbiterFeeBps, escrowCount, paused },
     });
   })
 );
@@ -94,7 +103,7 @@ router.get(
 router.get(
   '/analytics',
   asyncHandler(async (_req, res) => {
-    if (!initialized) throw createHttpError(400, 'Contract not initialized');
+    requireInitialized();
     res.json({ success: true, data: analytics });
   })
 );
@@ -106,7 +115,7 @@ router.get(
 router.post(
   '/escrows',
   asyncHandler(async (req, res) => {
-    if (!initialized) throw createHttpError(400, 'Contract not initialized');
+    requireInitialized();
     const { client, freelancer, arbiter, totalAmount, milestoneAmounts } =
       req.body || {};
 
@@ -129,6 +138,8 @@ router.post(
     const amounts = milestoneAmounts.map(Number);
     if (amounts.some((a) => a <= 0))
       throw createHttpError(400, 'All milestone amounts must be positive');
+    if (amounts.some((a) => !Number.isFinite(a)))
+      throw createHttpError(400, 'All milestone amounts must be finite numbers');
 
     const sum = amounts.reduce((a, b) => a + b, 0);
     if (Math.abs(sum - total) > 0.0001)
@@ -148,6 +159,7 @@ router.post(
       totalAmount: total,
       paidAmount: 0,
       milestoneCount: amounts.length,
+      milestonesPaid: 0,
       status: 'Pending',
       createdAt: nowSecs(),
       arbiterFeeBps,
@@ -202,7 +214,9 @@ router.get(
     const total = list.length;
     const lim = parseInt(limit, 10);
     const off = parseInt(offset, 10);
-    const paginated = list.slice(off, off + lim).map((e) => ({
+    const safeLim = Number.isFinite(lim) && lim > 0 ? Math.min(lim, 100) : 20;
+    const safeOff = Number.isFinite(off) && off >= 0 ? off : 0;
+    const paginated = list.slice(safeOff, safeOff + safeLim).map((e) => ({
       ...e,
       milestones: getEscrowMilestones(e.id, e.milestoneCount),
     }));
@@ -210,7 +224,7 @@ router.get(
     res.json({
       success: true,
       data: paginated,
-      meta: { total, limit: lim, offset: off },
+      meta: { total, limit: safeLim, offset: safeOff },
     });
   })
 );
@@ -242,7 +256,7 @@ router.get(
 router.post(
   '/escrows/:id/deposit',
   asyncHandler(async (req, res) => {
-    if (!initialized) throw createHttpError(400, 'Contract not initialized');
+    requireInitialized();
     const id = parseInt(req.params.id, 10);
     const escrow = escrows.get(id);
     if (!escrow) throw createHttpError(404, `Escrow ${id} not found`);
@@ -293,6 +307,7 @@ router.post(
       throw createHttpError(400, 'Milestone must be InProgress to submit');
 
     milestone.status = 'UnderReview';
+    milestone.submittedAt = nowSecs();
 
     res.json({
       success: true,
@@ -326,6 +341,7 @@ router.post(
       throw createHttpError(400, 'Milestone must be UnderReview to approve');
 
     milestone.status = 'Approved';
+    milestone.approvedAt = nowSecs();
 
     res.json({
       success: true,
@@ -359,6 +375,7 @@ router.post(
       throw createHttpError(400, 'Milestone must be UnderReview to reject');
 
     milestone.status = 'InProgress';
+    milestone.rejectedAt = nowSecs();
 
     res.json({
       success: true,
@@ -398,7 +415,9 @@ router.post(
     const net = milestone.amount - fee;
 
     milestone.status = 'Paid';
+    milestone.paidAt = nowSecs();
     escrow.paidAmount += milestone.amount;
+    escrow.milestonesPaid += 1;
 
     // Advance next milestone to InProgress
     const nextMilestone = milestones.get(getMilestoneKey(id, milestoneId + 1));
@@ -416,6 +435,7 @@ router.post(
         analytics.totalValueLocked - escrow.totalAmount
       );
       analytics.totalPaidOut += escrow.totalAmount;
+      analytics.totalFeesCollected += fee;
     }
 
     res.json({
@@ -453,6 +473,7 @@ router.post(
       throw createHttpError(400, 'Escrow must be Active to dispute');
 
     escrow.status = 'Disputed';
+    escrow.disputedAt = nowSecs();
     analytics.disputedEscrows += 1;
     analytics.activeEscrows = Math.max(0, analytics.activeEscrows - 1);
 
@@ -502,12 +523,14 @@ router.post(
 
     escrow.paidAmount = escrow.totalAmount;
     escrow.status = 'Completed';
+    escrow.resolvedAt = nowSecs();
     analytics.completedEscrows += 1;
     analytics.totalValueLocked = Math.max(
       0,
       analytics.totalValueLocked - remaining
     );
     analytics.totalPaidOut += remaining;
+    analytics.totalFeesCollected += fee;
 
     res.json({
       success: true,
@@ -541,9 +564,42 @@ router.post(
       throw createHttpError(400, 'Only Pending escrows can be cancelled');
 
     escrow.status = 'Cancelled';
+    escrow.cancelledAt = nowSecs();
     analytics.cancelledEscrows += 1;
 
     res.json({ success: true, data: { escrowId: id, status: 'Cancelled' } });
+  })
+);
+
+// ---------------------------------------------------------------------------
+// POST /pause  (admin emergency stop)
+// ---------------------------------------------------------------------------
+
+router.post(
+  '/pause',
+  asyncHandler(async (req, res) => {
+    if (!initialized) throw createHttpError(400, 'Contract not initialized');
+    const { caller } = req.body || {};
+    if (caller !== adminAddress)
+      throw createHttpError(403, 'Only admin can pause');
+    paused = true;
+    res.json({ success: true, data: { paused } });
+  })
+);
+
+// ---------------------------------------------------------------------------
+// POST /unpause
+// ---------------------------------------------------------------------------
+
+router.post(
+  '/unpause',
+  asyncHandler(async (req, res) => {
+    if (!initialized) throw createHttpError(400, 'Contract not initialized');
+    const { caller } = req.body || {};
+    if (caller !== adminAddress)
+      throw createHttpError(403, 'Only admin can unpause');
+    paused = false;
+    res.json({ success: true, data: { paused } });
   })
 );
 
