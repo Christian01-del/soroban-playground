@@ -9,6 +9,7 @@ use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env};
 #[derive(Clone)]
 pub enum DataKey {
     Listing(u64),
+    AuctionPaymentToken(u64),
     ListingCount,
     Admin,
     FeeRecipient,
@@ -145,6 +146,23 @@ impl NftMarketplace {
                 panic!("Bid too low");
             }
 
+            let payment_token_key = DataKey::AuctionPaymentToken(listing_id);
+            let stored_payment_token: Option<Address> =
+                env.storage().persistent().get(&payment_token_key);
+            if let Some(stored_payment_token) = stored_payment_token {
+                assert!(
+                    stored_payment_token == payment_token,
+                    "Auction payment token cannot change"
+                );
+            } else {
+                env.storage()
+                    .persistent()
+                    .set(&payment_token_key, &payment_token);
+            }
+
+            // Escrow the replacement bid before refunding the previous one.
+            token_client.transfer(&buyer, &env.current_contract_address(), &bid_amount);
+
             // Refund previous bidder
             if let Some(prev_bidder) = &listing.highest_bidder {
                 token_client.transfer(
@@ -153,9 +171,6 @@ impl NftMarketplace {
                     &listing.highest_bid,
                 );
             }
-
-            // Escrow new bid
-            token_client.transfer(&buyer, &env.current_contract_address(), &bid_amount);
 
             listing.highest_bidder = Some(buyer);
             listing.highest_bid = bid_amount;
@@ -187,6 +202,14 @@ impl NftMarketplace {
         let nft_client = token::Client::new(&env, &listing.nft_contract);
 
         if let Some(winner) = &listing.highest_bidder {
+            let stored_payment_token: Option<Address> = env
+                .storage()
+                .persistent()
+                .get(&DataKey::AuctionPaymentToken(listing_id));
+            assert!(
+                stored_payment_token == Some(payment_token.clone()),
+                "Settlement token does not match auction escrow"
+            );
             let token_client = token::Client::new(&env, &payment_token);
             let fee_recipient: Address = env
                 .storage()

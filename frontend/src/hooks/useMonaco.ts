@@ -6,12 +6,15 @@ import { configureMonacoWorkers } from "@/lib/monacoWorkers";
 import { getAppliedTheme } from "@/lib/theme/engine";
 import { MONACO_THEME_NAME, registerMonacoTheme } from "@/lib/theme/monaco";
 import { observeTheme } from "@/lib/theme/observe";
+import type { RustFormatDiagnostic } from "@/lib/rustfmtDiagnostics";
 import "monaco-editor/min/vs/style.css";
 
 interface UseMonacoProps {
   language: string;
   value: string;
   onChange: (value: string) => void;
+  onFormat?: (source?: string) => void;
+  formatDiagnostics?: RustFormatDiagnostic[];
 }
 
 interface UseMonacoResult {
@@ -23,18 +26,46 @@ export function useMonaco({
   language,
   value,
   onChange,
+  onFormat,
+  formatDiagnostics,
 }: UseMonacoProps): UseMonacoResult {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const modelRef = useRef<monaco.editor.ITextModel | null>(null);
+  const monacoRef = useRef<typeof import("monaco-editor") | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const onChangeRef = useRef(onChange);
+  const onFormatRef = useRef(onFormat);
   const valueRef = useRef(value);
   const [isEditorReady, setIsEditorReady] = useState(false);
 
   useEffect(() => {
     onChangeRef.current = onChange;
   }, [onChange]);
+
+  useEffect(() => {
+    onFormatRef.current = onFormat;
+  }, [onFormat]);
+
+  useEffect(() => {
+    const model = modelRef.current;
+    const monacoAPI = monacoRef.current;
+    if (!isEditorReady || !model || !monacoAPI) return;
+
+    monacoAPI.editor.setModelMarkers(
+      model,
+      "rustfmt",
+      (formatDiagnostics ?? []).map((diagnostic) => ({
+        severity: monacoAPI.MarkerSeverity.Error,
+        startLineNumber: diagnostic.startLineNumber,
+        startColumn: diagnostic.startColumn,
+        endLineNumber: diagnostic.startLineNumber,
+        endColumn: diagnostic.startColumn + 1,
+        message: diagnostic.message,
+        source: "rustfmt",
+      })),
+    );
+  }, [formatDiagnostics, isEditorReady]);
 
   useEffect(() => {
     valueRef.current = value;
@@ -62,6 +93,7 @@ export function useMonaco({
           const rawMonaco = await import("monaco-editor");
           monacoAPI = (rawMonaco as any).default?.editor ? (rawMonaco as any).default : rawMonaco;
           if (disposed || !monacoAPI || !containerRef.current) return;
+          monacoRef.current = monacoAPI;
 
           configureMonacoWorkers();
 
@@ -98,6 +130,15 @@ export function useMonaco({
           editorRef.current = editor;
           modelRef.current = editor.getModel() ?? null;
           setIsEditorReady(true);
+
+          editor.addAction({
+            id: "soroban.format-rust",
+            label: "Format Rust",
+            keybindings: [
+              monacoAPI.KeyMod.CtrlCmd | monacoAPI.KeyCode.KeyS,
+            ],
+            run: () => onFormatRef.current?.(modelRef.current?.getValue()),
+          });
 
           // Re-register the Monaco theme whenever the app theme changes so the
           // editor highlights stay aligned with the CSS tokens.
@@ -138,6 +179,9 @@ export function useMonaco({
           };
 
           editor.onDidChangeModelContent(() => {
+            if (modelRef.current) {
+              monacoAPI!.editor.setModelMarkers(modelRef.current, "rustfmt", []);
+            }
             const currentValue = modelRef.current?.getValue();
             if (currentValue !== undefined) {
               onChangeRef.current(currentValue);
@@ -177,6 +221,7 @@ export function useMonaco({
         editorRef.current.dispose();
         editorRef.current = null;
       }
+      monacoRef.current = null;
       if (modelRef.current) {
         modelRef.current.dispose();
         modelRef.current = null;

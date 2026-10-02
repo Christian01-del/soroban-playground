@@ -1,0 +1,27 @@
+# Local-dev override for issue #1373.
+# Injects placeholder secrets so `docker compose -f docker-compose.yml -f docker-compose.local-dev.yml up`
+# works without production credentials. NEVER use these values outside a laptop.
+#
+# Usage:
+#   cp secrets/postgres_password.example secrets/postgres_password.txt
+#   cp secrets/redis_password.example secrets/redis_password.txt
+#   cp secrets/postgres_url.example secrets/postgres_url.txt
+#   docker compose -f docker-compose.yml -f docker-compose.local-dev.yml up
+#
+# This override also relaxes `internal: true` on api-net so a host browser can
+# reach the frontend published port while keeping data-net isolated.
+
+services:
+  frontend:
+    networks:
+      - edge-net
+      - api-net
+
+  backend:
+    environment:
+      - NODE_ENV=development
+      - REDIS_URL=redis://redis:6379
+
+networks:
+  api-net:
+    internal: false

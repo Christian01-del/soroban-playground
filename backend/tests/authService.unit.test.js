@@ -22,6 +22,7 @@ jest.mock('../src/services/redisService.js', () => ({
     get: jest.fn(),
     set: jest.fn(),
     del: jest.fn(),
+    setNX: jest.fn().mockResolvedValue('OK'),
   },
 }));
 
@@ -82,10 +83,11 @@ describe('AuthService', () => {
           sub: user.id,
           username: user.username,
           jti: 'access-jti',
+          familyId: 'family-id',
           type: 'access',
         },
         expect.any(String),
-        { expiresIn: 15 * 60 }
+        { expiresIn: 15 * 60, issuer: 'https://localhost' }
       );
       expect(jwt.sign).toHaveBeenNthCalledWith(
         2,
@@ -237,7 +239,7 @@ describe('AuthService', () => {
         accessToken: 'new-access',
         refreshToken: 'new-refresh',
       });
-      expect(redisService.set).toHaveBeenCalledWith(
+      expect(redisService.setNX).toHaveBeenCalledWith(
         'used_refresh:r-jti',
         '1',
         expect.any(Number)

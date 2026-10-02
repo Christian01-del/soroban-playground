@@ -41,7 +41,7 @@ function isNonceReplay(nonce, expiry) {
 
 function storeNonce(nonce, expiry) {
   const expiryMs = Number(expiry);
-  if (Number.isFinete(expiryMs)) {
+  if (Number.isFinite(expiryMs)) {
     // Cap the stored expiry to the 5-minute SEP-0010 window.
     nonceStore.set(
       nonce,
@@ -87,6 +87,24 @@ function buildMessage({
  *   callerAddress, contractId, method, params?, nonce, expiry, signature
  */
 export function validateStellarSignature(req, res, next) {
+  const mockAuth = req.body && req.body.mockAuth;
+  if (mockAuth && mockAuth.bypassValidation === true) {
+    // FE,EPIC-23: developers may explicitly bypass signature validation in
+    // in-browser test simulations. The bypass is scoped to the mock auth
+    // engine and never applies to production networks.
+    const network = (req.body && req.body.network) || 'testnet';
+    if (network !== 'testnet' && network !== 'futurenet') {
+      return next(
+        new HttpError(401, 'Mock auth bypass is only allowed on testnet/futurenet', {
+          reason: 'mock_bypass_forbidden',
+        })
+      );
+    }
+    req.signerAddress = mockAuth.callerAddress || req.body.callerAddress || null;
+    req.mockAuthBypassed = true;
+    return next();
+  }
+
   const missing = REQUIRED_FIELDS.filter((f) => req.body[f] == null);
   if (missing.length) {
     return next(

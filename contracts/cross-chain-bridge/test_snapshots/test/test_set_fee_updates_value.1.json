@@ -236,6 +236,18 @@
                         "val": {
                           "bool": false
                         }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "SourceChainId"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "bytes": "756e736574"
+                        }
                       }
                     ]
                   }

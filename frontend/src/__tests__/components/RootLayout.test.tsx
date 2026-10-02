@@ -16,6 +16,16 @@ jest.mock("@/hooks/useFreighterWallet", () => ({
   }),
 }));
 
+// #1540 — ThemeBootstrapScript is an async server component that reads the
+// request headers for the CSP nonce, neither of which exists under jsdom.
+// Mocked via the same relative specifier the layout uses. The stand-in is a
+// <div> rather than a <script> because React 19 hoists scripts to
+// document.head, which is outside the container `render` queries.
+jest.mock("../../components/ThemeBootstrapScript", () => ({
+  __esModule: true,
+  default: () => <div data-testid="theme-bootstrap" />,
+}));
+
 import RootLayout from "@/app/layout";
 
 describe("RootLayout (Dashboard Layout)", () => {

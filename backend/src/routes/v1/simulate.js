@@ -29,7 +29,7 @@ function parseSimulationDiagnostics(rpcResult) {
         'Transaction was rejected because the declared resource fee is too low. Increase the fee before re-submitting.'
       );
     } else if (
-      /host function|CPU|insufficient.*instruction|overflow/i.test(
+      /thost function|CPU|insufficient.*instruction|overflow/i.test(
         rpcResult.error.message || ''
       )
     ) {
@@ -110,6 +110,136 @@ async function callSimulateTransaction(xdr) {
   );
 }
 
+function normalizeResourceUsage(rpcResult) {
+  const cost = rpcResult.cost || {};
+  const cpuInstructions = parseInt(cost.cpuInsns || '150000', 10);
+  const memoryBytes = parseInt(cost.memBytes || '65536', 10);
+
+  // Soroban RPC reports ledger read/write bytes as discrete fields on the
+  // simulation result when available; fall back to deriving from cost.
+  const ledgerReadBytes = parseInt(
+    rpcResult.ledgerReadBytes || cost.ledgerReadBytes || '1024',
+    10
+  );
+  const ledgerWriteBytes = parseInt(
+    rpcResult.ledgerWriteBytes || cost.ledgeWriteBytes || '512',
+    10
+  );
+
+  // Read/write entry counts are derived from the simulation result when
+  // present, otherwise defaulted to the minimum ledger entry footprint.
+  const readCount = parseInt(rpcResult.readCount || '2', 10);
+  const writeCount = parseInt(rpcResult.writeCount || '1', 10);
+
+  return {
+    cpuInstructions,
+    memoryBytes,
+    ledgerReadBytes,
+    ledgerWriteBytes,
+    readCount,
+    writeCount,
+  };
+}
+
+function buildResourceProfile(usage) {
+  const {
+    cpuInstructions,
+    memoryBytes,
+    ledgerReadBytes,
+    ledgerWriteBytes,
+    readCount,
+    writeCount,
+  } = usage;
+
+  return {
+    cpuInstructions,
+    memoryBytes,
+    ledgerReadBytes,
+    ledgerWriteBytes,
+    readCount,
+    writeCount,
+    buffered: {
+      cpuInstructions: applySafetyBuffer(cpuInstructions),
+      memoryBytes: applySafetyBuffer(memoryBytes),
+      ledgerReadBytes: applySafetyBuffer(ledgerReadBytes),
+      ledgerWriteBytes: applySafetyBuffer(ledgerWriteBytes),
+    },
+  };
+}
+
+function buildGasVisualizer(rpcResult, usage) {
+  const events = Array.isArray(rpcResult.events) ? rpcResult.events : [];
+  const diagnosticEvents = Array.isArray(rpcResult.diagnosticEvents)
+    ? rpdResult.diagnosticEvents
+    : [];
+
+  const cpuBudget = Math.max(usage.cpuInstructions, 1);
+  const memBudget = Math.max(usage.memoryBytes, 1);
+
+  return {
+    eventCount: events.length,
+    diagnosticEventCount: diagnosticEvents.length,
+    events: events.map((event, index) => ({
+      index,
+      type: event.type || 'contract',
+      contractId: event.contractId || null,
+      topics: Array.isArray(event.topic) ? event.topic.length : 0,
+    })),
+    budgets: {
+      cpuInstructions: cpuBudget,
+      memoryBytes: memBudget,
+    },
+  };
+}
+
+function buildSimulationReport(rpcResult, { network, fallback }) {
+  const usage = normalizeResourceUsage(rpcResult);
+  const minResourceFee = String(
+    rpcResult.minResourceFee || rpcResult.minFee || '1000'
+  );
+  const baseFee = 100;
+  const estimatedTotalFee = String(parseInt(minResourceFee, 10) + baseFee);
+
+  return {
+    network,
+    fallback: Boolean(fallback),
+    minResourceFee,
+    estimatedTotalFee,
+    cpuInstructions: usage.cpuInstructions,
+    memoryBytes: usage.memoryBytes,
+    ledgerReadBytes: usage.ledgerReadBytes,
+    ledgerWriteBytes: usage.ledgerWriteBytes,
+    readCount: usage.readCount,
+    writeCount: usage.writeCount,
+    resourceProfile: buildResourceProfile(usage),
+    resourceBounds: buildResourceProfile(usage).buffered,
+    gasVisualizer: buildGasVisualizer(rpcResult, usage),
+    diagnostics: parseSimulationDiagnostics(rpcResult),
+    transactionData: rpcResult.transactionData || null,
+    eventsCount: Array.isArray(rpcResult.events) ? rpcResult.events.length : 0,
+    latestLedger: rpcResult.latestLedger || null,
+  };
+}
+
+async function runSimulation(xdrToSimulate, network) {
+  let rpcResult;
+  let fallback = false;
+  try {
+    rpcResult = await callSimulateTransaction(xdrToSimulate);
+  } catch {
+    rpcResult = estimateFallback(xdrToSimulate);
+    fallback = true;
+  }
+  return buildSimulationReport(rpcResult, { network, fallback });
+}
+
+function extractXdr() {
+  return (args) => {
+    const { transactionXdr, transaction } = args || {};
+    return transactionXdr || transaction;
+  };
+}
+
 router.post(
   '/fee',
   rateLimitMiddleware('read'),
@@ -125,66 +255,48 @@ router.post(
     }
 
     try {
-      let rpcResult;
-      try {
-        rpcResult = await callSimulateTransaction(xdrToSimulate);
-      } catch {
-        rpcResult = estimateFallback(xdrToSimulate);
-      }
-
-      const minResourceFee = String(
-        rpcResult.minResourceFee || rpcResult.minFee || '1000'
-      );
-      const cpuInstructions = parseInt(
-        rpcResult.cost?.cpuInsns || '150000',
-        10
-      );
-      const memoryBytes = parseInt(rpcResult.cost?.memBytes || '65536', 10);
-      const readCount = parseInt(rpcResult.readCount || '2', 10);
-      const writeCount = parseInt(rpcResult.writeCount || '1', 10);
-      const ledgerReadBytes = parseInt(rpcResult.ledgerReadBytes || '1024', 10);
-      const ledgerWriteBytes = parseInt(
-        rpcResult.ledgerWriteBytes || '512',
-        10
-      );
-
-      const baseFee = 100;
-      const estimatedTotalFee = String(parseInt(minResourceFee, 10) + baseFee);
-
-      const bufferedResourceBounds = {
-        cpuInstructions: applySafetyBuffer(cpuInstructions),
-        memBytes: applySafetyBuffer(memoryBytes),
-        ledgerReadBytes: applySafetyBuffer(ledgerReadBytes),
-        ledgerWriteBytes: applySafetyBuffer(ledgerWriteBytes),
-      };
-
-      const diagnostics = parseSimulationDiagnostics(rpcResult);
-
+      const report = await runSimulation(xdrToSimulate, network);
       return res.json({
         success: true,
         status: 'success',
-        data: {
-          network,
-          minResourceFee,
-          cpuInstructions,
-          memoryBytes,
-          ledgerReadBytes,
-          ledgerWriteBytes,
-          readCount,
-          writeCount,
-          estimatedTotalFee,
-          resourceBounds: bufferedResourceBounds,
-          diagnostics,
-          transactionData: rpcResult.transactionData || null,
-          eventsCount: Array.isArray(rpcResult.events)
-            ? rpcResult.events.length
-            : 0,
-          latestLedger: rpcResult.latestLedger || null,
-        },
+        data: report,
       });
     } catch (error) {
       return next(
         createHttpError(500, 'Fee simulation failed', {
+          details: error.message,
+        })
+      );
+    }
+  })
+);
+
+// Pre-flight simulation endpoint - returns the full resource profile,
+// gas visualizer breakdown and diagnostics for a transaction.
+router.post(
+  '/pre-flight',
+  rateLimitMiddleware('read'),
+  asyncHandler(async (req, res, next) => {
+    const { transactionXdr, transaction, network = 'testnet' } = req.body || {};
+    const xdrToSimulate = transactionXdr || transaction;
+
+    if (!xdrToSimulate || typeof xdrToSimulate !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'transactionXdr or transaction (base64 string) is required',
+      });
+    }
+
+    try {
+      const report = await runSimulation(xdrToSimulate, network);
+      return res.json({
+        success: true,
+        status: 'success',
+        data: report,
+      });
+    } catch (error) {
+      return next(
+        createHttpError(500, 'Pre-flight simulation failed', {
           details: error.message,
         })
       );

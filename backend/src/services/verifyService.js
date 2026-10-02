@@ -7,8 +7,7 @@ import path from 'path';
 import * as StellarSdk from '@stellar/stellar-sdk';
 const { StrKey } = StellarSdk;
 const SorobanRpc = StellarSdk.rpc || StellarSdk.SorobanRpc;
-import DatabaseService from './databaseService.js';
-import { compileQueued } from './compileService.js';
+import DatabaseService from './databaseService.js';import { compileQueued } from './compileService.js';
 import { sanitizeDependenciesInput } from '../routes/compile_utils.js';
 
 const CONTRACT_ID_REGEX = /^C[A-Z0-9]{55}$/;
@@ -26,7 +25,7 @@ const CREATE_TABLE_SQL = `
     network TEXT NOT NULL,
     source_code TEXT NOT NULL,
     source_hash TEXT NOT NULL,
-    dependencies TEXT NOT NULL DEFAULT '{}',
+    dependencies TEXT NOT NULL DEFAULT {}',
     metadata TEXT NOT NULL DEFAULT '{}',
     wasm_hash TEXT,
     on_chain_wasm_hash TEXT,
@@ -269,7 +268,7 @@ export class VerifyService {
       `INSERT INTO ${TABLE_NAME}
        (id, contract_id, network, source_code, source_hash, dependencies, metadata,
         status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, , ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         record.id,
         record.contractId,
@@ -435,7 +434,8 @@ export class VerifyService {
         throw new VerificationError(
           422,
           'COMPILATION_FAILED',
-          compileResult?.logs?.join('\n') || 'Source compilation failed'
+          'Source compilation did not produce a WASM artifact',
+          { logs: compileResult?.logs || [] }
         );
       }
 
@@ -444,251 +444,122 @@ export class VerifyService {
     }
 
     validateWasmSize(compiledWasm, this.maxWasmBytes);
-    const wasmHash = hashWasm(compiledWasm);
+    const localWasmHash = hashWasm(compiledWasm);
+
     const onChainWasm = await this.getOnChainWasm(contractId, network);
     validateWasmSize(onChainWasm, this.maxWasmBytes);
     const onChainWasmHash = hashWasm(onChainWasm);
-    const verified = wasmHash === onChainWasmHash;
+
+    const match = localWasmHash === onChainWasmHash;
+    const now = this.now();
 
     return {
-      wasmHash,
+      contractId,
+      network,
+      sourceHash: hashSource(sourceCode),
+      wasmHash: localWasmHash,
       onChainWasmHash,
-      status: verified ? 'verified' : 'mismatch',
-      verifiedAt: verified ? this.now() : null,
-      compileLogs,
+      match,
+      status: match ? 'verified' : 'mismatch',
+      error: match
+        ? null
+        : {
+            code: 'WASM_HASH_MISMATCH',
+            message: 'Compiled WASM hash does not match the on-chain WASM hash',
+          },
+      dependencies,
       metadata,
+      compileLogs,
+      updatedAt: now,
+      verifiedAt: match ? now : null,
     };
   }
 
-  async verifyContract(input = {}) {
+  async submitVerification(input) {
     const contractId = validateContractId(input.contractId);
     const network = input.network || DEFAULT_NETWORK;
-    if (typeof network !== 'string' || !/^[a-z0-9_-]{1,32}$/i.test(network)) {
-      throw new VerificationError(
-        400,
-        'INVALID_NETWORK',
-        'network must be a short alphanumeric network name'
-      );
-    }
-
-    const sourceCode = input.sourceCode ?? input.source ?? input.code;
+    const sourceCode = input.sourceCode;
     validateSource(sourceCode, this.maxSourceBytes);
-    const dependencyValidation = sanitizeDependenciesInput(input.dependencies);
-    if (!dependencyValidation.ok) {
-      throw new VerificationError(
-        400,
-        'INVALID_DEPENDENCIES',
-        dependencyValidation.error,
-        dependencyValidation.details
-      );
-    }
-    const dependencies = dependencyValidation.deps;
+
+    const dependencies = sanitizeDependenciesInput(input.dependencies || {});
     const metadata = input.metadata || {};
     validatePlainObject(metadata, 'metadata');
 
-    const providedWasm = await this.readWasm(input);
-    if (!providedWasm && !this.compile) {
-      throw new VerificationError(
-        500,
-        'COMPILER_UNAVAILABLE',
-        'No compiler is configured for source verification'
-      );
-    }
-
     await this.ensureTable();
 
-    const timestamp = this.now();
+    const id = crypto.randomUUID();
+    const createdAt = this.now();
     const record = {
-      id: input.id || crypto.randomUUID(),
+      id,
       contractId,
       network,
       sourceCode,
       sourceHash: hashSource(sourceCode),
       dependencies,
       metadata,
-      createdAt: timestamp,
+      createdAt,
     };
 
-    let existingRow = null;
-    if (input.id) {
-      try {
-        existingRow = await this.loadRow(input.id);
-      } catch (error) {
-        if (
-          !(error instanceof VerificationError) ||
-          error.code !== 'VERIFICATION_NOT_FOUND'
-        ) {
-          throw error;
-        }
-      }
-    }
-
-    if (existingRow) {
-      await this.db.run(
-        `UPDATE ${TABLE_NAME}
-         SET contract_id = ?, network = ?, source_code = ?, source_hash = ?,
-             dependencies = ?, metadata = ?, status = 'pending', error_code = NULL,
-             error_message = NULL, updated_at = ?, verified_at = NULL
-         WHERE id = ?`,
-        [
-          contractId,
-          network,
-          sourceCode,
-          record.sourceHash,
-          JSON.stringify(dependencies),
-          JSON.stringify(metadata),
-          timestamp,
-          input.id,
-        ]
-      );
-      record.createdAt = existingRow.created_at;
-    } else {
-      await this.insertPending(record);
-    }
+    await this.insertPending(record);
 
     try {
+      const wasm = await this.readWasm(input);
       const result = await this.verifyCompiledWasm({
         contractId,
         network,
         sourceCode,
         dependencies,
         metadata,
-        wasm: providedWasm,
+        wasm,
       });
-      const updatedAt = this.now();
-      await this.updateResult(record.id, { ...result, updatedAt });
-      const responseRecord = publicRecord(record);
-      delete responseRecord.sourceCode;
-      return {
-        ...responseRecord,
-        ...result,
-        updatedAt,
-        verified: result.status === 'verified',
-      };
+      await this.updateResult(id, result);
+      return publicRecord({ ...record, ...result, id });
     } catch (error) {
-      const failure = errorDetails(error);
-      const updatedAt = this.now();
-      await this.updateResult(record.id, {
+      const details = errorDetails(error);
+      await this.updateResult(id, {
         status: 'failed',
-        error: failure,
-        updatedAt,
+        error: details,
+        updatedAt: this.now(),
       });
       if (error instanceof VerificationError) throw error;
-      throw new VerificationError(502, failure.code, failure.message);
-    }
-  }
-
-  async submitVerification(input) {
-    // Record IDs are owned by the service; only the explicit reverify operation
-    // may update an existing record.
-    const { id: _ignoredId, ...submission } = input || {};
-    return this.verifyContract(submission);
-  }
-
-  async reverifyContract(id, overrides = {}) {
-    if (typeof id !== 'string' || !id.trim()) {
       throw new VerificationError(
-        400,
-        'INVALID_ID',
-        'verification id is required'
+        500,
+        'VERIFICATION_FAILED',
+        details.message
       );
     }
-    await this.ensureTable();
-    const row = await this.loadRow(id);
-    return this.verifyContract({
-      id,
-      contractId: overrides.contractId || row.contract_id,
-      network: overrides.network || row.network,
-      sourceCode: overrides.sourceCode || row.source_code,
-      dependencies: overrides.dependencies || parseJson(row.dependencies, {}),
-      metadata: overrides.metadata || parseJson(row.metadata, {}),
-      wasmBase64: overrides.wasmBase64,
-      wasmPath: overrides.wasmPath,
-    });
   }
 
   async getVerification(id) {
     await this.ensureTable();
-    return publicRecord(mapRow(await this.loadRow(id)));
-  }
-
-  async getSource(id) {
-    await this.ensureTable();
     const row = await this.loadRow(id);
-    if (row.status !== 'verified') {
-      throw new VerificationError(
-        409,
-        'SOURCE_NOT_VERIFIED',
-        'Source is only available after successful bytecode verification'
-      );
-    }
-    return {
-      id: row.id,
-      contractId: row.contract_id,
-      network: row.network,
-      sourceCode: row.source_code,
-      sourceHash: row.source_hash,
-      dependencies: parseJson(row.dependencies, {}),
-      metadata: parseJson(row.metadata, {}),
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
+    return publicRecord(mapRow(row));
   }
 
-  async searchVerifications(filters = {}) {
+  async listVerifications({ contractId, network, status, limit = 50 } = {}) {
     await this.ensureTable();
-    const conditions = [];
+    const clauses = [];
     const params = [];
-
-    if (filters.contractId) {
-      validateContractId(filters.contractId);
-      conditions.push('contract_id = ?');
-      params.push(filters.contractId);
+    if (contractId) {
+      clauses.push('contract_id = ?');
+      params.push(validateContractId(contractId));
     }
-    if (filters.network) {
-      conditions.push('network = ?');
-      params.push(filters.network);
+    if (network) {
+      clauses.push('network = ?');
+      params.push(network);
     }
-    if (filters.status) {
-      if (
-        !['pending', 'verified', 'mismatch', 'failed'].includes(filters.status)
-      ) {
-        throw new VerificationError(400, 'INVALID_STATUS', 'status is invalid');
-      }
-      conditions.push('status = ?');
-      params.push(filters.status);
+    if (status) {
+      clauses.push('status = ?');
+      params.push(status);
     }
-
-    const parsedLimit = Number.parseInt(filters.limit ?? '20', 10);
-    const parsedOffset = Number.parseInt(filters.offset ?? '0', 10);
-    const limit = Number.isInteger(parsedLimit)
-      ? Math.min(100, Math.max(1, parsedLimit))
-      : 20;
-    const offset = Number.isInteger(parsedOffset)
-      ? Math.max(0, parsedOffset)
-      : 0;
-    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-
-    const [rows, count] = await Promise.all([
-      this.db.all(
-        `SELECT * FROM ${TABLE_NAME} ${where}
-         ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
-        [...params, limit, offset]
-      ),
-      this.db.get(
-        `SELECT COUNT(*) AS total FROM ${TABLE_NAME} ${where}`,
-        params
-      ),
-    ]);
-
-    return {
-      records: rows.map((row) => publicRecord(mapRow(row))),
-      total: count?.total || 0,
-      limit,
-      offset,
-    };
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    const rows = await this.db.all(
+      `SELECT * FROM ${TABLE_NAME} ${where} ORDER BY
+       updated_at DESC LIMIT ?`,
+      [...params, Math.min(Math.max(limit, 1), 200)]
+    );
+    return rows.map((row) => publicRecord(mapRow(row)));
   }
 }
 
-const verifyService = new VerifyService();
-export default verifyService;
+export default VerifyService;

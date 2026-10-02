@@ -122,6 +122,20 @@ export function broadcastTerminalLog(logData) {
 }
 
 let wssInstance = null;
+let activeHeartbeatTimer = null;
+
+export function closeWebSocketServer() {
+  if (activeHeartbeatTimer) {
+    clearInterval(activeHeartbeatTimer);
+    activeHeartbeatTimer = null;
+  }
+  if (wssInstance) {
+    try {
+      wssInstance.close();
+    } catch (_) {}
+    wssInstance = null;
+  }
+}
 
 export function setupWebSocketServer(httpServer) {
   if (wssInstance) {
@@ -222,6 +236,10 @@ export function setupWebSocketServer(httpServer) {
 
     // Register the connection after successful authentication.
     socket.missedPongs = 0;
+    // Topic filters for this connection. Empty set means all topics.
+    socket.topicFilters = new Set();
+    // Regex search pattern for this connection (optional).
+    socket.searchRegex = null;
     clients.add(socket);
 
     safeSend(
@@ -256,6 +274,67 @@ export function setupWebSocketServer(httpServer) {
               type: 'collaboration-presence',
               docId: socket.docId,
               peers,
+            })
+          );
+        } else if (payload.type === 'subscribe') {
+          // Topic-based filtering: clients can subscribe to specific topics.
+          const topics = Array.isArray(payload.topics)
+            ? payload.topics
+            : payload.topic
+              ? [payload.topic]
+              : [];
+          socket.topicFilters = new Set(topics.map((t) => String(t)));
+          safeSend(
+            socket,
+            safeStringify({
+              type: 'subscribed',
+              topics: Array.from(socket.topicFilters),
+            })
+          );
+        } else if (payload.type === 'unsubscribe') {
+          const topics = Array.isArray(payload.topics)
+            ? payload.topics
+            : payload.topic
+              ? [payload.topic]
+              : [];
+          for (const t of topics) {
+            socket.topicFilters.delete(String(t));
+          }
+          safeSend(
+            socket,
+            safeStringify({
+              type: 'subscribed',
+              topics: Array.from(socket.topicFilters),
+            })
+          );
+        } else if (payload.type === 'search') {
+          // Regex search filter for event streaming.
+          if (payload.pattern === null || payload.pattern === undefined) {
+            socket.searchRegex = null;
+          } else {
+            try {
+              socket.searchRegex = new RegExp(
+                String(payload.pattern),
+                payload.flags || 'i'
+              );
+            } catch (err) {
+              safeSend(
+                socket,
+                safeStringify({
+                  type: 'search-error',
+                  message: err.message,
+                })
+              );
+              return;
+            }
+          }
+          safeSend(
+            socket,
+            safeStringify({
+              type: 'search-updated',
+              pattern: socket.searchRegex
+                ? socket.searchRegex.source
+                : null,
             })
           );
         }
@@ -327,103 +406,4 @@ export function setupWebSocketServer(httpServer) {
     }
   }, HEARTBEAT_INTERVAL_MS);
   activeHeartbeatTimer = heartbeatTimer;
-
-  const analyticsTimer = setInterval(async () => {
-    if (
-      clients.size === 0 ||
-      redisService.isFallbackMode ||
-      !redisService.client
-    )
-      return;
-
-    try {
-      const topIps = await redisService.client.zrevrange(
-        'analytics:top_ips',
-        0,
-        9,
-        'WITHSCORES'
-      );
-      const endpoints = ['compile', 'invoke', 'deploy', 'global'];
-      const stats = {};
-
-      for (const endpoint of endpoints) {
-        stats[endpoint] = await redisService.client.hgetall(
-          `analytics:endpoint:${endpoint}`
-        );
-      }
-
-      const message = safeStringify({
-        type: 'rate-limit-analytics',
-        timestamp: new Date().toISOString(),
-        topIps,
-        stats,
-      });
-
-      if (!message) return;
-
-      broadcastLocal(message);
-    } catch (err) {
-      console.error('WS Analytics Broadcast Error:', err.message);
-    }
-  }, 2000);
-  activeAnalyticsTimer = analyticsTimer;
-
-  wss.on('close', () => {
-    clearInterval(heartbeatTimer);
-    clearInterval(analyticsTimer);
-    activeHeartbeatTimer = null;
-    activeAnalyticsTimer = null;
-  });
-
-  return wss;
 }
-
-let activeHeartbeatTimer = null;
-let activeAnalyticsTimer = null;
-
-export function closeWebSocketServer() {
-  if (activeHeartbeatTimer) {
-    clearInterval(activeHeartbeatTimer);
-    activeHeartbeatTimer = null;
-  }
-  if (activeAnalyticsTimer) {
-    clearInterval(activeAnalyticsTimer);
-    activeAnalyticsTimer = null;
-  }
-  if (wssInstance) {
-    for (const socket of clients) {
-      if (socket.releaseIp) socket.releaseIp();
-      if (typeof socket.terminate === 'function') {
-        socket.terminate();
-      }
-    }
-    clients.clear();
-    if (typeof wssInstance.close === 'function') {
-      wssInstance.close();
-    }
-  }
-  ipCounts.clear();
-  if (redisSubscriber) {
-    try {
-      const subscribedChannels = Object.values(REDIS_WS_CHANNELS);
-      for (const ch of subscribedChannels) {
-        redisSubscriber.unsubscribe(ch);
-      }
-      redisSubscriber.quit();
-    } catch (err) {
-      console.error('WS Redis subscriber close error:', err.message);
-    }
-    redisSubscriber = null;
-  }
-}
-
-export function broadcast(payload) {
-  const message = safeStringify(payload);
-  if (!message) return;
-  broadcastGlobal(message);
-}
-
-export {
-  setupWebSocketServer as setupWebsocketServer,
-  closeWebSocketServer as closeWebsocketServer,
-};

@@ -11,10 +11,8 @@ import {
   setSpanAttributes,
   addSpanEvent,
   injectTraceContext,
-} from '../utils/tracing.js';
-import { alertManager } from '../utils/alerting.js';
-import { recordTamperEvidentAuditLog } from './tamperEvidentAuditLogger.js';
-import { spawnTracked, terminateChildProcess } from './childProcessManager.js';
+} from '../utils/tracing.js';import { alertManager } from '../utils/alerting.js';
+import { recordTamperEvidentAuditLog } from './tamperEvidentAuditLogger.js';import { spawnTracked, terminateChildProcess } from './childProcessManager.js';
 
 const DEFAULT_TIMEOUT_MS = 30000;
 const DEFAULT_STATE_FILE =
@@ -187,7 +185,7 @@ export function deployContract(contract, { signal, onProgress } = {}) {
 
     child.stdout.on('data', (chunk) => {
       stdout += chunk.toString();
-      onProgress?.('deploying', chunk.toString());
+      onProgress!?.('deploying', chunk.toString());
     });
 
     child.stderr.on('data', (chunk) => {
@@ -367,6 +365,7 @@ export async function deployBatchContracts(request, { signal } = {}) {
         status: 'success',
         batchId: deploymentId,
         contracts: deployed,
+        deployments: deployed,
         startedAt,
         completedAt,
       };
@@ -395,7 +394,7 @@ export async function deployBatchContracts(request, { signal } = {}) {
         contracts: deployed,
       });
       writeState(state);
-      appendLog({
+      appendLog( {
         deploymentId,
         status: 'failed',
         error: error.message,

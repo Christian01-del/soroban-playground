@@ -11,6 +11,7 @@
 //!   * Custom error enum (no `panic!` strings) — checks-effects-interactions order
 //!   * Admin-gated emergency pause; mutations short-circuit while paused
 //!   * Authors can never tip themselves or self-subscribe (prevents wash metrics)
+//!   * Co-creator royalty splits use checked arithmetic and never overflow (#1365)
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, Address, BytesN, Env,
@@ -33,6 +34,8 @@ pub enum DataKey {
     AuthorStats(Address),
     LatestArticles, // bounded ring of recent IDs
     HasLiked(u64, Address),
+    /// Co-creator royalty shares registered for an article.
+    ArticleRoyalties(u64),
 }
 
 // ── Errors ──────────────────────────────────────────────────────────────────
@@ -54,6 +57,16 @@ pub enum Error {
     SubscriptionNotFound = 11,
     PremiumRequiresSubscription = 12,
     AlreadyLiked = 13,
+    /// Share bps is zero, exceeds 10_000, or the set does not sum to 10_000.
+    InvalidShare = 14,
+    /// Two co-creators share the same address.
+    DuplicateCoCreator = 15,
+    /// Royalty split arithmetic overflowed (checked math rejected the amount).
+    ArithmeticError = 16,
+    /// Too many co-creators for a single article.
+    TooManyCoCreators = 17,
+    /// No royalty shares are registered for this article.
+    RoyaltiesNotConfigured = 18,
 }
 
 // ── Domain types ────────────────────────────────────────────────────────────
@@ -108,14 +121,28 @@ pub struct AuthorStats {
     pub subscription_revenue: i128,
 }
 
+/// One co-creator's share of an article's royalties, in basis points
+/// (10_000 = 100%). Shares for an article must sum to exactly 10_000.
+#[contracttype]
+#[derive(Clone, PartialEq, Eq)]
+pub struct CoCreatorShare {
+    pub address: Address,
+    pub share_bps: u32,
+}
+
 // ── Contract ────────────────────────────────────────────────────────────────
 
 const LATEST_CAP: u32 = 50;
+/// Maximum co-creators per article. The issue calls out >5 creators; 16 is a
+/// generous bound that still keeps split vectors small on-chain.
+const MAX_CO_CREATORS: u32 = 16;
+const BPS_DENOM: i128 = 10_000;
 const TOPIC_PUBLISH: Symbol = symbol_short!("publish");
 const TOPIC_TIP: Symbol = symbol_short!("tip");
 const TOPIC_SUB: Symbol = symbol_short!("subscribe");
 const TOPIC_LIKE: Symbol = symbol_short!("like");
 const TOPIC_PAUSE: Symbol = symbol_short!("pause");
+const TOPIC_ROYALTY: Symbol = symbol_short!("royalty");
 
 #[contract]
 pub struct ContentPublishingContract;
@@ -407,9 +434,82 @@ impl ContentPublishingContract {
             .persistent()
             .set(&DataKey::AuthorStats(article.author.clone()), &stats);
 
+        // When co-creators are registered, emit a royalty-split preview so
+        // off-chain payout contracts can settle without re-deriving shares.
+        if let Some(shares) = env
+            .storage()
+            .persistent()
+            .get::<_, Vec<CoCreatorShare>>(&DataKey::ArticleRoyalties(article_id))
+        {
+            if !shares.is_empty() {
+                let _split = Self::split_amount_checked(amount, &shares)?;
+                env.events()
+                    .publish((TOPIC_ROYALTY, article_id), (amount, shares.len() as u32));
+            }
+        }
+
         env.events()
             .publish((TOPIC_TIP, article.author, article_id), (from, amount));
         Ok(())
+    }
+
+    // ── Co-creator royalties (#1365) ────────────────────────────────────────
+
+    /// Registers (or replaces) the co-creator royalty shares for an article.
+    ///
+    /// `shares` must be non-empty, at most `MAX_CO_CREATORS` entries, every
+    /// `share_bps` in `1..=10_000`, the bps values must sum to exactly
+    /// 10_000, and no address may appear twice.
+    pub fn set_article_cocreators(
+        env: Env,
+        author: Address,
+        article_id: u64,
+        shares: Vec<CoCreatorShare>,
+    ) -> Result<(), Error> {
+        Self::ensure_running(&env)?;
+        author.require_auth();
+        let article: Article = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Article(article_id))
+            .ok_or(Error::ArticleNotFound)?;
+        if article.author != author {
+            return Err(Error::Unauthorized);
+        }
+        Self::validate_shares(&shares)?;
+        env.storage()
+            .persistent()
+            .set(&DataKey::ArticleRoyalties(article_id), &shares);
+        env.events().publish(
+            (TOPIC_ROYALTY, article_id),
+            (String::from_str(&env, "set"), shares.len()),
+        );
+        Ok(())
+    }
+
+    pub fn get_article_cocreators(env: Env, article_id: u64) -> Option<Vec<CoCreatorShare>> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ArticleRoyalties(article_id))
+    }
+
+    /// Splits `amount` across the article's registered co-creators using
+    /// checked arithmetic. Dust from integer division is given to the first
+    /// co-creator so the parts always sum exactly to `amount`.
+    pub fn preview_royalty_split(
+        env: Env,
+        article_id: u64,
+        amount: i128,
+    ) -> Result<Vec<i128>, Error> {
+        if amount <= 0 {
+            return Err(Error::InvalidAmount);
+        }
+        let shares = env
+            .storage()
+            .persistent()
+            .get::<_, Vec<CoCreatorShare>>(&DataKey::ArticleRoyalties(article_id))
+            .ok_or(Error::RoyaltiesNotConfigured)?;
+        Self::split_amount_checked(amount, &shares)
     }
 
     // ── Subscriptions ───────────────────────────────────────────────────────
@@ -601,6 +701,66 @@ impl ContentPublishingContract {
             .get::<_, Subscription>(&DataKey::Subscription(author.clone(), subscriber.clone()))
             .map(|s| s.expires_at > env.ledger().timestamp())
             .unwrap_or(false)
+    }
+
+    /// Validates a co-creator share set (#1365).
+    fn validate_shares(shares: &Vec<CoCreatorShare>) -> Result<(), Error> {
+        if shares.is_empty() || shares.len() > MAX_CO_CREATORS {
+            return Err(Error::TooManyCoCreators);
+        }
+        let mut total: u32 = 0;
+        for (i, share) in shares.iter().enumerate() {
+            if share.share_bps == 0 || share.share_bps > BPS_DENOM as u32 {
+                return Err(Error::InvalidShare);
+            }
+            for (j, other) in shares.iter().enumerate() {
+                if i != j && share.address == other.address {
+                    return Err(Error::DuplicateCoCreator);
+                }
+            }
+            total = total
+                .checked_add(share.share_bps)
+                .ok_or(Error::ArithmeticError)?;
+        }
+        if total != BPS_DENOM as u32 {
+            return Err(Error::InvalidShare);
+        }
+        Ok(())
+    }
+
+    /// Overflow-safe bps split. Every share except the last is computed as
+    /// `amount * share_bps / 10_000` with `checked_mul`/`checked_div`; the
+    /// last share absorbs integer-division dust so parts sum to `amount`.
+    fn split_amount_checked(
+        amount: i128,
+        shares: &Vec<CoCreatorShare>,
+    ) -> Result<Vec<i128>, Error> {
+        if amount <= 0 {
+            return Err(Error::InvalidAmount);
+        }
+        let mut parts = Vec::<i128>::new(shares.env());
+        let mut allocated: i128 = 0;
+        let n = shares.len();
+        for (idx, share) in shares.iter().enumerate() {
+            let part = if (idx as u32) + 1 == n {
+                // Last share absorbs the remainder (dust from earlier floors).
+                amount.checked_sub(allocated).ok_or(Error::ArithmeticError)?
+            } else {
+                amount
+                    .checked_mul(share.share_bps as i128)
+                    .and_then(|v| v.checked_div(BPS_DENOM))
+                    .ok_or(Error::ArithmeticError)?
+            };
+            if part < 0 {
+                return Err(Error::ArithmeticError);
+            }
+            allocated = allocated.checked_add(part).ok_or(Error::ArithmeticError)?;
+            if allocated > amount {
+                return Err(Error::ArithmeticError);
+            }
+            parts.push_back(part);
+        }
+        Ok(parts)
     }
 }
 

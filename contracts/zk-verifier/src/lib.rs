@@ -11,13 +11,15 @@
 mod test;
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype,
+    contract, contracterror, contractimpl, contracttype, symbol_short,
     crypto::bn254::{Bn254Fr, Bn254G1Affine, Bn254G2Affine},
     BytesN, Env, Vec,
 };
 
 /// A conservative ceiling that bounds decoding, MSM, and pairing costs.
 pub const MAX_PUBLIC_INPUTS: u32 = 64;
+const NULLIFIER_TTL_THRESHOLD: u32 = 30 * 17_280;
+const NULLIFIER_TTL_EXTEND_TO: u32 = 365 * 17_280;
 
 // BN254 scalar field order, in canonical big-endian form.
 const FR_MODULUS: [u8; 32] = [
@@ -57,6 +59,14 @@ pub enum Error {
     TooManyPublicInputs = 2,
     NonCanonicalPublicInput = 3,
     InvalidG1Point = 4,
+    InvalidNullifierIndex = 5,
+    NullifierAlreadyUsed = 6,
+}
+
+#[contracttype]
+#[derive(Clone)]
+enum DataKey {
+    Nullifier(BytesN<32>),
 }
 
 #[contract]
@@ -64,6 +74,40 @@ pub struct ZkVerifier;
 
 #[contractimpl]
 impl ZkVerifier {
+    /// Verifies a proof and consumes its first public input as a nullifier once.
+    ///
+    /// Circuits must bind the first public input as the nullifier so it cannot
+    /// be changed independently of the statement proven by the circuit.
+    pub fn verify_and_consume_nullifier(
+        env: Env,
+        vk: VerificationKey,
+        proof: Proof,
+        public_inputs: Vec<BytesN<32>>,
+    ) -> Result<bool, Error> {
+        if public_inputs.is_empty() {
+            return Err(Error::InvalidNullifierIndex);
+        }
+        let nullifier = public_inputs.get(0).unwrap();
+        let key = DataKey::Nullifier(nullifier.clone());
+        if env.storage().persistent().has(&key) {
+            return Err(Error::NullifierAlreadyUsed);
+        }
+
+        if !Self::verify(env.clone(), vk, proof, public_inputs)? {
+            return Ok(false);
+        }
+
+        env.storage().persistent().set(&key, &true);
+        env.storage().persistent().extend_ttl(
+            &key,
+            NULLIFIER_TTL_THRESHOLD,
+            NULLIFIER_TTL_EXTEND_TO,
+        );
+        env.events()
+            .publish((symbol_short!("nullifier"),), nullifier);
+        Ok(true)
+    }
+
     /// Verifies a Groth16 proof against `vk` and the ordered public inputs.
     ///
     /// Returns `Ok(false)` for a well-formed but invalid proof. Malformed G1

@@ -6,6 +6,7 @@ import {
   eventValidationTotal,
 } from '../routes/metrics.js';
 
+const MAX_ACCEPTED_EVENTS = 500;
 const SUPPORTED_FIELD_TYPES = new Set([
   'any',
   'array',
@@ -18,7 +19,6 @@ const SUPPORTED_FIELD_TYPES = new Set([
   'iso_datetime',
 ]);
 
-const MAX_ACCEPTED_EVENTS = 500;
 const MAX_QUARANTINE_ITEMS = 500;
 const MAX_SCHEMA_ALERTS = 200;
 
@@ -415,832 +415,279 @@ function createDefaultSchemas() {
     destinationAccount: { type: 'address', required: true },
     amount: { type: 'number', required: true, min: 0 },
     asset: { type: 'string', required: true },
-    network: { type: 'string', required: true, default: 'testnet' },
     createdAt: { type: 'iso_datetime', required: true },
     status: {
       type: 'string',
       required: true,
       enum: ['pending', 'settled', 'failed'],
     },
-    memo: { type: 'string', required: false, maxLength: 280 },
+    memo { type: 'string', required: false },
   };
 
   return [
-    normalizeSchema(
-      {
-        eventType: 'pifp.payment',
-        version: '1.0.0',
-        description: 'Legacy PIFP payment lifecycle event.',
-        fields: legacyFields,
-        additionalProperties: false,
-      },
-      'seed'
-    ),
-    normalizeSchema(
-      {
-        eventType: 'pifp.payment',
-        version: '2.0.0',
-        description:
-          'Current PIFP payment lifecycle event with explicit account roles and network.',
-        fields: latestFields,
-        additionalProperties: false,
-        migrations: [
-          {
-            fromVersion: '1.0.0',
-            toVersion: '2.0.0',
-            rename: {
-              payer: 'sourceAccount',
-              payee: 'destinationAccount',
-            },
-            defaults: {
-              network: 'testnet',
-            },
-          },
-        ],
-      },
-      'seed'
-    ),
+    normalizeSchema({
+      eventType: 'payment_created',
+      version: '1.0.0',
+      description: 'Legacy payment creation event',
+      fields: legacyFields,
+    }),
+    normalizeSchema({
+      eventType: 'payment_created',
+      version: '2.0.0',
+      description: 'Payment creation event with explicit account fields',
+      fields: latestFields,
+    }),
   ];
 }
 
 class EventSchemaService {
   constructor() {
-    this.resetForTests();
-  }
-
-  resetForTests() {
     this.schemas = new Map();
-    this.acceptedEvents = [];
     this.quarantine = [];
-    this.schemaAlerts = [];
-    this.metrics = {
-      validations: {
-        total: 0,
-        accepted: 0,
-        quarantined: 0,
-        rejected: 0,
-      },
-      versionDistribution: {},
-      eventTypeDistribution: {},
+    this.alerts = [];
+    this.acceptedEvents = [];
+    this.validationStats = {
+      total: 0,
+      valid: 0,
+      invalid: 0,
+      quarantined: 0,
     };
 
     for (const schema of createDefaultSchemas()) {
       this.schemas.set(versionKey(schema.eventType, schema.version), schema);
     }
-
-    this.updateQuarantineGauge();
   }
 
-  updateQuarantineGauge() {
-    const openCount = this.quarantine.filter(
-      (item) => item.status === 'open'
-    ).length;
-    eventQuarantineSize.set(openCount);
-  }
-
-  recordValidationMetric(eventType, version, outcome) {
-    const labels = {
-      event_type: eventType || 'unknown',
-      schema_version: version || 'unknown',
-      outcome,
-    };
-    eventValidationTotal.inc(labels);
-  }
-
-  recordAcceptedMetric(eventType, version) {
-    eventSchemaVersionEventsTotal.inc({
-      event_type: eventType || 'unknown',
-      schema_version: version || 'unknown',
-    });
-
-    if (!this.metrics.versionDistribution[eventType]) {
-      this.metrics.versionDistribution[eventType] = {};
+  registerSchema(input, registeredBy = 'system') {
+    const schema = normalizeSchema(input, registeredBy);
+    const errors = validateSchemaDefinition(schema);
+    if (errors.length > 0) {
+      const error = new Error(`Invalid schema: ${errors.join('; ')}`);
+      error.details = errors;
+      throw error;
     }
-    this.metrics.versionDistribution[eventType][version] =
-      (this.metrics.versionDistribution[eventType][version] || 0) + 1;
-    this.metrics.eventTypeDistribution[eventType] =
-      (this.metrics.eventTypeDistribution[eventType] || 0) + 1;
-  }
 
-  listSchemas(eventType) {
-    const schemas = [...this.schemas.values()]
-      .filter((schema) => !eventType || schema.eventType === eventType)
-      .sort((a, b) => {
-        if (a.eventType !== b.eventType) {
-          return a.eventType.localeCompare(b.eventType);
-        }
-        return compareVersions(a.version, b.version);
-      });
+    const key = versionKey(schema.eventType, schema.version);
+    const previous = this.getLatestSchema(schema.eventType);
+    const evolution = analyzeEvolution(previous, schema);
 
-    return clone(schemas);
+    this.schemas.set(key, schema);
+    eventSchemaVersionEventsTotal.inc();
+    if (!evolution.compatible) {
+      eventSchemaBreakingChangesTotal.inc(evolution.breakingChanges.length);
+    }
+
+    return { schema, evolution };
   }
 
   getSchema(eventType, version) {
-    if (!eventType) return null;
-
-    if (version) {
-      return this.schemas.get(versionKey(eventType, version)) || null;
-    }
-
-    const versions = [...this.schemas.values()]
-      .filter((schema) => schema.eventType === eventType)
-      .sort((a, b) => compareVersions(b.version, a.version));
-
-    return versions[0] || null;
+    return this.schemas.get(versionKey(eventType, version)) || null;
   }
 
-  registerSchema(input, options = {}) {
-    const schema = normalizeSchema(input, options.registeredBy || 'api');
-    const definitionErrors = validateSchemaDefinition(schema);
-
-    if (definitionErrors.length > 0) {
-      return {
-        registered: false,
-        statusCode: 400,
-        errors: definitionErrors,
-      };
+  getLatestSchema(eventType) {
+    const candidates = [];
+    for (const schema of this.schemas.values()) {
+      if (schema.eventType === eventType) {
+        candidates.push(schema);
+      }
     }
 
-    if (this.schemas.has(versionKey(schema.eventType, schema.version))) {
-      return {
-        registered: false,
-        statusCode: 409,
-        errors: [`Schema ${schema.eventType}@${schema.version} already exists`],
-      };
+    if (candidates.length === 0) {
+      return null;
     }
 
-    const previous = this.getSchema(schema.eventType);
-    const evolution = analyzeEvolution(previous, schema);
+    candidates.sort((a, b) => compareVersions(b.version, a.version));
+    return candidates[0];
+  }
 
-    if (!evolution.compatible && !options.allowBreaking) {
-      eventSchemaBreakingChangesTotal.inc({ event_type: schema.eventType });
-      this.addSchemaAlert({
-        eventType: schema.eventType,
-        severity: 'breaking',
-        message: `Rejected ${schema.version}: ${evolution.breakingChanges.join('; ')}`,
-        diff: evolution,
-      });
-      return {
-        registered: false,
-        statusCode: 409,
-        errors: evolution.breakingChanges,
-        evolution,
-      };
-    }
+  listSchemas(eventType) {
+    const all = Array.from(this.schemas.values());
+    const filtered = eventType
+      ? all.filter((schema) => schema.eventType === eventType)
+      : all;
 
-    if (!evolution.compatible) {
-      eventSchemaBreakingChangesTotal.inc({ event_type: schema.eventType });
-    }
-
-    this.schemas.set(versionKey(schema.eventType, schema.version), schema);
-
-    return {
-      registered: true,
-      schema: clone(schema),
-      evolution,
-    };
+    return filtered.sort((a, b) => {
+      if (a.eventType === b.eventType) {
+        return compareVersions(b.version, a.version);
+      }
+      return a.eventType.localeCompare(b.eventType);
+    });
   }
 
   validateEvent(input, options = {}) {
     const envelope = normalizeEventEnvelope(input);
     const errors = [];
     const warnings = [];
+    const eventType = envelope.eventType;
 
-    if (!envelope.eventType) {
-      errors.push({
-        path: 'eventType',
-        code: 'required',
-        message: 'eventType is required',
-      });
+    this.validationStats.total += 1;
+
+    if (!eventType) {
+      errors.push('eventType is required');
     }
 
-    if (
-      !envelope.payload ||
-      typeof envelope.payload !== 'object' ||
-      Array.isArray(envelope.payload)
-    ) {
-      errors.push({
-        path: 'payload',
-        code: 'invalid_type',
-        message: 'payload must be an object',
-      });
+    const schema = eventType
+      ? envelope.schemaVersion
+        ? this.getSchema(eventType, envelope.schemaVersion)
+        : this.getLatestSchema(eventType)
+      : null;
+
+    if (eventType && !schema) {
+      errors.push(
+        envelope.schemaVersion
+          ? `No schema registered for ${eventType}@${envelope.schemaVersion}`
+          : `No schema registered for ${eventType}`
+      );
     }
 
-    const schema =
-      envelope.eventType &&
-      this.getSchema(envelope.eventType, envelope.schemaVersion);
+    if (schema) {
+      const payload = envelope.payload || {};
+      const knownFields = new Set(Object.keys(schema.fields));
 
-    if (envelope.eventType && !schema) {
-      errors.push({
-        path: 'schemaVersion',
-        code: 'unknown_schema',
-        message: envelope.schemaVersion
-          ? `No schema registered for ${envelope.eventType}@${envelope.schemaVersion}`
-          : `No schema registered for ${envelope.eventType}`,
-      });
-    }
+      for (const [name, field] of Object.entries(schema.fields)) {
+        const value = payload[name];
+        const path = `payload.${name}`;
 
-    if (!envelope.schemaVersion && schema) {
-      warnings.push({
-        path: 'schemaVersion',
-        code: 'inferred_latest',
-        message: `schemaVersion was omitted; inferred latest ${schema.version}`,
-      });
-    }
-
-    if (
-      schema &&
-      envelope.payload &&
-      typeof envelope.payload === 'object' &&
-      !Array.isArray(envelope.payload)
-    ) {
-      for (const fieldName of schema.required) {
-        if (
-          envelope.payload[fieldName] === undefined ||
-          envelope.payload[fieldName] === null
-        ) {
-          errors.push({
-            path: `payload.${fieldName}`,
-            code: 'required',
-            message: `${fieldName} is required`,
-          });
-        }
-      }
-
-      for (const [fieldName, value] of Object.entries(envelope.payload)) {
-        const field = schema.fields[fieldName];
-
-        if (!field) {
-          if (!schema.additionalProperties) {
-            errors.push({
-              path: `payload.${fieldName}`,
-              code: 'unknown_field',
-              message: `${fieldName} is not defined in schema ${schema.version}`,
-            });
-          } else {
-            warnings.push({
-              path: `payload.${fieldName}`,
-              code: 'unknown_field',
-              message: `${fieldName} is not defined in schema ${schema.version}`,
-            });
+        if (value === undefined) {
+          if (field.required && field.default === undefined) {
+            errors.push(`${path} is required`);
           }
           continue;
         }
 
-        if (field.deprecated) {
-          warnings.push({
-            path: `payload.${fieldName}`,
-            code: 'deprecated_field',
-            message: `${fieldName} is deprecated in schema ${schema.version}`,
-          });
-        }
-
         if (!validateType(value, field)) {
-          errors.push({
-            path: `payload.${fieldName}`,
-            code: 'invalid_type',
-            message: `${fieldName} must be ${field.type}`,
-          });
+          errors.push(`${path} must be of type ${field.type}`);
           continue;
         }
 
-        for (const message of buildFieldConstraintErrors(
-          field,
-          value,
-          `payload.${fieldName}`
-        )) {
-          errors.push({
-            path: `payload.${fieldName}`,
-            code: 'constraint',
-            message,
-          });
+        errors.push(...buildFieldConstraintErrors(field, value, path));
+
+        if (field.deprecated) {
+          warnings.push(`${path} is deprecated`);
+        }
+      }
+
+      if (!schema.additionalProperties) {
+        for (const name of Object.keys(payload)) {
+          if (!knownFields.has(name)) {
+            errors.push(`payload.${name} is not allowed`);
+          }
         }
       }
     }
 
-    const version = schema?.version || envelope.schemaVersion || 'unknown';
-    const eventType = envelope.eventType || 'unknown';
     const valid = errors.length === 0;
-
-    if (options.recordMetric) {
-      this.metrics.validations.total += 1;
-      if (valid) {
-        this.metrics.validations.accepted += 1;
-        this.recordValidationMetric(eventType, version, 'accepted');
-        this.recordAcceptedMetric(eventType, version);
-      } else {
-        const outcome = options.outcome || 'rejected';
-        this.metrics.validations[outcome] += 1;
-        this.recordValidationMetric(eventType, version, outcome);
+    if (valid) {
+      this.validationStats.valid += 1;
+      this.acceptedEvents.push({
+        envelope,
+        schemaKey: schema ? versionKey(schema.eventType, schema.version) : null,
+        validatedAt: nowIso(),
+      });
+      if (this.acceptedEvents.length > MAX_ACCEPTED_EVENTS) {
+        this.acceptedEvents.shift();
       }
+    } else {
+      this.validationStats.invalid += 1;
     }
+
+    if (options.quarantineOnFailure && !valid) {
+      this.quarantineEvent(envelope, errors);
+    }
+
+    eventValidationTotal.inc({ status: valid ? 'valid' : 'invalid' });
 
     return {
       valid,
-      eventType: envelope.eventType,
-      schemaVersion: schema?.version || envelope.schemaVersion,
-      schema: schema ? clone(schema) : null,
       errors,
       warnings,
+      schema,
+      envelope,
     };
   }
 
-  ingestEvent(input, options = {}) {
-    const validation = this.validateEvent(input, {
-      recordMetric: true,
-      outcome: options.quarantineInvalid === false ? 'rejected' : 'quarantined',
-    });
-
-    if (!validation.valid) {
-      if (options.quarantineInvalid === false) {
-        return {
-          accepted: false,
-          quarantined: false,
-          validation,
-        };
-      }
-
-      const quarantineItem = this.quarantineEvent(input, validation);
-      return {
-        accepted: false,
-        quarantined: true,
-        validation,
-        quarantineItem,
-      };
-    }
-
-    const envelope = normalizeEventEnvelope(input);
-    const record = {
-      id:
-        envelope.id ||
-        `evt-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
-      eventType: validation.eventType,
-      schemaVersion: validation.schemaVersion,
-      emittedAt: envelope.emittedAt || nowIso(),
-      contractId: envelope.contractId,
-      payload: clone(envelope.payload),
-      ingestedAt: nowIso(),
-    };
-
-    this.acceptedEvents.push(record);
-    if (this.acceptedEvents.length > MAX_ACCEPTED_EVENTS) {
-      this.acceptedEvents.shift();
-    }
-
-    return {
-      accepted: true,
-      quarantined: false,
-      validation,
-      event: clone(record),
-    };
-  }
-
-  quarantineEvent(input, validation) {
-    const envelope = normalizeEventEnvelope(input);
+  quarantineEvent(envelope, errors) {
     const item = {
-      id: `q-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
-      eventType: validation.eventType || envelope.eventType || 'unknown',
-      schemaVersion:
-        validation.schemaVersion || envelope.schemaVersion || 'unknown',
-      status: 'open',
-      receivedAt: nowIso(),
-      errors: validation.errors,
-      warnings: validation.warnings,
-      event: clone(input),
-      reviewNotes: '',
+      id: envelope.id || `quarantine-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      eventType: envelope.eventType,
+      schemaVersion: envelope.schemaVersion,
+      errors,
+      payload: envelope.payload,
+      quarantinedAt: nowIso(),
     };
 
     this.quarantine.unshift(item);
     if (this.quarantine.length > MAX_QUARANTINE_ITEMS) {
       this.quarantine.pop();
     }
-    this.updateQuarantineGauge();
 
-    return clone(item);
+    this.validationStats.quarantined += 1;
+    eventQuarantineSize.set(this.quarantine.length);
+    return item;
   }
 
-  listQuarantine(status) {
-    return clone(
-      this.quarantine.filter((item) => !status || item.status === status)
-    );
+  listQuarantine() {
+    return this.quarantine.map((item) => clone(item));
   }
 
-  updateQuarantineItem(id, updates = {}) {
-    const item = this.quarantine.find((entry) => entry.id === id);
-    if (!item) return null;
-
-    if (updates.status) {
-      item.status = updates.status;
-    }
-    if (
-      updates.reviewNotes !== undefined ||
-      updates.review_notes !== undefined
-    ) {
-      item.reviewNotes = updates.reviewNotes ?? updates.review_notes ?? '';
-    }
-    item.reviewedAt = nowIso();
-    this.updateQuarantineGauge();
-
-    return clone(item);
-  }
-
-  reprocessQuarantinedEvent(id, overrideEvent) {
-    const item = this.quarantine.find((entry) => entry.id === id);
-    if (!item) return null;
-
-    const event = overrideEvent || item.event;
-    const result = this.ingestEvent(event, { quarantineInvalid: false });
-
-    if (result.accepted) {
-      item.status = 'reprocessed';
-      item.reprocessedAt = nowIso();
-      item.reprocessedEventId = result.event.id;
-    } else {
-      item.status = 'open';
-      item.errors = result.validation.errors;
-      item.warnings = result.validation.warnings;
-      item.lastReprocessAt = nowIso();
-    }
-
-    this.updateQuarantineGauge();
-
-    return {
-      quarantineItem: clone(item),
-      result,
-    };
-  }
-
-  findMigrationRule(fromVersion, toVersion, eventType) {
-    const targetSchema = this.getSchema(eventType, toVersion);
-    return (
-      targetSchema?.migrations?.find(
-        (migration) =>
-          migration.fromVersion === fromVersion &&
-          migration.toVersion === toVersion
-      ) || null
-    );
-  }
-
-  getMigrationPath(eventType, fromVersion, toVersion) {
-    const versions = this.listSchemas(eventType)
-      .map((schema) => schema.version)
-      .sort(compareVersions);
-    const fromIndex = versions.indexOf(fromVersion);
-    const toIndex = versions.indexOf(toVersion);
-
-    if (fromIndex === -1 || toIndex === -1 || fromIndex > toIndex) {
+  releaseQuarantine(id) {
+    const index = this.quarantine.findIndex((item) => item.id === id);
+    if (index === -1) {
       return null;
     }
-
-    return versions.slice(fromIndex, toIndex + 1);
+    const [item] = this.quarantine.splice(index, 1);
+    eventQuarantineSize.set(this.quarantine.length);
+    return item;
   }
 
-  applyMigrationStep(event, fromVersion, toVersion) {
-    const rule = this.findMigrationRule(
-      fromVersion,
-      toVersion,
-      event.eventType
-    );
-    const nextSchema = this.getSchema(event.eventType, toVersion);
-    const payload = clone(event.payload || {});
-
-    if (rule?.rename) {
-      for (const [fromField, toField] of Object.entries(rule.rename)) {
-        if (
-          payload[fromField] !== undefined &&
-          payload[toField] === undefined
-        ) {
-          payload[toField] = payload[fromField];
-        }
-        delete payload[fromField];
-      }
-    }
-
-    if (rule?.drop) {
-      for (const fieldName of rule.drop) {
-        delete payload[fieldName];
-      }
-    }
-
-    const defaults = {
-      ...(rule?.defaults || {}),
-    };
-
-    for (const [fieldName, field] of Object.entries(nextSchema?.fields || {})) {
-      if (payload[fieldName] === undefined && field.default !== undefined) {
-        defaults[fieldName] = field.default;
-      }
-    }
-
-    for (const [fieldName, defaultValue] of Object.entries(defaults)) {
-      if (payload[fieldName] === undefined) {
-        payload[fieldName] = defaultValue;
-      }
-    }
-
-    return {
-      ...event,
-      schemaVersion: toVersion,
-      payload,
-    };
-  }
-
-  migrateEvent(input, targetVersion) {
-    const envelope = normalizeEventEnvelope(input);
-    if (!envelope.eventType) {
-      return {
-        migrated: false,
-        errors: ['eventType is required'],
-      };
-    }
-
-    const targetSchema = this.getSchema(envelope.eventType, targetVersion);
-    const sourceSchema = this.getSchema(
-      envelope.eventType,
-      envelope.schemaVersion
-    );
-    const latestSchema = this.getSchema(envelope.eventType);
-    const resolvedTargetVersion =
-      targetVersion || latestSchema?.version || envelope.schemaVersion;
-
-    if (!sourceSchema) {
-      return {
-        migrated: false,
-        errors: [
-          `No source schema registered for ${envelope.eventType}@${envelope.schemaVersion}`,
-        ],
-      };
-    }
-
-    if (!targetSchema && targetVersion) {
-      return {
-        migrated: false,
-        errors: [
-          `No target schema registered for ${envelope.eventType}@${targetVersion}`,
-        ],
-      };
-    }
-
-    const sourceValidation = this.validateEvent(input);
-    if (!sourceValidation.valid) {
-      return {
-        migrated: false,
-        errors: sourceValidation.errors.map((error) => error.message),
-        validation: sourceValidation,
-      };
-    }
-
-    let event = {
-      id: envelope.id,
-      eventType: envelope.eventType,
-      schemaVersion: envelope.schemaVersion,
-      emittedAt: envelope.emittedAt,
-      contractId: envelope.contractId,
-      payload: clone(envelope.payload),
-    };
-
-    if (event.schemaVersion === resolvedTargetVersion) {
-      return {
-        migrated: true,
-        event,
-        migrationPath: [resolvedTargetVersion],
-        validation: sourceValidation,
-      };
-    }
-
-    const path = this.getMigrationPath(
-      envelope.eventType,
-      event.schemaVersion,
-      resolvedTargetVersion
-    );
-
-    if (!path) {
-      return {
-        migrated: false,
-        errors: [
-          `No migration path from ${event.schemaVersion} to ${resolvedTargetVersion}`,
-        ],
-      };
-    }
-
-    for (let index = 0; index < path.length - 1; index += 1) {
-      event = this.applyMigrationStep(event, path[index], path[index + 1]);
-    }
-
-    const validation = this.validateEvent(event);
-    return {
-      migrated: validation.valid,
-      event,
-      migrationPath: path,
-      validation,
-      errors: validation.errors.map((error) => error.message),
-    };
-  }
-
-  readEvents(options = {}) {
-    const { eventType, targetVersion } = options;
-    return this.acceptedEvents
-      .filter((event) => !eventType || event.eventType === eventType)
-      .map((event) => {
-        if (!targetVersion || event.schemaVersion === targetVersion) {
-          return clone(event);
-        }
-        const migration = this.migrateEvent(event, targetVersion);
-        return migration.migrated ? migration.event : clone(event);
-      });
-  }
-
-  detectSchema(input) {
-    const envelope = normalizeEventEnvelope(input);
-    const detectedFields = {};
-
-    for (const [name, value] of Object.entries(envelope.payload || {})) {
-      detectedFields[name] = {
-        type: fieldTypeForValue(value),
-        required: true,
-      };
-    }
-
-    return {
-      eventType: envelope.eventType,
-      version: envelope.schemaVersion || 'detected',
-      fields: detectedFields,
-      required: Object.keys(detectedFields),
-    };
-  }
-
-  detectSchemaChanges(input) {
-    const detected = this.detectSchema(input);
-    const latest = detected.eventType
-      ? this.getSchema(detected.eventType)
-      : null;
-
-    if (!latest) {
-      const alert = {
-        eventType: detected.eventType || 'unknown',
-        severity: 'new_schema',
-        message: 'No registered schema exists for this event type',
-        detected,
-        migrationGuide: ['Register the detected schema as version 1.0.0.'],
-      };
-      this.addSchemaAlert(alert);
-      return {
-        detected,
-        latest: null,
-        changes: {
-          addedFields: Object.keys(detected.fields || {}),
-          missingRequiredFields: [],
-          typeChanges: [],
-        },
-        compatible: true,
-        alert,
-      };
-    }
-
-    const changes = {
-      addedFields: [],
-      missingRequiredFields: [],
-      typeChanges: [],
-      deprecatedFieldsSeen: [],
-    };
-
-    for (const [name, field] of Object.entries(detected.fields || {})) {
-      const registered = latest.fields[name];
-      if (!registered) {
-        changes.addedFields.push(name);
-      } else if (!isCompatibleTypeChange(registered.type, field.type)) {
-        changes.typeChanges.push({
-          field: name,
-          expected: registered.type,
-          detected: field.type,
-        });
-      }
-      if (registered?.deprecated) {
-        changes.deprecatedFieldsSeen.push(name);
-      }
-    }
-
-    for (const fieldName of latest.required) {
-      if (!detected.fields[fieldName]) {
-        changes.missingRequiredFields.push(fieldName);
-      }
-    }
-
-    const breaking =
-      changes.missingRequiredFields.length > 0 ||
-      changes.typeChanges.length > 0 ||
-      (!latest.additionalProperties && changes.addedFields.length > 0);
-
-    const migrationGuide = [];
-    if (changes.addedFields.length > 0) {
-      migrationGuide.push(
-        `Review new fields: ${changes.addedFields.join(', ')}. Add them as optional fields or provide defaults before making them required.`
-      );
-    }
-    if (changes.missingRequiredFields.length > 0) {
-      migrationGuide.push(
-        `Restore or migrate required fields: ${changes.missingRequiredFields.join(', ')}.`
-      );
-    }
-    if (changes.typeChanges.length > 0) {
-      migrationGuide.push(
-        'Add an explicit migration for detected type changes before registering a new version.'
-      );
-    }
-    if (migrationGuide.length === 0) {
-      migrationGuide.push(
-        'No schema drift detected against the latest version.'
-      );
-    }
-
-    const alert = {
-      eventType: detected.eventType,
-      severity: breaking ? 'breaking' : 'compatible',
-      message: breaking
-        ? 'Detected event shape is not backward compatible'
-        : 'Detected event shape is compatible with the latest schema',
-      detected,
-      latestVersion: latest.version,
-      changes,
-      migrationGuide,
-    };
-
-    if (
-      breaking ||
-      changes.addedFields.length > 0 ||
-      changes.deprecatedFieldsSeen.length > 0
-    ) {
-      this.addSchemaAlert(alert);
-    }
-
-    return {
-      detected,
-      latest: clone(latest),
-      changes,
-      compatible: !breaking,
-      alert,
-    };
-  }
-
-  addSchemaAlert(alert) {
-    const item = {
-      id: `alert-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+  recordSchemaAlert(alert) {
+    const entry = {
+      id: alert.id || `alert-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      type: alert.type || 'schema_drift',
+      eventType: alert.eventType,
+      severity: alert.severity || 'warning',
+      message: alert.message || 'Schema drift detected',
+      details: alert.details || {},
       createdAt: nowIso(),
-      ...clone(alert),
     };
-    this.schemaAlerts.unshift(item);
-    if (this.schemaAlerts.length > MAX_SCHEMA_ALERTS) {
-      this.schemaAlerts.pop();
+
+    this.alerts.unshift(entry);
+    if (this.alerts.length > MAX_SCHEMA_ALERTS) {
+      this.alerts.pop();
     }
-    eventSchemaDetectionAlertsTotal.inc({
-      event_type: item.eventType || 'unknown',
-      severity: item.severity || 'unknown',
-    });
-    return clone(item);
+
+    eventSchemaDetectionAlertsTotal.inc({ type: entry.type, severity: entry.severity });
+    return entry;
   }
 
-  listSchemaAlerts() {
-    return clone(this.schemaAlerts);
+  listAlerts() {
+    return this.alerts.map((alert) => clone(alert));
   }
 
-  getQualityMetrics() {
-    const total = this.metrics.validations.total;
-    const successRate =
-      total === 0 ? 1 : this.metrics.validations.accepted / total;
-
+  getStats() {
     return {
-      validations: {
-        ...this.metrics.validations,
-        successRate,
-      },
-      versionDistribution: clone(this.metrics.versionDistribution),
-      eventTypeDistribution: clone(this.metrics.eventTypeDistribution),
-      quarantine: {
-        total: this.quarantine.length,
-        open: this.quarantine.filter((item) => item.status === 'open').length,
-        reprocessed: this.quarantine.filter(
-          (item) => item.status === 'reprocessed'
-        ).length,
-      },
-      schemas: {
-        eventTypes: new Set(
-          [...this.schemas.values()].map((schema) => schema.eventType)
-        ).size,
-        versions: this.schemas.size,
-      },
-      alerts: {
-        total: this.schemaAlerts.length,
-        breaking: this.schemaAlerts.filter(
-          (alert) => alert.severity === 'breaking'
-        ).length,
-      },
-      generatedAt: nowIso(),
+      schemaCount: this.schemas.size,
+      quarantineCount: this.quarantine.length,
+      alertCount: this.alerts.length,
+      acceptedEventCount: this.acceptedEvents.length,
+      validationStats: { ...this.validationStats },
     };
+  }
+
+  getAcceptedEvents() {
+    return this.acceptedEvents.map((entry) => clone(entry));
   }
 }
 
 const eventSchemaService = new EventSchemaService();
 
-export { analyzeEvolution, normalizeEventEnvelope, normalizeSchema };
-
-export default eventSchemaService;
+export {
+  EventSchemaService,
+  eventSchemaService,
+  normalizeSchema,
+  normalizeEventEnvelope,
+  analyzeEvolution,
+  validateSchemaDefinition,
+  compareVersions,
+  fieldTypeForValue,
+};

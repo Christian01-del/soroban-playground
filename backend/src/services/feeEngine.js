@@ -9,6 +9,10 @@ const HORIZON = {
 };
 
 const FEE_STATS_TTL_SECONDS = 15;
+const FEE_STATS_TIMEOUT_MS = parseInt(
+  process.env.FEE_ENGINE_TIMEOUT_MS || '5000',
+  10
+);
 
 const BASE_FEE = 100;
 const DEFAULT_MAX_FEE = parseInt(process.env.FEE_ENGINE_MAX_FEE || '10000', 10);
@@ -43,7 +47,9 @@ export async function fetchFeeStats(network = 'testnet') {
 
   const baseUrl = HORIZON[network] ?? HORIZON.testnet;
   const url = `${baseUrl}/fee_stats`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+  const res = await fetch(url, {
+    signal: AbortSignal.timeout(FEE_STATS_TIMEOUT_MS),
+  });
   if (!res.ok)
     throw new Error(
       `Horizon fee_stats HTTP ${res.status} for network=${network}`
@@ -67,10 +73,17 @@ export function calculateFee(
     maxFee = DEFAULT_MAX_FEE,
   } = {}
 ) {
+  const safeAttempt = Number.isFinite(attempt) && attempt > 0 ? attempt : 1;
+  const safeFactor =
+    Number.isFinite(escalationFactor) && escalationFactor >= 1
+      ? escalationFactor
+      : DEFAULT_ESCALATION_FACTOR;
+  const safeMaxFee =
+    Number.isFinite(maxFee) && maxFee >= BASE_FEE ? maxFee : DEFAULT_MAX_FEE;
   const p90 = parseInt(stats?.fee_charged?.p90 ?? BASE_FEE, 10);
   const base = Number.isFinite(p90) && p90 > 0 ? p90 : BASE_FEE;
-  const escalated = Math.ceil(base * Math.pow(escalationFactor, attempt - 1));
-  return Math.max(Math.min(escalated, maxFee), BASE_FEE);
+  const escalated = Math.ceil(base * Math.pow(safeFactor, safeAttempt - 1));
+  return Math.max(Math.min(escalated, safeMaxFee), BASE_FEE);
 }
 
 // Detect fee-specific Horizon errors — parse result_codes.transaction to avoid
@@ -110,9 +123,15 @@ export function _clearCacheForTesting() {
   Object.keys(feeStatsCache).forEach((k) => delete feeStatsCache[k]);
 }
 
+export function _getCacheForTesting() {
+  return feeStatsCache;
+}
+
 export {
   DEFAULT_MAX_FEE,
   DEFAULT_ESCALATION_FACTOR,
   DEFAULT_MAX_ATTEMPTS,
   BASE_FEE,
+  FEE_STATS_TTL_SECONDS,
+  FEE_STATS_TIMEOUT_MS,
 };

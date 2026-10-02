@@ -2,6 +2,7 @@ import React from 'react';
 import { render, cleanup, waitFor } from '@testing-library/react';
 import Editor from './Editor';
 import * as monaco from 'monaco-editor';
+import { monacoLifecycle } from '@/lib/monacoLifecycle';
 
 jest.mock('monaco-editor', () => {
   const model = {
@@ -10,17 +11,22 @@ jest.mock('monaco-editor', () => {
     setValue: jest.fn(),
     uri: { toString: () => 'inmemory://model/1' },
   };
+  const contentListener = { dispose: jest.fn() };
   const editor = {
     dispose: jest.fn(),
     getModel: jest.fn().mockReturnValue(model),
     setModel: jest.fn(),
-    onDidChangeModelContent: jest.fn(),
+    onDidChangeModelContent: jest.fn().mockReturnValue(contentListener),
+    saveViewState: jest.fn().mockReturnValue({ viewState: {} }),
+    restoreViewState: jest.fn(),
   };
   return {
     __esModule: true,
     editor: {
       create: jest.fn().mockReturnValue(editor),
       setModelMarkers: jest.fn(),
+      defineTheme: jest.fn(),
+      setTheme: jest.fn(),
       MarkerSeverity: { Error: 1, Warning: 2, Info: 3 },
     },
     languages: {
@@ -39,6 +45,7 @@ jest.mock('@/lib/editorLoadScheduler', () => ({
     cb();
     return undefined;
   },
+  preloadMonacoEditor: jest.fn(),
 }));
 
 jest.mock('@/lib/monacoWorkers', () => ({
@@ -57,6 +64,7 @@ describe('Editor', () => {
   afterEach(() => {
     cleanup();
     jest.clearAllMocks();
+    monacoLifecycle.reset();
   });
 
   it('creates a Monaco editor on mount', async () => {
@@ -95,5 +103,24 @@ describe('Editor', () => {
     unmount();
 
     expect(workerInstance.terminate).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases every tracked Monaco resource on unmount', async () => {
+    const { unmount } = render(<Editor code="fn main() {}" setCode={() => {}} />);
+
+    await waitFor(() => expect(monaco.editor.create).toHaveBeenCalledTimes(1));
+
+    const before = monacoLifecycle.getStats();
+    expect(before.active).toBeGreaterThan(0);
+    expect(before.activeByKind.editor).toBe(1);
+    expect(before.activeByKind.model).toBe(1);
+    expect(before.activeByKind.worker).toBe(1);
+    expect(before.activeByKind.listener).toBe(1);
+    expect(before.activeByKind.marker).toBe(1);
+
+    unmount();
+
+    expect(monacoLifecycle.getLeaks()).toHaveLength(0);
+    expect(monacoLifecycle.getStats().active).toBe(0);
   });
 });

@@ -94,6 +94,7 @@ pub fn build_schema(
     broadcaster: broadcast::Sender<DbEvent>,
 ) -> SchemaBuilder<QueryRoot, EmptyMutationRoot, SubscriptionRoot> {
     use super::dataloaders::{EventLoader, ProjectEventsLoader, QuorumLoader};
+    use super::limits::{DepthLimiter, MAX_COMPLEXITY, MAX_QUERY_DEPTH};
 
     let event_loader = dataloader::DataLoader::new(EventLoader { db: db.clone() }, tokio::spawn);
     let project_events_loader =
@@ -108,7 +109,11 @@ pub fn build_schema(
         .data(event_loader)
         .data(project_events_loader)
         .data(quorum_loader)
-        .limit_complexity(100) // limit max query complexity
-        .extension(Analyzer) // Returns complexity score in response extensions
+        // ── Security: reject over-budget queries before any resolver fires ──
+        .limit_depth(MAX_QUERY_DEPTH)       // hard depth cap (default: 8)
+        .limit_complexity(MAX_COMPLEXITY)   // hard complexity cap (default: 100)
+        // ── Extensions ──────────────────────────────────────────────────────
+        .extension(DepthLimiter)            // AST-level depth check (belt-and-suspenders)
+        .extension(Analyzer)                // Returns complexity score in response extensions
         .extension(ApolloPersistedQueries::new(persisted_query_cache)) // Enables persisted queries
 }

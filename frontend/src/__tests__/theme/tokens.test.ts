@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { parseHslTriple } from "../../../lib/theme/contrast";
+import { parseHslTriple } from "../../lib/theme/contrast";
 import {
   CONTRAST_REQUIREMENTS,
   DARK_TOKENS,
@@ -10,8 +10,8 @@ import {
   THEME_TOKENS,
   tokensForMode,
   tokensToCssVariables,
-} from "../../../lib/theme/tokens";
-import type { ThemeTokens } from "../../../lib/theme/types";
+} from "../../lib/theme/tokens";
+import type { ThemeTokens } from "../../lib/theme/types";
 
 const GLOBALS_CSS = fs.readFileSync(
   path.join(__dirname, "..", "..", "app", "globals.css"),

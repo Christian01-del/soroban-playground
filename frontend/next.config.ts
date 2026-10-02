@@ -1,80 +1,58 @@
 import type { NextConfig } from "next";
 
+/**
+ * Static security headers for the Playground (#1540).
+ *
+ * `Content-Security-Policy` is deliberately *not* set here. It is applied by
+ * `src/middleware.ts` instead, because the policy omits `'unsafe-inline'` and
+ * therefore has to carry a nonce that changes on every response; `headers()` is
+ * evaluated once at build time and cannot do that. The two escape hatches it
+ * keeps (`'wasm-unsafe-eval'` for the WASM inspector and in-browser rustfmt, and
+ * `'unsafe-eval'` for the pinned `monaco-languageclient` workers) are documented
+ * on `buildContentSecurityPolicy`.
+ *
+ * The headers below need no per-response value, so keeping them here means they
+ * still apply to any route middleware might not match.
+ */
+const STATIC_SECURITY_HEADERS = [
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+  // Required for the Monaco language-server workers to use SharedArrayBuffer.
+  { key: "Cross-Origin-Embedder-Policy", value: "require-corp" },
+  {
+    key: "Strict-Transport-Security",
+    value: "max-age=63072000; includeSubDomains; preload",
+  },
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "X-DNS-Prefetch-Control", value: "off" },
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  {
+    key: "Permissions-Policy",
+    value: "camera=(), microphone=(), geolocation=()",
+  },
+  // Legacy auditor header. Pinned to `0` because the modern, auditable control
+  // is the CSP; leaving this unset trips a filter-bypass warning in scanners,
+  // and the old `1; mode=block` mode can itself introduce a vulnerability.
+  { key: "X-XSS-Protection", value: "0" },
+  { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
+  { key: "X-Permitted-Cross-Domain-Policies", value: "none" },
+];
+
 const nextConfig: NextConfig = {
-  turbopack: {},
+  turbopack: {
+    resolveAlias: {
+      // `wabt` is an Emscripten build that statically references Node's `fs`
+      // inside a branch guarded by `ENVIRONMENT_IS_NODE`. The webpack fallback
+      // below never applies under Turbopack, so alias `fs` to an empty shim for
+      // browser bundles. Server bundles keep the real module.
+      fs: { browser: "./empty-module.js" },
+    },
+  },
   async headers() {
     return [
       {
         source: "/:path*",
-        headers: [
-          {
-            key: "Cross-Origin-Opener-Policy",
-            value: "same-origin",
-          },
-          {
-            key: "Cross-Origin-Embedder-Policy",
-            value: "require-corp",
-          },
-          {
-            key: "Strict-Transport-Security",
-            value: "max-age=63072000; includeSubDomains; preload",
-          },
-          {
-            key: "X-Frame-Options",
-            value: "DENY",
-          },
-          {
-            key: "X-DNS-Prefetch-Control",
-            value: "off",
-          },
-          {
-            key: "X-Content-Type-Options",
-            value: "nosniff",
-          },
-          {
-            key: "Referrer-Policy",
-            value: "strict-origin-when-cross-origin",
-          },
-          {
-            key: "Permissions-Policy",
-            value: "camera=(), microphone=(), geolocation=()",
-          },
-          {
-            key: "Content-Security-Policy",
-            value: [
-              "default-src 'self'",
-              "script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline' 'unsafe-eval'",
-              "style-src 'self' 'unsafe-inline'",
-              "img-src 'self' data: blob: https:",
-              "font-src 'self' data: https://fonts.gstatic.com",
-              [
-                "connect-src 'self'",
-                "https://soroban-playground.onrender.com",
-                "wss://soroban-playground.onrender.com",
-                "https://*.onrender.com",
-                "wss://*.onrender.com",
-                "https://soroban-testnet.stellar.org",
-                "https://soroban-mainnet.stellar.org",
-                "https://horizon-testnet.stellar.org",
-                "https://horizon.stellar.org",
-                "https://*.stellar.org",
-                "wss:",
-                "ws:",
-                "http://localhost:*",
-                "ws://localhost:*",
-                process.env.NEXT_PUBLIC_API_BASE_URL,
-                process.env.NEXT_PUBLIC_BACKEND_URL,
-                process.env.NEXT_PUBLIC_API_URL,
-              ]
-                .filter(Boolean)
-                .join(" "),
-              "frame-ancestors 'none'",
-              "object-src 'none'",
-              "base-uri 'self'",
-              "form-action 'self'",
-            ].join("; "),
-          },
-        ],
+        headers: STATIC_SECURITY_HEADERS,
       },
     ];
   },

@@ -53,6 +53,8 @@ pub enum Error {
     ArithmeticOverflow = 22,
     /// Invalid parameter amount.
     InvalidAmount = 23,
+    /// Proof or mint confirmation was bound to a different source chain ID.
+    ChainIdMismatch = 24,
 }
 
 /// Status of a bridge deposit.
@@ -113,6 +115,8 @@ pub enum InstanceKey {
     DailyLimit,
     DailyVolume,
     DailyVolumeTs,
+    /// Source chain identifier bound into the cross-chain domain separator.
+    SourceChainId,
 }
 
 /// Status of a cross-chain proof submitted by validators.
@@ -135,6 +139,8 @@ pub struct ValidatorProof {
     pub vote_count: u32,
     /// Whether the proof has reached the required quorum.
     pub status: ProofStatus,
+    /// Source chain ID this proof was created against (replay protection).
+    pub source_chain_id: Bytes,
 }
 
 /// Instance-level storage keys for validator configuration.

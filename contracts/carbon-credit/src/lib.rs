@@ -67,6 +67,9 @@ impl CarbonCreditContract {
     pub fn verify_issuer(env: Env, admin: Address, issuer: Address) -> Result<(), Error> {
         assert_admin(&env, &admin)?;
         let mut info = get_issuer_info(&env, &issuer).ok_or(Error::IssuerNotFound)?;
+        if info.verified {
+            return Err(Error::IssuerAlreadyVerified);
+        }
         info.verified = true;
         set_issuer_info(&env, &issuer, &info);
         env.events()
@@ -99,6 +102,9 @@ impl CarbonCreditContract {
     pub fn transfer(env: Env, from: Address, to: Address, amount: i128) -> Result<(), Error> {
         ensure_initialized(&env)?;
         from.require_auth();
+        if from == to {
+            return Err(Error::InvalidRecipient);
+        }
         if amount <= 0 {
             return Err(Error::InvalidAmount);
         }
@@ -126,6 +132,9 @@ impl CarbonCreditContract {
         retiree.require_auth();
         if amount <= 0 {
             return Err(Error::InvalidAmount);
+        }
+        if reason_hash.is_empty() {
+            return Err(Error::InvalidReasonHash);
         }
         let balance = get_balance(&env, &retiree);
         if balance < amount {
@@ -173,6 +182,10 @@ impl CarbonCreditContract {
 
     pub fn get_retirement(env: Env, id: u32) -> Result<RetirementRecord, Error> {
         get_retirement(&env, id)
+    }
+
+    pub fn is_retired(env: Env, id: u32) -> bool {
+        get_retirement(&env, id).is_ok()
     }
 
     pub fn retirement_count(env: Env) -> u32 {

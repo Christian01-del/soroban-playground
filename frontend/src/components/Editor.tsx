@@ -4,10 +4,13 @@ import React from "react";
 import { useMonaco } from "@/hooks/useMonaco";
 import { useCollaborativeEditor } from "@/hooks/useCollaborativeEditor";
 import { CollaborativeHeaderIndicator } from "@/components/CollaborativeHeaderIndicator";
+import type { RustFormatDiagnostic } from "@/lib/rustfmtDiagnostics";
 
 interface EditorProps {
   code: string;
   setCode: (value: string) => void;
+  onFormat?: (source?: string) => void;
+  formatDiagnostics?: RustFormatDiagnostic[];
 }
 
 function EditorLoadingState() {
@@ -23,12 +26,19 @@ function EditorLoadingState() {
   );
 }
 
-export default function Editor({ code, setCode }: EditorProps) {
+export default function Editor({
+  code,
+  setCode,
+  onFormat,
+  formatDiagnostics,
+}: EditorProps) {
   const { peers, isConnected } = useCollaborativeEditor();
   const { containerRef, isEditorReady } = useMonaco({
     language: "rust",
     value: code,
     onChange: setCode,
+    onFormat,
+    formatDiagnostics,
   });
 
   return (

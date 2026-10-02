@@ -631,7 +631,9 @@ export default function SportsPredictionMarketPanel({
   contractId = "",
   walletAddress = "",
 }: SportsPredictionMarketPanelProps) {
-  const [tab, setTab] = useState<"markets" | "create" | "admin">("markets");
+  const [tab, setTab] = useState<"markets" | "live-odds" | "create" | "admin">(
+    "markets",
+  );
   const [markets, setMarkets] = useState<SportMarket[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");

@@ -1,25 +1,22 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   ChevronLeft,
   ChevronRight,
-  Clock,
-  Database,
-  Eye,
-  FileCode,
   History,
-  Layers,
   Pause,
   Play,
-  Plus,
   RotateCcw,
   Search,
-  Sparkles,
-  Zap,
+  Trash2,
 } from "lucide-react";
 import StorageViewer from "@/components/StorageViewer";
 import type { LedgerState } from "@/utils/transactionGraph";
+import {
+  useStorageTimelineStore,
+  type StorageSnapshot,
+} from "@/state/storageTimeline";
 
 export type StorageCategory = "instance" | "persistent" | "temporary";
 
@@ -104,43 +101,124 @@ const DEMO_SNAPSHOT_FRAMES: SnapshotFrame[] = [
       "auction.101.winner": "user_b",
       "auction.101.final_price": 900,
       "auction.101.status": "settled",
-      // temp_session_key expired/removed
     },
   },
 ];
 
+function snapshotToFrame(snap: StorageSnapshot, index: number): SnapshotFrame {
+  const sourceToCategory: Record<string, StorageCategory> = {
+    deployment: "instance",
+    transaction: "persistent",
+  };
+  return {
+    id: index,
+    label: snap.label,
+    contractMethod: snap.contextLabel,
+    timestamp: snap.capturedAt,
+    category: sourceToCategory[snap.source] ?? "instance",
+    state: snap.state,
+  };
+}
+
+const PLAY_INTERVAL_MS = 1200;
+
 export default function StorageStateDiffDebugger() {
-  const [frames, setFrames] = useState<SnapshotFrame[]>(DEMO_SNAPSHOT_FRAMES);
-  const [currentFrameIndex, setCurrentFrameIndex] = useState<number>(0);
+  const storeSnapshots = useStorageTimelineStore((s) => s.snapshots);
+  const storeCurrentIndex = useStorageTimelineStore((s) => s.currentIndex);
+  const selectSnapshotIndex = useStorageTimelineStore(
+    (s) => s.selectSnapshotIndex,
+  );
+  const clearSnapshots = useStorageTimelineStore((s) => s.clearSnapshots);
+
+  const liveFrames: SnapshotFrame[] = useMemo(
+    () =>
+      storeSnapshots.length > 0
+        ? storeSnapshots.map(snapshotToFrame)
+        : DEMO_SNAPSHOT_FRAMES,
+    [storeSnapshots],
+  );
+
+  const isLive = storeSnapshots.length > 0;
+
+  const [localIndex, setLocalIndex] = useState<number>(0);
   const [selectedCategory, setSelectedCategory] = useState<
     "all" | StorageCategory
   >("all");
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const playIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const currentFrame = frames[currentFrameIndex] ?? frames[0];
+  const currentFrameIndex = isLive ? storeCurrentIndex : localIndex;
+
+  const setFrameIndex = (index: number) => {
+    if (isLive) {
+      selectSnapshotIndex(index);
+    } else {
+      setLocalIndex(index);
+    }
+  };
+
+  useEffect(() => {
+    if (!isLive) setLocalIndex(0);
+  }, [isLive]);
+
+  useEffect(() => {
+    if (isPlaying) {
+      playIntervalRef.current = setInterval(() => {
+        const total = liveFrames.length;
+        const next = currentFrameIndex + 1;
+        if (next >= total) {
+          setIsPlaying(false);
+        } else {
+          setFrameIndex(next);
+        }
+      }, PLAY_INTERVAL_MS);
+    }
+    return () => {
+      if (playIntervalRef.current) clearInterval(playIntervalRef.current);
+    };
+  }, [isPlaying, currentFrameIndex, liveFrames.length]);
+
+  const visibleFrames = useMemo(() => {
+    if (selectedCategory === "all") return liveFrames;
+    return liveFrames.filter((f) => f.category === selectedCategory);
+  }, [liveFrames, selectedCategory]);
+
+  const visibleIndex = useMemo(() => {
+    if (selectedCategory === "all") return currentFrameIndex;
+    const globalFrame = liveFrames[currentFrameIndex];
+    if (!globalFrame) return 0;
+    const idx = visibleFrames.findIndex((f) => f.id === globalFrame.id);
+    return idx === -1 ? 0 : idx;
+  }, [selectedCategory, liveFrames, currentFrameIndex, visibleFrames]);
+
+  const currentFrame = visibleFrames[visibleIndex] ?? visibleFrames[0];
   const previousFrame =
-    currentFrameIndex > 0 ? frames[currentFrameIndex - 1] : undefined;
+    visibleIndex > 0 ? visibleFrames[visibleIndex - 1] : undefined;
 
   const handleNextFrame = () => {
-    if (currentFrameIndex < frames.length - 1) {
-      setCurrentFrameIndex((prev) => prev + 1);
-    }
+    const globalIdx = liveFrames.indexOf(currentFrame);
+    if (globalIdx < liveFrames.length - 1) setFrameIndex(globalIdx + 1);
   };
 
   const handlePrevFrame = () => {
-    if (currentFrameIndex > 0) {
-      setCurrentFrameIndex((prev) => prev - 1);
-    }
+    const globalIdx = liveFrames.indexOf(currentFrame);
+    if (globalIdx > 0) setFrameIndex(globalIdx - 1);
   };
 
   const handleReset = () => {
-    setCurrentFrameIndex(0);
+    setFrameIndex(0);
     setIsPlaying(false);
   };
 
-  // Filtered storage state based on search query
+  const handleClear = () => {
+    if (isLive) clearSnapshots();
+    setLocalIndex(0);
+    setIsPlaying(false);
+  };
+
   const filteredCurrentState = useMemo(() => {
+    if (!currentFrame) return {};
     if (!searchQuery) return currentFrame.state;
     const q = searchQuery.toLowerCase();
     const result: LedgerState = {};
@@ -153,7 +231,7 @@ export default function StorageStateDiffDebugger() {
       }
     }
     return result;
-  }, [currentFrame.state, searchQuery]);
+  }, [currentFrame, searchQuery]);
 
   const filteredPreviousState = useMemo(() => {
     if (!previousFrame) return undefined;
@@ -171,22 +249,30 @@ export default function StorageStateDiffDebugger() {
     return result;
   }, [previousFrame, searchQuery]);
 
+  if (!currentFrame) return null;
+
+  const atStart = visibleIndex === 0;
+  const atEnd = visibleIndex === visibleFrames.length - 1;
+
   return (
     <div className="space-y-6">
-      {/* Header & Controls */}
       <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-5 backdrop-blur-xl shadow-xl space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 text-xs font-semibold text-teal-400 uppercase tracking-widest">
               <History size={16} />
               <span>Smart Contract Storage Inspector</span>
+              {!isLive && (
+                <span className="text-slate-500 normal-case font-normal">
+                  (demo)
+                </span>
+              )}
             </div>
             <h2 className="text-lg font-bold text-white mt-1 flex items-center gap-2">
               Time-Travel Debugger & State Diff
             </h2>
           </div>
 
-          {/* Time travel playback buttons */}
           <div className="flex items-center gap-2 bg-slate-950/80 p-1.5 rounded-xl border border-slate-800">
             <button
               onClick={handleReset}
@@ -197,27 +283,45 @@ export default function StorageStateDiffDebugger() {
             </button>
             <button
               onClick={handlePrevFrame}
-              disabled={currentFrameIndex === 0}
+              disabled={atStart}
               className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent transition"
               title="Step backward"
             >
               <ChevronLeft size={16} />
             </button>
+            <button
+              onClick={() => setIsPlaying((p) => !p)}
+              disabled={atEnd && !isPlaying}
+              className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent transition"
+              title={isPlaying ? "Pause" : "Play"}
+              aria-label={isPlaying ? "Pause playback" : "Play playback"}
+            >
+              {isPlaying ? <Pause size={14} /> : <Play size={14} />}
+            </button>
             <span className="font-mono text-xs font-semibold text-teal-300 px-3 tabular-nums">
-              Frame {currentFrameIndex + 1} / {frames.length}
+              Frame {visibleIndex + 1} / {visibleFrames.length}
             </span>
             <button
               onClick={handleNextFrame}
-              disabled={currentFrameIndex === frames.length - 1}
+              disabled={atEnd}
               className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent transition"
               title="Step forward"
             >
               <ChevronRight size={16} />
             </button>
+            {isLive && (
+              <button
+                onClick={handleClear}
+                className="p-2 rounded-lg text-rose-400 hover:text-rose-200 hover:bg-slate-800 transition"
+                title="Clear snapshots"
+                aria-label="Clear snapshots"
+              >
+                <Trash2 size={14} />
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Timeline Slider */}
         <div className="space-y-2 pt-2">
           <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
             <span className="truncate">
@@ -231,14 +335,18 @@ export default function StorageStateDiffDebugger() {
           <input
             type="range"
             min={0}
-            max={frames.length - 1}
-            value={currentFrameIndex}
-            onChange={(e) => setCurrentFrameIndex(Number(e.target.value))}
+            max={Math.max(0, visibleFrames.length - 1)}
+            value={visibleIndex}
+            onChange={(e) => {
+              const vis = Number(e.target.value);
+              const globalIdx = liveFrames.indexOf(visibleFrames[vis]);
+              if (globalIdx !== -1) setFrameIndex(globalIdx);
+            }}
             className="w-full accent-teal-400 cursor-pointer h-2 bg-slate-800 rounded-lg appearance-none"
+            aria-label="Storage timeline slider"
           />
         </div>
 
-        {/* Category filter tabs */}
         <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-800/60">
           <div className="flex items-center gap-1.5">
             {(["all", "instance", "persistent", "temporary"] as const).map(
@@ -258,7 +366,6 @@ export default function StorageStateDiffDebugger() {
             )}
           </div>
 
-          {/* Filter Search input */}
           <div className="relative w-full sm:w-64">
             <Search
               size={14}
@@ -275,16 +382,18 @@ export default function StorageStateDiffDebugger() {
         </div>
       </div>
 
-      {/* Storage State Diff Viewer Component */}
       <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 shadow-2xl">
         <StorageViewer
           storage={filteredCurrentState}
           previousStorage={filteredPreviousState}
           contextLabel={currentFrame.label}
-          totalFrames={frames.length}
-          currentFrame={currentFrameIndex}
+          totalFrames={visibleFrames.length}
+          currentFrame={visibleIndex}
           capturedAt={currentFrame.timestamp}
-          onScrubTimeline={(index) => setCurrentFrameIndex(index)}
+          onScrubTimeline={(index) => {
+            const globalIdx = liveFrames.indexOf(visibleFrames[index]);
+            if (globalIdx !== -1) setFrameIndex(globalIdx);
+          }}
         />
       </div>
     </div>
