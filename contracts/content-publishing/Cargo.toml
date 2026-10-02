@@ -5,7 +5,7 @@ edition = "2021"
 description = "Decentralized Content Publishing Platform with Tip Jar and Subscriber Analytics"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 soroban-sdk = "21.0.6"
