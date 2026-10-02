@@ -127,6 +127,7 @@ members = [
     "contracts/token-vesting",
     "contracts/token_contract",
     "contracts/tokenized-reit",
+    "contracts/twamm",
     "contracts/twap-oracle",
     "contracts/upgradeable",
     "contracts/vc-vesting",
