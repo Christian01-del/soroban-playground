@@ -3,11 +3,7 @@ import type {
   LedgerState,
   TransactionCallNode,
 } from "@/utils/transactionGraph";
-import {
-  cloneValue,
-  deepFreeze,
-  immutableLedgerState,
-} from "@/utils/immutableState";
+import { immutableLedgerState } from "@/utils/immutableState";
 
 export interface StorageSnapshot {
   id: string;
@@ -48,7 +44,8 @@ export type StorageTimelineAction =
   | {
       type: "select_snapshot_for_node";
       nodeId: string;
-    };
+    }
+  | { type: "clear_snapshots" };
 
 function buildTransactionSnapshot(
   node: TransactionCallNode,
@@ -82,7 +79,66 @@ export function storageTimelineReducer(
   state: StorageTimelineState,
   action: StorageTimelineAction,
 ): StorageTimelineState {
-  return useStorageTimelineStore.getState().reduce(state, action);
+  switch (action.type) {
+    case "reset_with_deployment": {
+      const capturedAt = action.capturedAt ?? new Date().toISOString();
+      return {
+        snapshots: [
+          {
+            id: `deploy:${action.contractId}:${capturedAt}`,
+            label: "Deployment baseline",
+            contextLabel: "Deployment baseline snapshot",
+            state: immutableLedgerState(action.state),
+            capturedAt,
+            source: "deployment",
+            contractId: action.contractId,
+          },
+        ],
+        currentIndex: 0,
+        nodeToSnapshotIndex: {},
+      };
+    }
+
+    case "append_transaction_frames": {
+      if (action.nodes.length === 0) return state;
+      const nextSnapshots = [...state.snapshots];
+      const nextNodeMap = { ...state.nodeToSnapshotIndex };
+      const capturedAt = action.capturedAt ?? new Date().toISOString();
+      for (const node of action.nodes) {
+        const nextIndex = nextSnapshots.length;
+        nextSnapshots.push(
+          buildTransactionSnapshot(node, nextIndex, action.txHash, capturedAt),
+        );
+        nextNodeMap[node.id] = nextIndex;
+      }
+      return {
+        snapshots: nextSnapshots,
+        currentIndex: nextSnapshots.length - 1,
+        nodeToSnapshotIndex: nextNodeMap,
+      };
+    }
+
+    case "select_snapshot_index": {
+      if (state.snapshots.length === 0) return state;
+      const clampedIndex = Math.max(
+        0,
+        Math.min(action.index, state.snapshots.length - 1),
+      );
+      return { ...state, currentIndex: clampedIndex };
+    }
+
+    case "select_snapshot_for_node": {
+      const index = state.nodeToSnapshotIndex[action.nodeId];
+      if (index === undefined) return state;
+      return { ...state, currentIndex: index };
+    }
+
+    case "clear_snapshots":
+      return createInitialStorageTimelineState();
+
+    default:
+      return state;
+  }
 }
 
 interface StorageTimelineActions {
@@ -98,6 +154,7 @@ interface StorageTimelineActions {
   ) => void;
   selectSnapshotIndex: (index: number) => void;
   selectSnapshotForNode: (nodeId: string) => void;
+  clearSnapshots: () => void;
   reduce: (
     state: StorageTimelineState,
     action: StorageTimelineAction,
@@ -170,85 +227,7 @@ export const useStorageTimelineStore = create<
     set({ currentIndex: index });
   },
 
-  reduce: (state, action) => {
-    switch (action.type) {
-      case "reset_with_deployment": {
-        const capturedAt = action.capturedAt ?? new Date().toISOString();
-        return {
-          snapshots: [
-            {
-              id: `deploy:${action.contractId}:${capturedAt}`,
-              label: "Deployment baseline",
-              contextLabel: "Deployment baseline snapshot",
-              state: immutableLedgerState(action.state),
-              capturedAt,
-              source: "deployment",
-              contractId: action.contractId,
-            },
-          ],
-          currentIndex: 0,
-          nodeToSnapshotIndex: {},
-        };
-      }
+  clearSnapshots: () => set(createInitialStorageTimelineState()),
 
-      case "append_transaction_frames": {
-        if (action.nodes.length === 0) {
-          return state;
-        }
-
-        const nextSnapshots = [...state.snapshots];
-        const nextNodeMap = { ...state.nodeToSnapshotIndex };
-        const capturedAt = action.capturedAt ?? new Date().toISOString();
-
-        for (const node of action.nodes) {
-          const nextIndex = nextSnapshots.length;
-          const snapshot = buildTransactionSnapshot(
-            node,
-            nextIndex,
-            action.txHash,
-            capturedAt,
-          );
-          nextSnapshots.push(snapshot);
-          nextNodeMap[node.id] = nextIndex;
-        }
-
-        return {
-          snapshots: nextSnapshots,
-          currentIndex: nextSnapshots.length - 1,
-          nodeToSnapshotIndex: nextNodeMap,
-        };
-      }
-
-      case "select_snapshot_index": {
-        if (state.snapshots.length === 0) {
-          return state;
-        }
-
-        const clampedIndex = Math.max(
-          0,
-          Math.min(action.index, state.snapshots.length - 1),
-        );
-        return {
-          ...state,
-          currentIndex: clampedIndex,
-        };
-      }
-
-      case "select_snapshot_for_node": {
-        const index = state.nodeToSnapshotIndex[action.nodeId];
-        if (index === undefined) {
-          return state;
-        }
-
-        return {
-          ...state,
-          currentIndex: index,
-        };
-      }
-
-      default: {
-        return state;
-      }
-    }
-  },
+  reduce: (state, action) => storageTimelineReducer(state, action),
 }));
