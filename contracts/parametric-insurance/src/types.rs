@@ -1,7 +1,7 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
-use soroban_sdk::{contracterror, contracttype, Address, String};
+use soroban_sdk::{contracterror, contracttype, Address, String, Vec};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -33,6 +33,14 @@ pub enum Error {
     InvalidObservation = 24,
     InvalidConfig = 25,
     Overflow = 26,
+    /// Oracle reading lacks required verification.
+    UnverifiedOracleData = 27,
+    /// Oracle reading has insufficient confirmations.
+    InsufficientConfirmations = 28,
+    /// Oracle data source type not authorized for this product.
+    UnauthorizedDataSource = 29,
+    /// Oracle reading timestamp is invalid (future or too old).
+    InvalidTimestamp = 30,
 }
 
 /// Verification status mirrored from `weather-data-oracle`.
@@ -111,6 +119,60 @@ pub enum PolicyStatus {
     Expired = 2,
 }
 
+/// Configuration for creating a new insurance product.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct ProductConfig {
+    /// Human-readable name (e.g. "Drought Cover – Kenya").
+    pub name: String,
+    /// Premium paid by the policyholder (in stroops).
+    pub premium: i128,
+    /// Maximum payout amount (in stroops).
+    pub coverage_amount: i128,
+    /// Authorised oracle address for this product.
+    pub oracle: Address,
+    /// The parameter key the oracle reports (e.g. "RAINFALL_MM").
+    pub parameter_key: String,
+    /// Threshold value that must be breached to trigger payout (scaled ×10^7).
+    pub trigger_threshold: i128,
+    /// Whether the trigger fires above or below the threshold.
+    pub trigger_direction: TriggerDirection,
+    /// Policy duration in seconds.
+    pub term_secs: u64,
+    /// Authorized data source types for this product.
+    pub authorized_sources: Vec<DataSourceType>,
+    /// Minimum confirmations required for oracle readings.
+    pub min_confirmations: u32,
+    /// Optional location requirement for geo-specific products.
+    pub required_location: Option<String>,
+}
+
+/// Configuration for creating a new crop insurance product.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct CropProductConfig {
+    /// Human-readable name (e.g. "Maize Yield – Kenya").
+    pub name: String,
+    /// Premium paid by the policyholder (in stroops).
+    pub premium: i128,
+    /// Maximum payout amount (in stroops).
+    pub coverage_amount: i128,
+    /// Authorised satellite oracle address for this product.
+    pub satellite_oracle: Address,
+    /// Rainfall threshold that must be breached to trigger payout (scaled ×10^7).
+    pub rainfall_threshold: i128,
+    /// Whether the trigger fires above or below the threshold.
+    pub trigger_direction: TriggerDirection,
+    /// Policy duration in seconds.
+    pub term_secs: u64,
+    /// Maximum age of satellite observations in seconds.
+    pub max_observation_age: u64,
+    /// Minimum confirmations required for oracle readings.
+    pub min_confirmations: u32,
+    /// Region identifier for this crop product.
+    pub region: String,
+}
+
 /// A parametric insurance product template defined by the admin.
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -133,6 +195,12 @@ pub struct Product {
     pub term_secs: u64,
     /// Whether new policies can be purchased.
     pub is_active: bool,
+    /// Authorized data source types for this product.
+    pub authorized_sources: Vec<DataSourceType>,
+    /// Minimum confirmations required for oracle readings.
+    pub min_confirmations: u32,
+    /// Optional location requirement for geo-specific products.
+    pub required_location: Option<String>,
 }
 
 /// A purchased policy instance.
@@ -169,6 +237,14 @@ pub struct OracleReading {
     pub value: i128,
     /// Ledger timestamp of the reading.
     pub timestamp: u64,
+    /// Data source provenance (e.g., Satellite, GroundStation, WeatherAPI).
+    pub source_type: DataSourceType,
+    /// Verification status of the reading.
+    pub status: WeatherDataStatus,
+    /// Number of confirmations from independent oracles.
+    pub confirmations: u32,
+    /// Optional location identifier for geo-specific readings.
+    pub location: Option<String>,
 }
 
 #[contracttype]
