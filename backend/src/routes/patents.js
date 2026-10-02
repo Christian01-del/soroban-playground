@@ -18,6 +18,12 @@
  * GET  /api/patents/licenses/:id  – get license by ID
  * GET  /api/patents/disputes/:id  – get dispute by ID
  * GET  /api/patents/stats         – patent/license/dispute counts + paused flag
+ * GET  /api/patents               – list patents (paginated)
+ * GET  /api/patents/:id/documents – list IPFS documents for a patent
+ * POST /api/patents/:id/documents – attach an IPFS document to a patent
+ * POST /api/patents/:id/escrow    – create a licensing payment escrow
+ * POST /api/patents/escrow/:id/release – release escrow funds
+ * POST /api/patents/escrow/:id/refund  – refund escrow funds
  */
 
 import express from 'express';
@@ -26,6 +32,7 @@ import { rateLimitMiddleware } from '../middleware/rateLimiter.js';
 import * as patentService from '../services/patentService.js';
 
 const router = express.Router();
+export const registryRouter = router;
 
 // ── Validation helpers ────────────────────────────────────────────────────────
 
@@ -37,6 +44,16 @@ function requireFields(body, fields) {
 function parseId(param) {
   const n = parseInt(param, 10);
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function parsePagination(query) {
+  const page = Math.max(1, parseInt(query.page, 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(query.limit, 10) || 20));
+  return { page, limit, offset: (page - 1) * limit };
+}
+
+function isValidCid(cid) {
+  return typeof cid === 'string' && /^[a-zA-Z0-9]{46,}$/.test(cid);
 }
 
 // ── Write routes ──────────────────────────────────────────────────────────────
@@ -160,6 +177,79 @@ router.post(
 );
 
 router.post(
+  '/:id/documents',
+  rateLimitMiddleware('invoke'),
+  asyncHandler(async (req, res, next) => {
+    const patentId = parseId(req.params.id);
+    if (!patentId) return next(createHttpError(400, 'Invalid patent ID'));
+    const errs = requireFields(req.body, ['owner', 'cid', 'name']);
+    if (errs) return next(createHttpError(400, 'Validation failed', errs));
+    if (!isValidCid(req.body.cid)) {
+      return next(createHttpError(400, 'Invalid IPFS CID'));
+    }
+
+    const result = await patentService.attachDocument({
+      ...req.body,
+      patentId,
+    });
+    res.json({ success: true, data: result.output });
+  })
+);
+
+router.post(
+  '/:id/escrow',
+  rateLimitMiddleware('invoke'),
+  asyncHandler(async (req, res, next) => {
+    const patentId = parseId(req.params.id);
+    if (!patentId) return next(createHttpError(400, 'Invalid patent ID'));
+    const errs = requireFields(req.body, [
+      'payer',
+      'payee',
+      'amount',
+      'asset',
+    ]);
+    if (errs) return next(createHttpError(400, 'Validation failed', errs));
+
+    const result = await patentService.createEscrow({ ...req.body, patentId });
+    res.json({ success: true, data: result.output });
+  })
+);
+
+router.post(
+  '/escrow/:id/release',
+  rateLimitMiddleware('invoke'),
+  asyncHandler(async (req, res, next) => {
+    const escrowId = parseId(req.params.id);
+    if (!escrowId) return next(createHttpError(400, 'Invalid escrow ID'));
+    const errs = requireFields(req.body, ['admin']);
+    if (errs) return next(createHttpError(400, 'Validation failed', errs));
+
+    const result = await patentService.releaseEscrow({
+      admin: req.body.admin,
+      escrowId,
+    });
+    res.json({ success: true, data: result.output });
+  })
+);
+
+router.post(
+  '/escrow/:id/refund',
+  rateLimitMiddleware('invoke'),
+  asyncHandler(async (req, res, next) => {
+    const escrowId = parseId(req.params.id);
+    if (!escrowId) return next(createHttpError(400, 'Invalid escrow ID'));
+    const errs = requireFields(req.body, ['admin']);
+    if (errs) return next(createHttpError(400, 'Validation failed', errs));
+
+    const result = await patentService.refundEscrow({
+      admin: req.body.admin,
+      escrowId,
+    });
+    res.json({ success: true, data: result.output });
+  })
+);
+
+router.post(
   '/pause',
   rateLimitMiddleware('invoke'),
   asyncHandler(async (req, res, next) => {
@@ -203,6 +293,29 @@ router.get(
         paused: paused.output,
       },
     });
+  })
+);
+
+router.get(
+  '/',
+  asyncHandler(async (req, res) => {
+    const { page, limit, offset } = parsePagination(req.query);
+    const result = await patentService.listPatents({ limit, offset });
+    res.json({
+      success: true,
+      data: result.output,
+      meta: { page, limit },
+    });
+  })
+);
+
+router.get(
+  '/:id/documents',
+  asyncHandler(async (req, res, next) => {
+    const patentId = parseId(req.params.id);
+    if (!patentId) return next(createHttpError(400, 'Invalid patent ID'));
+    const result = await patentService.getDocuments(patentId);
+    res.json({ success: true, data: result.output });
   })
 );
 

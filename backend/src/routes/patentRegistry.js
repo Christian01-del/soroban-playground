@@ -27,6 +27,12 @@ function errorResponse(res, statusCode, message, details) {
   });
 }
 
+function clampLimit(value, defaultValue, max) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return defaultValue;
+  return Math.min(Math.floor(n), max);
+}
+
 router.get('/', async (_req, res) => {
   return res.json({
     success: true,
@@ -52,6 +58,48 @@ router.get('/health', async (_req, res) => {
       service: 'soroban-playground-patent-registry',
     },
   });
+});
+
+// -----------------------------------------------------------------------------
+// Patents collection — marketplace listing with filters, sorting, pagination
+// -----------------------------------------------------------------------------
+
+router.get('/patents', async (req, res) => {
+  try {
+    const {
+      q: search,
+      owner,
+      verified,
+      listed,
+      sort = 'recent',
+      order,
+      page = '1',
+      limit = '20',
+    } = req.query;
+
+    const result = patentRegistryService.listPatents({
+      search: typeof search === 'string' ? search : '',
+      owner: typeof owner === 'string' ? owner : '',
+      verified:
+        verified === 'true' ? true : verified === 'false' ? false : undefined,
+      listed:
+        listed === 'true' ? true : listed === 'false' ? false : undefined,
+      sort: typeof sort === 'string' ? sort : 'recent',
+      order: order === 'asc' ? 'asc' : 'desc',
+      page: clampLimit(page, 1, 10000),
+      limit: clampLimit(limit, 20, 100),
+    });
+
+    return res.json({
+      success: true,
+      status: 'success',
+      message: 'Patents loaded',
+      data: result.items,
+      pagination: result.pagination,
+    });
+  } catch (error) {
+    return errorResponse(res, 500, error.message);
+  }
 });
 
 router.post('/patents', async (req, res) => {
@@ -81,20 +129,6 @@ router.post('/patents', async (req, res) => {
       status: 'success',
       message: 'Patent registered successfully',
       data: patent,
-    });
-  } catch (error) {
-    return errorResponse(res, 500, error.message);
-  }
-});
-
-router.get('/patents', async (_req, res) => {
-  try {
-    const patents = patentRegistryService.listPatents();
-    return res.json({
-      success: true,
-      status: 'success',
-      message: 'Patents loaded',
-      data: patents,
     });
   } catch (error) {
     return errorResponse(res, 500, error.message);
@@ -179,6 +213,10 @@ router.post('/patents/:id/verify', async (req, res) => {
     );
   }
 });
+
+// -----------------------------------------------------------------------------
+// Licensing marketplace + escrow flows
+// -----------------------------------------------------------------------------
 
 router.post('/patents/:id/licenses', async (req, res) => {
   const actor = actorFrom(req);
@@ -276,14 +314,278 @@ router.patch('/patents/:patent_id/licenses/:license_id', async (req, res) => {
   }
 });
 
-router.get('/licenses', async (_req, res) => {
+// Escrow funding — licensee deposits funds into escrow before acceptance.
+Router.post('/patents/:patent_id/licenses/:license_id/escrow', async (req, res) => {
+  const actor = actorFrom(req);
+  const errors = [];
+
+  if (!actor) errors.push('actor is required');
+  if (!isText(req.body?.payment_reference))
+    errors.push('payment_reference is required');
+
+  if (errors.length > 0) {
+    return errorResponse(res, 400, 'Validation failed', errors);
+  }
+
   try {
-    const licenses = patentRegistryService.listLicenses();
+    const license = patentRegistryService.fundEscrow(
+      actor,
+      Number(req.params.patent_id),
+      Number(req.params.license_id),
+      req.body.payment_reference.trim()
+    );
+
+    return res.json({
+      success: true,
+      status: 'success',
+      message: 'Escrow funded successfully',
+      data: license,
+    });
+  } catch (error) {
+    return errorResponse(
+      res,
+      error.message === 'Unauthorized' ? 403 : 500,
+      error.message
+    );
+  }
+});
+
+// Escrow release — patent owner confirms delivery and releases funds.
+Router.post('/patents/:patent_id/licenses/:license_id/escrow/release', async (req, res) => {
+  const actor = actorFrom(req);
+
+  if (!actor) {
+    return errorResponse(res, 400, 'Validation failed', ['actor is required']);
+  }
+
+  try {
+    const license = patentRegistryService.releaseEscrow(
+      actor,
+      Number(req.params.patent_id),
+      Number(req.params.license_id)
+    );
+
+    return res.json({
+      success: true,
+      status: 'success',
+      message: 'Escrow released successfully',
+      data: license,
+    });
+  } catch (error) {
+    return errorResponse(
+      res,
+      error.message === 'Unauthorized' ? 403 : 500,
+      error.message
+    );
+  }
+});
+
+// Escrow refund — licensee can refund funds if offer expired or disputed.
+Router.post('/patents/:patent_id/licenses/:license_id/escrow/refund', async (req, res) => {
+  const actor = actorFrom(req);
+
+  if (!actor) {
+    return errorResponse(res, 400, 'Validation failed', ['actor is required']);
+  }
+
+  try {
+    const license = patentRegistryService.refundEscrow(
+      actor,
+      Number(req.params.patent_id),
+      Number(req.params.license_id)
+    );
+
+    return res.json({
+      success: true,
+      status: 'success',
+      message: 'Escrow refunded successfully',
+      data: license,
+    });
+  } catch (error) {
+    return errorResponse(
+      res,
+      error.message === 'Unauthorized' ? 403 : 500,
+      error.message
+    );
+  }
+});
+
+// -----------------------------------------------------------------------------
+// Dispute dashboard flows
+// -----------------------------------------------------------------------------
+
+router.post('/patents/:patent_id/licenses/:license_id/disputes', async (req, res) => {
+  const actor = actorFrom(req);
+  const errors = [];
+
+  if (!actor) errors.push('actor is required');
+  if (!isText(req.body?.reason)) errors.push('reason is required');
+
+  if (errors.length > 0) {
+    return errorResponse(res, 400, 'Validation failed', errors);
+  }
+
+  try {
+    const dispute = patentRegistryService.openDispute(
+      actor,
+      Number(req.params.patent_id),
+      Number(req.params.license_id),
+      req.body.reason.trim()
+    );
+
+    return res.status(201).json({
+      success: true,
+      status: 'success',
+      message: 'Dispute opened successfully',
+      data: dispute,
+    });
+  } catch (error) {
+    return errorResponse(
+      res,
+      error.message === 'Unauthorized' ? 403 : 500,
+      error.message
+    );
+  }
+});
+
+router.get('/patents/:patent_id/licenses/:license_id/disputes', async (req, res) => {
+  try {
+    const disputes = patentRegistryService.getDisputesByLicense(
+      Number(req.params.patent_id),
+      Number(req.params.license_id)
+    );
+    return res.json({
+      success: true,
+      status: 'success',
+      message: 'Disputes loaded',
+      data: disputes,
+    });
+  } catch (error) {
+    return errorResponse(res, 500, error.message);
+  }
+});
+
+router.patch('/disputes/:dispute_id', async (req, res) => {
+  const actor = actorFrom(req);
+  const errors = [];
+
+  if (!actor) errors.push('actor is required');
+  if (!isText(req.body?.resolution))
+    errors.push('resolution is required');
+  if (!isText(req.body?.status)) errors.push('status is required');
+
+  if (errors.length > 0) {
+    return errorResponse(res, 400, 'Validation failed', errors);
+  }
+
+  try {
+    const dispute = patentRegistryService.resolveDispute(
+      actor,
+      Number(req.params.dispute_id),
+      req.body.status.trim(),
+      req.body.resolution.trim()
+    );
+
+    return res.json({
+      success: true,
+      status: 'success',
+      message: 'Dispute resolved successfully',
+      data: dispute,
+    });
+  } catch (error) {
+    return errorResponse(
+      res,
+      error.message === 'Unauthorized' ? 403 : 500,
+      error.message
+    );
+  }
+});
+
+router.get('/disputes', async (req, res) => {
+  try {
+    const { status, page = '1', limit = '20' } = req.query;
+    const result = patentRegistryService.listDisputes({
+      status: typeof status === 'string' ? status : '',
+      page: clampLimit(page, 1, 10000),
+      limit: clampLimit(limit, 20, 100),
+    });
+    return res.json({
+      success: true,
+      status: 'success',
+      message: 'Disputes loaded',
+      data: result.items,
+      pagination: result.pagination,
+    });
+  } catch (error) {
+    return errorResponse(res, 500, error.message);
+  }
+});
+
+// -----------------------------------------------------------------------------
+// IPFS document previewer + document metadata
+// -----------------------------------------------------------------------------
+
+router.get('/patents/:id/documents', async (req, res) => {
+  try {
+    const docs = await patentRegistryService.getPatentDocuments(
+      Number(req.params.id)
+    );
+    return res.json({
+      success: true,
+      status: 'success',
+      message: 'Patent documents loaded',
+      data: docs,
+    });
+  } catch (error) {
+    return errorResponse(res, 404, error.message);
+  }
+});
+
+router.get('/patents/:id/documents/:docId', async (req, res) => {
+  try {
+    const doc = await patentRegistryService.getPatentDocument(
+      Number(req.params.id),
+      req.params.docId
+    );
+    return res.json({
+      success: true,
+      status: 'success',
+      message: 'Patent document loaded',
+      data: doc,
+    });
+  } catch (error) {
+    return errorResponse(res, 404, error.message);
+  }
+});
+
+// -----------------------------------------------------------------------------
+// License collections
+// -----------------------------------------------------------------------------
+
+router.get('/licenses', async (req, res) => {
+  try {
+    const {
+      status,
+      licensee,
+      licensor,
+      patentId,
+      page = '1',
+      limit = '20',
+    } = req.query;
+    const result = patentRegistryService.listLicenses({
+      status: typeof status === 'string' ? status : '',
+      licensee: typeof licensee === 'string' ? licensee : '',
+      licensor: typeof licensor === 'string' ? licensor : '',
+      patentId: Number.isFinite(Number(patentId)) ? Number(patentId) : undefined,
+      page: clampLimit(page, 1, 10000),
+      limit: clampLimit(limit, 20, 100),
+    });
     return res.json({
       success: true,
       status: 'success',
       message: 'Licenses loaded',
-      data: licenses,
+      data: result.items,
+      pagination: result.pagination,
     });
   } catch (error) {
     return errorResponse(res, 500, error.message);
