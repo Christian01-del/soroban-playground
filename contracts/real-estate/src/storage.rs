@@ -3,7 +3,7 @@
 
 use soroban_sdk::{Address, Env};
 
-use crate::types::{DataKey, Error, InstanceKey, Ownership, Property};
+use crate::types::{DataKey, Error, InstanceKey, KycStatus, Ownership, Property};
 
 // ── Admin ─────────────────────────────────────────────────────────────────────
 
@@ -78,4 +78,21 @@ pub fn remove_ownership(env: &Env, property_id: u32, investor: &Address) {
     env.storage()
         .persistent()
         .remove(&DataKey::Ownership(property_id, investor.clone()));
+}
+
+// ── KYC / AML Whitelist ───────────────────────────────────────────────────────
+
+/// Persist a KYC status for an address.
+pub fn set_kyc_status(env: &Env, addr: &Address, status: KycStatus) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::Kyc(addr.clone()), &status);
+}
+
+/// Retrieve the KYC status for an address.  Absent entries are `Pending`.
+pub fn get_kyc_status(env: &Env, addr: &Address) -> KycStatus {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Kyc(addr.clone()))
+        .unwrap_or(KycStatus::Pending)
 }
