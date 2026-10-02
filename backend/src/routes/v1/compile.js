@@ -106,24 +106,20 @@ router.post(
         },
       });
     } catch (error) {
-      if (process.env.NODE_ENV === 'test') {
-        return res.status(200).json({
-          success: false,
-          ok: false,
-          status: 'error',
-          error: error.message || 'Compilation failed',
-          details: error.message,
-        });
+      if (!Array.isArray(error.logs)) {
+        return next(
+          createHttpError(500, 'Compilation failed', {
+            details: error.message,
+          })
+        );
       }
-      // A rejected job is a client error, not a server fault — don't report
-      // it as a 500 and don't alert on it.
-      const status = error.statusCode === 400 ? 400 : 500;
-      return next(
-        createHttpError(status, 'Compilation failed', {
-          details: error.message,
-          code: error.code,
-        })
-      );
+
+      return res.status(422).json({
+        success: false,
+        status: 'failed',
+        message: 'Compilation failed',
+        logs: error.logs || [error.message],
+      });
     }
   })
 );

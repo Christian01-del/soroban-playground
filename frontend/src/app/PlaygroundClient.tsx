@@ -21,34 +21,11 @@ import {
   Server,
   Sparkles,
 } from "lucide-react";
-import dynamic from "next/dynamic";
-import MobileEditor from "@/components/MobileEditor";
-import { preloadMonacoEditor } from "@/lib/editorLoadScheduler";
-
-const Editor = dynamic(() => import("@/components/Editor"), {
-  ssr: false,
-  loading: () => (
-    <div className="flex items-center justify-center h-full w-full text-gray-500">
-      <div className="flex flex-col items-center gap-3">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-500" />
-        <span className="text-xs font-mono text-gray-400">
-          Loading editor...
-        </span>
-      </div>
-    </div>
-  ),
-});
-const TransactionCallGraphPanel = dynamic(
-  () => import("@/components/TransactionCallGraph"),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="rounded-2xl border border-white/8 bg-white/5 p-4 text-xs text-slate-400">
-        Loading transaction call graph…
-      </div>
-    ),
-  },
-);
+import Editor from "@/components/Editor";
+import EditorHistoryPanel from "@/components/EditorHistoryPanel";
+import { parseCargoDiagnostics } from "@/utils/cargoDiagnostics";
+import type { CargoDiagnostic } from "@/utils/cargoDiagnostics";
+import { useEditorHistory } from "@/hooks/useEditorHistory";
 import Console from "@/components/Console";
 import { ConsoleAndEventsDrawer } from "@/components/ConsoleAndEventsDrawer";
 import DeployPanel from "@/components/DeployPanel";
@@ -140,6 +117,7 @@ type CompileResponse = {
   durationMs?: number;
   hash?: string;
   logs?: string[];
+  diagnostics?: unknown[];
   artifact?: {
     name: string;
     sizeBytes: number;
@@ -165,6 +143,7 @@ type ApiErrorPayload = {
   message?: string;
   statusCode?: number;
   details?: unknown;
+  logs?: string[];
 };
 
 type InvokeProgressEvent = {
@@ -382,6 +361,11 @@ export default function Home() {
 
   const [compileSummary, setCompileSummary] = useState<string>();
   const [compileError, setCompileError] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<CargoDiagnostic[]>([]);
+  const editorHistory = useEditorHistory(code, (restoredCode) => {
+    setCode(restoredCode);
+    setDiagnostics([]);
+  });
   const [compileStats, setCompileStats] = useState<CompileStats>({
     activeWorkers: 0,
     maxWorkers: 4,
@@ -655,7 +639,11 @@ export default function Home() {
         : typeof payload.details === "string"
           ? payload.details
           : "";
-      throw new Error([payload.message, details].filter(Boolean).join(": "));
+      const error = new Error(
+        [payload.message, details].filter(Boolean).join(": "),
+      ) as Error & { details?: unknown };
+      error.details = payload.details ?? (payload.logs ? { logs: payload.logs } : undefined);
+      throw error;
     }
 
     return payload;
@@ -664,6 +652,7 @@ export default function Home() {
   const handleCompile = async () => {
     setIsCompiling(true);
     setCompileError(null);
+    setDiagnostics([]);
     setCompileSummary(undefined);
     setHasCompiled(false);
     setContractId(undefined);
@@ -682,6 +671,7 @@ export default function Home() {
         code,
       });
       const compileLogs = payload.logs ?? [];
+      setDiagnostics(parseCargoDiagnostics(payload.diagnostics ?? compileLogs));
 
       setHasCompiled(true);
       setLastArtifactName(payload.artifact?.name ?? "contract.wasm");
@@ -713,6 +703,15 @@ export default function Home() {
       compileLogs.forEach((log) => appendLog(`[cargo] ${log}`));
     } catch (error) {
       const message = formatApiError(error);
+      const details =
+        error && typeof error === "object" && "details" in error
+          ? error.details
+          : undefined;
+      const failureLogs =
+        details && typeof details === "object" && "logs" in details
+          ? details.logs
+          : details;
+      setDiagnostics(parseCargoDiagnostics(failureLogs));
       setCompileError(message);
       appendLog(`[error] Compile failed: ${message}`);
 
@@ -2502,50 +2501,82 @@ export default function Home() {
           </div>
         </header>
 
-        <main className="flex-1">
-          <MobileEditor
-            editor={
-              <section className="flex min-h-[560px] flex-col border-b border-white/8 p-4 lg:border-b-0 lg:border-r">
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-3 px-2">
-                  <div>
-                    <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
-                      <Code2 size={14} />
-                      Contract Editor
-                    </p>
-                    <p className="mt-1 text-sm text-slate-300">
-                      Edit `lib.rs`, then compile against the backend toolchain.
-                    </p>
-                    {loadedTemplateId ? (
-                      <p
-                        data-testid="loaded-template"
-                        className="mt-1 text-xs text-cyan-300"
-                      >
-                        Loaded from template: {loadedTemplateId}
-                      </p>
-                    ) : null}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={handleFormat}
-                      className="inline-flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1.5 text-xs font-medium text-emerald-200 transition hover:bg-emerald-400/20"
-                    >
-                      <Code2 size={14} />
-                      Format
-                    </button>
-                    <a
-                      href="https://developers.stellar.org/docs/build/smart-contracts/getting-started"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:border-cyan-400/40 hover:text-cyan-200"
-                    >
-                      <BookOpen size={14} />
-                      Soroban Docs
-                    </a>
-                    <ShareSnippet
-                      code={code}
-                      apiBaseUrl={DEFAULT_API_BASE_URL}
-                    />
-                  </div>
+        <main className="grid flex-1 gap-0 lg:grid-cols-[minmax(0,1fr)_440px]">
+          <section className="flex min-h-[560px] flex-col border-b border-white/8 p-4 lg:border-b-0 lg:border-r">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3 px-2">
+              <div>
+                <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                  <Code2 size={14} />
+                  Contract Editor
+                </p>
+                <p className="mt-1 text-sm text-slate-300">
+                  Edit `lib.rs`, then compile against the backend toolchain.
+                </p>
+              </div>
+              <a
+                href="https://developers.stellar.org/docs/build/smart-contracts/getting-started"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:border-cyan-400/40 hover:text-cyan-200"
+              >
+                <BookOpen size={14} />
+                Soroban Docs
+              </a>
+            </div>
+            <Editor
+              code={code}
+              setCode={(value) => {
+                setCode(value);
+                setDiagnostics([]);
+              }}
+              diagnostics={diagnostics}
+            />
+            <EditorHistoryPanel
+              {...editorHistory}
+              currentCode={code}
+              onRestore={editorHistory.restoreSnapshot}
+              onResolveConflict={editorHistory.resolveConflict}
+            />
+          </section>
+
+          <aside className="flex flex-col gap-4 bg-slate-950/40 p-4">
+            <DeployPanel
+              onCompile={handleCompile}
+              onDeploy={handleDeploy}
+              isCompiling={isCompiling}
+              isDeploying={isDeploying}
+              hasCompiled={hasCompiled}
+              compileSummary={compileSummary}
+              compileError={compileError}
+              contractId={contractId}
+            />
+            <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                  Compile Metrics
+                </p>
+                <p className="text-xs text-slate-500">
+                  {compileStats.activeWorkers}/{compileStats.maxWorkers} workers
+                </p>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-xs text-slate-300">
+                <div className="rounded-xl border border-white/8 bg-slate-950/50 p-3">
+                  <p className="text-slate-500">Hit Rate</p>
+                  <p className="mt-1 text-lg font-semibold text-emerald-300">
+                    {compileStats.cacheHitRate}%
+                  </p>
+                </div>
+                <div className="rounded-xl border border-white/8 bg-slate-950/50 p-3">
+                  <p className="text-slate-500">Queue</p>
+                  <p className="mt-1 text-lg font-semibold text-cyan-300">
+                    {compileStats.queueLength}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-white/8 bg-slate-950/50 p-3">
+                  <p className="text-slate-500">Workers</p>
+                  <p className="mt-1 text-lg font-semibold text-orange-300">
+                    {compileStats.activeWorkers}
+                  </p>
                 </div>
                 <Editor code={code} setCode={setCode} />
               </section>
