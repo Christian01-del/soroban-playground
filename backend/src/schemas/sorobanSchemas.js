@@ -1,7 +1,7 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
-// Zod schemas for the core compile / deploy / invoke API (issue #1573).
+// Zod schemas for the core compile / deploy / invoke / trace API (issue #1573, #FE-EPIC-19).
 //
 // z.object() strips unknown keys by default, so anything a client sends that
 // is not listed here never reaches a handler — this is the mass-assignment
@@ -16,8 +16,8 @@ const CONTRACT_ID_RE = /^C[A-Z2-7]{55}$/;
 const NETWORK_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,31}$/;
 // Identity alias (stellar keys) or a G/S StrKey — never a CLI flag.
 const SOURCE_ACCOUNT_RE = /^[a-zA-Z0-9_][a-zA-Z0-9_-]{0,63}$/;
-// Stellar StrKey ed25519 public key: 'G' + 55 base32 characters.
-const INVOKER_ADDRESS_RE = /^G[A-Z2-7]{55}$/;
+// 64-char lowercase hex — Stellar transaction hash.
+const TX_HASH_RE = /^[0-9a-f]{64}$/;
 const MAX_BATCH_SIZE = 20;
 
 function requiredString(field, message) {
@@ -63,68 +63,6 @@ export const invokeArgs = z
     message: 'args may contain at most 64 entries',
   });
 
-// ── Custom Invocation Authorization Matrix (require_auth) ───────────────────
-// Allows developers to inject arbitrary invoker addresses, mock signatures,
-// and custom authorization trees during in-browser test simulations.
-
-const invokerAddress = (field = 'invoker') =>
-  requiredString(field, `${field} must be a valid Stellar G-address`).regex(
-    INVOKER_ADDRESS_RE,
-    `${field} must be a valid Stellar G-address`
-  );
-
-const mockSignature = z
-  .string({ invalid_type_error: 'signature must be a string' })
-  .max(256, 'signature must be at most 256 characters')
-  .regex(/^[0-9a-fA-F]*$/, 'signature must be a hex string');
-
-const authNode = z.lazy(() =>
-  z.object({
-    address: invokerAddress('address'),
-    signature: optional(mockSignature),
-    nonce: optional(
-      z
-        .number({ invalid_type_error: 'nonce must be a number' })
-        .int('nonce must be an integer')
-        .nonnegative('nonce must be non-negative')
-    ),
-    subInvocations: optional(
-      z
-        .array(authNode, {
-          invalid_type_error: 'subInvocations must be an array',
-        })
-        .max(32, 'subInvocations may contain at most 32 entries')
-    ),
-  })
-);
-
-export const authMatrix = z
-  .object(
-    {
-      invoker: optional(invokerAddress('invoker')),
-      requireAuth: optional(z.boolean()),
-      signatures: optional(
-        z
-          .array(mockSignature, {
-            invalid_type_error: 'signatures must be an array',
-          })
-          .max(32, 'signatures may contain at most 32 entries')
-      ),
-      authTree: optional(authNode),
-    },
-    { invalid_type_error: 'auth must be an object' }
-  )
-  .refine(
-    (value) =>
-      !value.requireAuth ||
-      value.invoker !== undefined ||
-      value.authTree !== undefined,
-    {
-      message:
-        'auth.invoker or auth.authTree is required when requireAuth is true',
-    }
-  );
-
 const wasmPath = (field) =>
   requiredString(field)
     .min(1, `${field} is required`)
@@ -146,7 +84,6 @@ export const invokeBodyV1 = z.object({
   args: optional(invokeArgs),
   network: optional(network('network')),
   sourceAccount: optional(sourceAccount('sourceAccount')),
-  auth: optional(authMatrix),
 });
 
 export const invokeBodyV2 = z.object({
@@ -155,8 +92,12 @@ export const invokeBodyV2 = z.object({
   args: optional(invokeArgs),
   network: optional(network('network')),
   source_account: optional(sourceAccount('source_account')),
-  auth: optional(authMatrix),
 });
+
+// ── Trace ───────────────────────────────────────────────────────────────────
+// Interactive transaction call graph / stack trace canvas (FE-EPIC-19).
+// Accepts either a transaction hash (fetched from the network) or an inline
+// invocation result envelope produced by the invoke endpoint.
 
 // ── Deploy ──────────────────────────────────────────────────────────────────
 
@@ -256,3 +197,59 @@ export const jobIdParams = z.object({
     .string()
     .regex(/^[a-zA-Z0-9_-]{1,128}$/, 'jobId must be a valid job identifier'),
 });
+
+// ── Trace ───────────────────────────────────────────────────────────────────
+
+export const traceIdParams = z.object({
+  traceId: z
+    .string()
+    .regex(
+      /^[a-zA-Z0-9_-]{1,128}$/,
+      'traceId must be a valid trace identifier'
+    ),
+});
+
+const traceFrameSchema = z.object({
+  contractId: optional(contractId('contractId')),
+  functionName: optional(functionName('functionName')),
+  args: optional(invokeArgs),
+  gas: optional(
+    z
+      .number({ invalid_type_error: 'gas must be a number' })
+      .int('gas must be an integer')
+      .nonnegative('gas must be non-negative')
+  ),
+  error: optional(z.string().max(2048)),
+  children: optional(z.array(z.lazy(() => traceFrameSchema)).max(256)),
+});
+
+export const traceBodyV1 = z
+  .object({
+    txHash: optional(
+      z
+        .string({ invalid_type_error: 'txHash must be a string' })
+        .regex(TX_HASH_RE, 'txHash must be a valid Stellar transaction hash')
+    ),
+    network: optional(network('network')),
+    sourceAccount: optional(sourceAccount('sourceAccount')),
+    frame: optional(traceFrameSchema),
+  })
+  .refine((value) => value.txHash !== undefined || value.frame !== undefined, {
+    message: 'either txHash or frame must be provided',
+  });
+
+export const traceBodyV2 = z
+  .object({
+    tx_hash: optional(
+      z
+        .string({ invalid_type_error: 'tx_hash must be a string' })
+        .regex(TX_HASH_RE, 'tx_hash must be a valid Stellar transaction hash')
+    ),
+    network: optional(network('network')),
+    source_account: optional(sourceAccount('source_account')),
+    frame: optional(traceFrameSchema),
+  })
+  .refine(
+    (value) => value.tx_hash !== undefined || value.frame !== undefined,
+    { message: 'either tx_hash or frame must be provided' }
+  );
