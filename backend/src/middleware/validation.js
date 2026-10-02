@@ -35,6 +35,7 @@ export function formatZodError(error) {
   }));
 }
 
+/**
  * Validate and sanitise req.body / req.query / req.params with Zod schemas.
  * On success the parsed value replaces the original, so unknown keys
  * (stripped by z.object) never reach the handler.
@@ -142,6 +143,7 @@ export function validateInput(schemas = {}, optionsOrDocs = {}) {
 }
 
 /**
+/**
  * Return a description of the first prototype-pollution key found in
  * `value` (or of excessive nesting), else null. Iterative so hostile,
  * deeply nested payloads cannot blow the stack.
@@ -163,6 +165,7 @@ export function findForbiddenKey(value) {
   return null;
 }
 
+/**
 /**
  * Global guard: reject any request whose body or query contains
  * `__proto__`, `constructor` or `prototype` keys at any depth.
