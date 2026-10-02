@@ -34,12 +34,16 @@ const MAX_AGE_KEY: &str = "max_age";
 const MIN_SOURCES_KEY: &str = "min_src";
 const REPORTER_COUNT_KEY: &str = "rep_cnt";
 
-/// Default staleness threshold: 1 hour.
-const DEFAULT_MAX_AGE: u64 = 3_600;
+/// Default staleness threshold: 30 seconds.
+const DEFAULT_MAX_AGE: u64 = 30;
 /// Default minimum sources required to produce a price.
 const DEFAULT_MIN_SOURCES: u32 = 1;
 /// Maximum reporters allowed.
 const MAX_REPORTERS: u32 = 50;
+/// Default circuit breaker threshold: 15% (1500 basis points).
+const DEFAULT_CB_THRESHOLD_BPS: u32 = 1500;
+/// Default circuit breaker window: 5 minutes (300 seconds).
+const DEFAULT_CB_WINDOW: u64 = 300;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -69,6 +73,8 @@ pub enum Error {
     InsufficientSources = 10,
     /// Invalid configuration parameter.
     InvalidParameter = 11,
+    /// Circuit breaker is frozen due to price anomaly / rapid deviation.
+    CircuitBreakerFrozen = 12,
 }
 
 /// A single price report from one reporter.
@@ -226,6 +232,57 @@ fn load_report(env: &Env, reporter: &Address) -> Option<PriceReport> {
         .get(&reporter_price_key(reporter))
 }
 
+fn get_circuit_breaker_frozen(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get::<_, bool>(&symbol_short!("cb_frozen"))
+        .unwrap_or(false)
+}
+
+fn set_circuit_breaker_frozen(env: &Env, frozen: bool) {
+    env.storage()
+        .instance()
+        .set(&symbol_short!("cb_frozen"), &frozen);
+}
+
+fn get_last_median_record(env: &Env) -> Option<(i128, u64)> {
+    env.storage()
+        .instance()
+        .get::<_, (i128, u64)>(&symbol_short!("last_med"))
+}
+
+fn set_last_median_record(env: &Env, price: i128, timestamp: u64) {
+    env.storage()
+        .instance()
+        .set(&symbol_short!("last_med"), &(price, timestamp));
+}
+
+fn get_cb_threshold_bps(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get::<_, u32>(&symbol_short!("cb_thr"))
+        .unwrap_or(DEFAULT_CB_THRESHOLD_BPS)
+}
+
+fn set_cb_threshold_bps(env: &Env, bps: u32) {
+    env.storage()
+        .instance()
+        .set(&symbol_short!("cb_thr"), &bps);
+}
+
+fn get_cb_window(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get::<_, u64>(&symbol_short!("cb_win"))
+        .unwrap_or(DEFAULT_CB_WINDOW)
+}
+
+fn set_cb_window(env: &Env, window: u64) {
+    env.storage()
+        .instance()
+        .set(&symbol_short!("cb_win"), &window);
+}
+
 // ── Contract ──────────────────────────────────────────────────────────────────
 
 #[contract]
@@ -354,6 +411,32 @@ impl Oracle {
         Ok(())
     }
 
+    /// Set circuit breaker configuration (threshold in basis points, and time window in seconds).
+    pub fn set_circuit_breaker_config(
+        env: Env,
+        admin: Address,
+        threshold_bps: u32,
+        window: u64,
+    ) -> Result<(), Error> {
+        ensure_initialized(&env)?;
+        admin.require_auth();
+        require_admin(&env, &admin)?;
+        set_cb_threshold_bps(&env, threshold_bps);
+        set_cb_window(&env, window);
+        Ok(())
+    }
+
+    /// Reset / unfreeze the circuit breaker.
+    pub fn unfreeze_circuit_breaker(env: Env, admin: Address) -> Result<(), Error> {
+        ensure_initialized(&env)?;
+        admin.require_auth();
+        require_admin(&env, &admin)?;
+        set_circuit_breaker_frozen(&env, false);
+        env.events()
+            .publish((symbol_short!("cb_unfrz"),), admin);
+        Ok(())
+    }
+
     // ── Price submission ──────────────────────────────────────────────────────
 
     /// Submit (or update) a price. Only whitelisted reporters may call this.
@@ -430,8 +513,36 @@ impl Oracle {
             return Err(Error::InsufficientSources);
         }
 
+        if get_circuit_breaker_frozen(&env) {
+            return Err(Error::CircuitBreakerFrozen);
+        }
+
         let num_sources = prices.len();
-        let price = median(&mut prices);
+        // Use compute_median_price_internal with quickselect and outlier rejection
+        let price = compute_median_price_internal(&env, &mut prices);
+
+        // Circuit breaker check: if prices deviate > threshold_bps in window
+        let cb_threshold = get_cb_threshold_bps(&env);
+        let cb_window = get_cb_window(&env);
+        if let Some((last_price, last_time)) = get_last_median_record(&env) {
+            if now.saturating_sub(last_time) <= cb_window {
+                let diff = if price > last_price {
+                    price - last_price
+                } else {
+                    last_price - price
+                };
+                // diff / last_price > threshold_bps / 10000 => diff * 10000 > last_price * threshold_bps
+                if last_price > 0 && diff * 10000 > last_price * (cb_threshold as i128) {
+                    set_circuit_breaker_frozen(&env, true);
+                    env.events().publish(
+                        (symbol_short!("cb_freeze"),),
+                        (last_price, price, now),
+                    );
+                    return Err(Error::CircuitBreakerFrozen);
+                }
+            }
+        }
+        set_last_median_record(&env, price, now);
 
         Ok(AggregatedPrice {
             price,
@@ -475,6 +586,10 @@ impl Oracle {
     pub fn is_initialized(env: Env) -> bool {
         is_initialized(&env)
     }
+
+    pub fn is_circuit_breaker_frozen(env: Env) -> bool {
+        get_circuit_breaker_frozen(&env)
+    }
 }
 
 // ── Private helpers ───────────────────────────────────────────────────────────
@@ -515,6 +630,118 @@ fn sort_prices(prices: &mut Vec<i128>) {
         prices.set(j, key);
         i += 1;
     }
+}
+
+/// Quickselect algorithm to find the k-th smallest element in 0-indexed vector (in-place partitioning).
+fn quickselect(prices: &mut Vec<i128>, mut k: u32) -> i128 {
+    let mut low: u32 = 0;
+    let mut high: u32 = prices.len() - 1;
+
+    while low < high {
+        let pivot_idx = low + (high - low) / 2;
+        let pivot_val = prices.get(pivot_idx).unwrap();
+
+        // Move pivot to end
+        prices.set(pivot_idx, prices.get(high).unwrap());
+        prices.set(high, pivot_val);
+
+        let mut store_idx = low;
+        let mut i = low;
+        while i < high {
+            if prices.get(i).unwrap() < pivot_val {
+                let tmp = prices.get(store_idx).unwrap();
+                prices.set(store_idx, prices.get(i).unwrap());
+                prices.set(i, tmp);
+                store_idx += 1;
+            }
+            i += 1;
+        }
+
+        let tmp = prices.get(high).unwrap();
+        prices.set(high, prices.get(store_idx).unwrap());
+        prices.set(store_idx, tmp);
+
+        if store_idx == k {
+            return prices.get(k).unwrap();
+        } else if store_idx < k {
+            low = store_idx + 1;
+        } else {
+            high = if store_idx > 0 { store_idx - 1 } else { 0 };
+        }
+    }
+    prices.get(k).unwrap()
+}
+
+/// Compute the median of a non-empty price list using quickselect and outlier rejection.
+fn compute_median_price_internal(env: &Env, prices: &mut Vec<i128>) -> i128 {
+    let n = prices.len();
+    if n == 0 {
+        return 0;
+    }
+
+    // Quickselect to find the median
+    let median_val = quickselect(prices, n / 2);
+
+    // Statistical outlier rejection (> 2 standard deviations or MAD / IQR approximation / deviation check)
+    // For robust multi-oracle aggregation with 7+ oracles, filter out reports deviating > 2 standard deviations or >20% from median, or similar outlier filter.
+    // Let's implement robust filtering: compute mean and standard deviation (or median absolute deviation), or filter out any price differing from median by more than 2 std devs.
+    if n >= 3 {
+        // Calculate mean and variance
+        let mut sum: i128 = 0;
+        let mut i: u32 = 0;
+        while i < n {
+            sum += prices.get(i).unwrap();
+            i += 1;
+        }
+        let mean = sum / (n as i128);
+
+        let mut var_sum: i128 = 0;
+        i = 0;
+        while i < n {
+            let diff = prices.get(i).unwrap() - mean;
+            var_sum += diff * diff;
+            i += 1;
+        }
+        let variance = var_sum / (n as i128);
+        // Integer square root for standard deviation
+        let std_dev = isqrt(variance);
+
+        if std_dev > 0 {
+            let mut filtered: Vec<i128> = Vec::new(env);
+            i = 0;
+            while i < n {
+                let p = prices.get(i).unwrap();
+                let abs_diff = if p > mean { p - mean } else { mean - p };
+                // Keep within 2 standard deviations
+                if abs_diff <= 2 * std_dev {
+                    filtered.push_back(p);
+                }
+                i += 1;
+            }
+            if !filtered.is_empty() {
+                // Re-compute median of filtered prices using quickselect/sort
+                let fn_n = filtered.len();
+                let mid_val = quickselect(&mut filtered, fn_n / 2);
+                return mid_val;
+            }
+        }
+    }
+
+    median_val
+}
+
+/// Integer square root function (Newton's method).
+fn isqrt(n: i128) -> i128 {
+    if n <= 0 {
+        return 0;
+    }
+    let mut x = n;
+    let mut y = (x + 1) / 2;
+    while y < x {
+        x = y;
+        y = (x + n / x) / 2;
+    }
+    x
 }
 
 /// Compute the median of a non-empty price list (sorts in place).
