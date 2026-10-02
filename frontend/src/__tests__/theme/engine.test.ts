@@ -13,8 +13,8 @@ import {
   systemTheme,
   validateTheme,
   writeStoredPreference,
-} from "../../../lib/theme/engine";
-import { DARK_TOKENS, LIGHT_TOKENS } from "../../../lib/theme/tokens";
+} from "../../lib/theme/engine";
+import { DARK_TOKENS, LIGHT_TOKENS } from "../../lib/theme/tokens";
 
 /** Minimal in-memory `Storage` so tests never touch the real localStorage. */
 function fakeStorage(initial: Record<string, string> = {}): Storage {

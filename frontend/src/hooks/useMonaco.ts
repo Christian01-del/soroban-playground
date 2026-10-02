@@ -3,6 +3,11 @@ import type { RefObject } from "react";
 import type * as monaco from "monaco-editor";
 import { scheduleEditorLoad } from "@/lib/editorLoadScheduler";
 import { configureMonacoWorkers } from "@/lib/monacoWorkers";
+import {
+  createMonacoScope,
+  type MonacoLifecycleScope,
+} from "@/lib/monacoLifecycle";
+import { monacoViewStates } from "@/lib/monacoViewState";
 import { getAppliedTheme } from "@/lib/theme/engine";
 import { MONACO_THEME_NAME, registerMonacoTheme } from "@/lib/theme/monaco";
 import { observeTheme } from "@/lib/theme/observe";
@@ -12,6 +17,12 @@ interface UseMonacoProps {
   language: string;
   value: string;
   onChange: (value: string) => void;
+  /**
+   * Stable identifier used to persist/restore the editor view state (cursor,
+   * selection, scroll) across view transitions and hot reloads. Multiple
+   * editors should pass distinct keys.
+   */
+  viewStateKey?: string;
 }
 
 interface UseMonacoResult {
@@ -19,10 +30,13 @@ interface UseMonacoResult {
   isEditorReady: boolean;
 }
 
+let instanceCounter = 0;
+
 export function useMonaco({
   language,
   value,
   onChange,
+  viewStateKey = "monaco-editor",
 }: UseMonacoProps): UseMonacoResult {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -47,7 +61,7 @@ export function useMonaco({
   useEffect(() => {
     let disposed = false;
     let cancel: (() => void) | undefined;
-    let stopObservingTheme: (() => void) | undefined;
+    let scope: MonacoLifecycleScope | null = null;
     let monacoAPI: typeof import("monaco-editor") | null = null;
 
     async function initEditor() {
@@ -67,6 +81,10 @@ export function useMonaco({
 
           // Register the design-token theme before the editor reads it.
           registerMonacoTheme(monacoAPI, getAppliedTheme() ?? "dark");
+
+          // A unique scope per mount so concurrent editors can never dispose
+          // each other's resources.
+          scope = createMonacoScope(`${viewStateKey}#${++instanceCounter}`);
 
           const editor = monacoAPI.editor.create(containerRef.current, {
             language,
@@ -96,23 +114,79 @@ export function useMonaco({
           }
 
           editorRef.current = editor;
-          modelRef.current = editor.getModel() ?? null;
+          const model = editor.getModel() ?? null;
+          modelRef.current = model;
+
+          // Register in teardown-reverse order: the model is released last, so
+          // listeners/markers/workers/editor all go first.
+          if (model) {
+            scope.track({
+              kind: "model",
+              label: `${language} model`,
+              disposable: model,
+            });
+          }
+          scope.track({
+            kind: "editor",
+            label: "Soroban contract editor",
+            disposable: editor,
+          });
+
+          // Replay any persisted cursor/scroll position for this view before we
+          // announce readiness, avoiding a visible jump.
+          const persistedViewState = monacoViewStates.restore(viewStateKey);
+          if (persistedViewState) {
+            try {
+              editor.restoreViewState(
+                persistedViewState as monaco.editor.ICodeEditorViewState,
+              );
+            } catch {
+              /* stale/corrupt view state — fall back to default position */
+            }
+          }
+
           setIsEditorReady(true);
 
           // Re-register the Monaco theme whenever the app theme changes so the
           // editor highlights stay aligned with the CSS tokens.
-          stopObservingTheme = observeTheme((mode) => {
+          const stopObservingTheme = observeTheme((mode) => {
             if (!monacoAPI) return;
             registerMonacoTheme(monacoAPI, mode);
             monacoAPI.editor.setTheme(MONACO_THEME_NAME);
           });
+          scope.track({
+            kind: "theme",
+            label: "monaco theme observer",
+            teardown: stopObservingTheme,
+          });
 
           const worker = new Worker(new URL("../workers/rustAnalyzer.worker.ts", import.meta.url));
           workerRef.current = worker;
+          scope.track({
+            kind: "worker",
+            label: "rust analyzer worker",
+            teardown: () => worker.terminate(),
+          });
+
+          // Markers are owned by the editor's model; clear them explicitly so a
+          // remount never inherits stale diagnostics.
+          if (model) {
+            scope.track({
+              kind: "marker",
+              label: `rustAnalyzer markers (${model.uri.toString()})`,
+              teardown: () => {
+                try {
+                  monacoAPI?.editor.setModelMarkers(model, "rustAnalyzer", []);
+                } catch {
+                  /* model already disposed — nothing to clear */
+                }
+              },
+            });
+          }
 
           worker.onmessage = (event: MessageEvent) => {
-            const { uri, diagnostics } = event.data;
-            if (!modelRef.current || modelRef.current.uri.toString() !== uri) {
+            const { uri: targetUri, diagnostics } = event.data;
+            if (!modelRef.current || modelRef.current.uri.toString() !== targetUri) {
               return;
             }
 
@@ -137,7 +211,7 @@ export function useMonaco({
             );
           };
 
-          editor.onDidChangeModelContent(() => {
+          const contentListener = editor.onDidChangeModelContent(() => {
             const currentValue = modelRef.current?.getValue();
             if (currentValue !== undefined) {
               onChangeRef.current(currentValue);
@@ -147,6 +221,15 @@ export function useMonaco({
               });
             }
           });
+          // `onDidChangeModelContent` returns an IDisposable; register it so it
+          // can never outlive the editor it subscribed to.
+          if (contentListener) {
+            scope.track({
+              kind: "listener",
+              label: "onDidChangeModelContent",
+              disposable: contentListener,
+            });
+          }
 
           if (modelRef.current) {
             workerRef.current.postMessage({
@@ -165,22 +248,31 @@ export function useMonaco({
     return () => {
       disposed = true;
       if (cancel) cancel();
-      if (stopObservingTheme) {
-        stopObservingTheme();
-        stopObservingTheme = undefined;
+
+      // Persist the view state before disposing so the next mount for this view
+      // restores the exact cursor/scroll position.
+      const editor = editorRef.current;
+      if (editor) {
+        try {
+          const snapshot = editor.saveViewState();
+          if (snapshot) {
+            monacoViewStates.save(viewStateKey, snapshot);
+          }
+        } catch {
+          /* view state is best-effort */
+        }
       }
-      if (workerRef.current) {
-        workerRef.current.terminate();
-        workerRef.current = null;
+
+      // Single, atomic flush of every tracked Monaco resource. The tracker is
+      // idempotent, so this is safe even if a late async init races teardown.
+      if (scope) {
+        scope.dispose();
+        scope = null;
       }
-      if (editorRef.current) {
-        editorRef.current.dispose();
-        editorRef.current = null;
-      }
-      if (modelRef.current) {
-        modelRef.current.dispose();
-        modelRef.current = null;
-      }
+
+      editorRef.current = null;
+      modelRef.current = null;
+      workerRef.current = null;
       setIsEditorReady(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -39,7 +39,15 @@ const STATIC_SECURITY_HEADERS = [
 ];
 
 const nextConfig: NextConfig = {
-  turbopack: {},
+  turbopack: {
+    resolveAlias: {
+      // `wabt` is an Emscripten build that statically references Node's `fs`
+      // inside a branch guarded by `ENVIRONMENT_IS_NODE`. The webpack fallback
+      // below never applies under Turbopack, so alias `fs` to an empty shim for
+      // browser bundles. Server bundles keep the real module.
+      fs: { browser: "./empty-module.js" },
+    },
+  },
   async headers() {
     return [
       {

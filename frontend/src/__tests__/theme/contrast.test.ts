@@ -11,14 +11,14 @@ import {
   parseHslTriple,
   relativeLuminance,
   wcagLevel,
-} from "../../../lib/theme/contrast";
+} from "../../lib/theme/contrast";
 import {
   CONTRAST_REQUIREMENTS,
   DARK_TOKENS,
   LIGHT_TOKENS,
   THEME_TOKENS,
-} from "../../../lib/theme/tokens";
-import type { ThemeMode } from "../../../lib/theme/types";
+} from "../../lib/theme/tokens";
+import type { ThemeMode } from "../../lib/theme/types";
 
 describe("HSL parsing", () => {
   it("parses a channel triple", () => {
