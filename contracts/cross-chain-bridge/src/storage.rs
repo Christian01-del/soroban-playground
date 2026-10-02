@@ -244,11 +244,19 @@ pub fn submit_validator_vote(
         return Err(Error::AlreadyVoted);
     }
 
+    let chain_id = get_source_chain_id(env);
     let mut proof = get_proof(env, deposit_id).unwrap_or(ValidatorProof {
         proof_hash: proof_hash.clone(),
         vote_count: 0,
         status: ProofStatus::Pending,
+        source_chain_id: chain_id.clone(),
     });
+
+    // Replay protection: a proof is bound to the source chain that created it.
+    // Replaying votes from another chain's bridge instance must fail.
+    if proof.source_chain_id != chain_id {
+        return Err(Error::ChainIdMismatch);
+    }
 
     if proof.status == ProofStatus::Verified {
         return Err(Error::ProofAlreadyFinalized);
@@ -269,4 +277,22 @@ pub fn submit_validator_vote(
 
     set_proof(env, deposit_id, &proof);
     Ok(proof)
+}
+
+// Chain ID (domain separator for cross-chain replay protection)
+
+/// Default chain ID used before an admin configures a real source chain.
+pub const DEFAULT_SOURCE_CHAIN_ID: &[u8] = b"unset";
+
+pub fn get_source_chain_id(env: &Env) -> soroban_sdk::Bytes {
+    env.storage()
+        .instance()
+        .get(&InstanceKey::SourceChainId)
+        .unwrap_or_else(|| soroban_sdk::Bytes::from_slice(env, DEFAULT_SOURCE_CHAIN_ID))
+}
+
+pub fn set_source_chain_id(env: &Env, chain_id: &soroban_sdk::Bytes) {
+    env.storage()
+        .instance()
+        .set(&InstanceKey::SourceChainId, chain_id);
 }
