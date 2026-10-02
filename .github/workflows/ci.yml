@@ -9,6 +9,26 @@ on:
     - cron: "21 4 * * 1"
 
 jobs:
+  sep10-auth-tests:
+    name: SEP-10 Client & Signed Session Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - name: Install dependencies
+        run: npm ci
+      - name: Test challenge validation and shared client sessions
+        run: npm run test --workspace=frontend -- src/__tests__/auth
+      - name: Test signed challenge exchange, cookies and replay rejection
+        run: node node_modules/jest/bin/jest.js --config backend/jest.config.cjs backend/tests/sep10Session.test.js backend/tests/authService.unit.test.js --runInBand
+        env:
+          NODE_ENV: test
+
   frontend-build:
     name: Frontend Build & Test
     runs-on: ubuntu-latest

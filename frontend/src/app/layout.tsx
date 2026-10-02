@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { GraphQLProvider } from "../components/providers/GraphQLProvider";
+import { AuthProvider } from "../components/providers/AuthProvider";
 import { WalletProvider } from "../components/providers/WalletProvider";
 import { ThemeProvider } from "../components/providers/ThemeProvider";
 import { OfflineProvider } from "../components/providers/OfflineProvider";
@@ -42,37 +43,39 @@ export default function RootLayout({
       <body className="min-h-screen bg-background text-foreground antialiased" suppressHydrationWarning>
         <ThemeProvider>
           <WalletProvider>
-            <GraphQLProvider>
-              {/*
-                #1525 — connectivity detection, the durable outbox and the
-                conflict engine. Must sit above anything that can enqueue work,
-                so it wraps the whole shell rather than living inside it.
-              */}
-              <OfflineProvider>
-                {/* #1526 — one workspace snapshot for the whole shell. */}
-                <WorkspaceProvider>
-                  {/* #1527 — binds Cmd/Ctrl+K and renders the palette once. */}
-                  <CommandPaletteProvider>
-                    <SidebarShell>
-                      <RenderWarningModal />
-                      <OnboardingTour />
-                      {children}
-                      <OfflineStatusBar />
-                      {/*
-                        #1539 — Core Web Vitals / FPS widget. Opt-in via
-                        NEXT_PUBLIC_ENABLE_PERF_MONITOR so it never perturbs
-                        the layout-shift score it is reporting in production.
-                      */}
-                      <PerformanceMonitor
-                        enabled={process.env.NEXT_PUBLIC_ENABLE_PERF_MONITOR === "true"}
-                      />
-                    </SidebarShell>
-                  </CommandPaletteProvider>
-                  {/* Must live inside OfflineProvider: it drains the outbox. */}
-                  <ServiceWorkerRegistrar />
-                </WorkspaceProvider>
-              </OfflineProvider>
-            </GraphQLProvider>
+            <AuthProvider>
+              <GraphQLProvider>
+                {/*
+                  #1525 — connectivity detection, the durable outbox and the
+                  conflict engine. Must sit above anything that can enqueue work,
+                  so it wraps the whole shell rather than living inside it.
+                */}
+                <OfflineProvider>
+                  {/* #1526 — one workspace snapshot for the whole shell. */}
+                  <WorkspaceProvider>
+                    {/* #1527 — binds Cmd/Ctrl+K and renders the palette once. */}
+                    <CommandPaletteProvider>
+                      <SidebarShell>
+                        <RenderWarningModal />
+                        <OnboardingTour />
+                        {children}
+                        <OfflineStatusBar />
+                        {/*
+                          #1539 — Core Web Vitals / FPS widget. Opt-in via
+                          NEXT_PUBLIC_ENABLE_PERF_MONITOR so it never perturbs
+                          the layout-shift score it is reporting in production.
+                        */}
+                        <PerformanceMonitor
+                          enabled={process.env.NEXT_PUBLIC_ENABLE_PERF_MONITOR === "true"}
+                        />
+                      </SidebarShell>
+                    </CommandPaletteProvider>
+                    {/* Must live inside OfflineProvider: it drains the outbox. */}
+                    <ServiceWorkerRegistrar />
+                  </WorkspaceProvider>
+                </OfflineProvider>
+              </GraphQLProvider>
+            </AuthProvider>
           </WalletProvider>
         </ThemeProvider>
       </body>
