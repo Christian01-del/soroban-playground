@@ -160,6 +160,7 @@ pub enum DataKey {
     FundingRate,
     /// Monotonically increasing funding rate accumulator (bps × 1e6 precision).
     FundingAccumulator,
+    FundingAccrualTimestamp,
     /// Per-position funding snapshot at the time the position was opened.
     FundingSnapshot(u64),
     Position(u64),
@@ -205,6 +206,9 @@ impl Perpetuals {
         env.storage()
             .instance()
             .set(&DataKey::FundingAccumulator, &0i64);
+        env.storage()
+            .instance()
+            .set(&DataKey::FundingAccrualTimestamp, &env.ledger().timestamp());
 
         // vAMM seed state — k uses checked multiplication
         let k = reserve_x
@@ -262,6 +266,7 @@ impl Perpetuals {
         if index_price <= 0 {
             return Err(Error::InvalidPrice);
         }
+        Self::accrue_funding(&env)?;
         let mut funding: FundingRate = env
             .storage()
             .instance()
@@ -294,9 +299,11 @@ impl Perpetuals {
             .ok_or(Error::NotInitialized)?;
 
         let now = env.ledger().timestamp();
-        if now < funding.last_update + FUNDING_PERIOD_SECS {
+        if now < funding.last_update.saturating_add(FUNDING_PERIOD_SECS) {
             return Err(Error::FundingNotDue);
         }
+
+        Self::accrue_funding(&env)?;
 
         // Update mark price from vAMM state
         let vamm: VammConfig = env
@@ -308,17 +315,6 @@ impl Perpetuals {
         funding.rate_bps = Self::compute_rate_bps(funding.mark_price, funding.index_price);
         funding.last_update = now;
 
-        // Advance accumulator: acc += rate_bps × 1_000_000 (fixed-point precision)
-        let acc: i64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::FundingAccumulator)
-            .unwrap_or(0);
-        let delta = i64::from(funding.rate_bps) * 1_000_000;
-        let new_acc = acc.saturating_add(delta);
-        env.storage()
-            .instance()
-            .set(&DataKey::FundingAccumulator, &new_acc);
         env.storage()
             .instance()
             .set(&DataKey::FundingRate, &funding);
@@ -333,8 +329,7 @@ impl Perpetuals {
     /// Each position's collateral is adjusted by:
     ///   `payment = position.size × rate_bps / 10_000`
     ///
-    /// Longs are debited when `rate_bps > 0`; shorts when `rate_bps < 0`.
-    /// Settlement only runs once per funding period.
+    /// Longs are debited when the accumulated rate is positive; shorts when it is negative.
     pub fn settle_funding(env: Env) -> Result<FundingSettlement, Error> {
         Self::assert_initialized(&env)?;
         Self::assert_not_paused(&env)?;
@@ -346,12 +341,17 @@ impl Perpetuals {
             .ok_or(Error::NotInitialized)?;
 
         let now = env.ledger().timestamp();
-        if now < funding.last_settlement + FUNDING_PERIOD_SECS {
+        let last_accrual: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::FundingAccrualTimestamp)
+            .unwrap_or(funding.last_update);
+        if now <= last_accrual {
             return Err(Error::FundingNotDue);
         }
 
+        Self::accrue_funding(&env)?;
         let rate_bps = funding.rate_bps;
-        let longs_pay = rate_bps > 0;
         let count: u64 = env
             .storage()
             .instance()
@@ -368,28 +368,49 @@ impl Perpetuals {
                 _ => continue,
             };
 
-            let payment = pos.size * i128::from(rate_bps.unsigned_abs()) / 10_000;
-            // Long positions pay when rate > 0, receive when rate < 0
-            if pos.is_long == longs_pay {
-                pos.collateral = pos.collateral.saturating_sub(payment);
+            let open_acc: i64 = env
+                .storage()
+                .instance()
+                .get(&DataKey::FundingSnapshot(id))
+                .unwrap_or(0);
+            let acc: i64 = env
+                .storage()
+                .instance()
+                .get(&DataKey::FundingAccumulator)
+                .unwrap_or(0);
+            let acc_delta = i128::from(acc) - i128::from(open_acc);
+            let payment = pos
+                .size
+                .checked_mul(acc_delta)
+                .ok_or(Error::ArithmeticOverflow)?
+                / 10_000_000_000i128;
+            if pos.is_long {
+                pos.collateral = pos
+                    .collateral
+                    .checked_sub(payment)
+                    .ok_or(Error::ArithmeticOverflow)?;
             } else {
-                pos.collateral = pos.collateral.saturating_add(payment);
+                pos.collateral = pos
+                    .collateral
+                    .checked_add(payment)
+                    .ok_or(Error::ArithmeticOverflow)?;
             }
-            total_payments = total_payments.saturating_add(payment);
+            total_payments = total_payments.saturating_add(payment.saturating_abs());
+            env.storage()
+                .instance()
+                .set(&DataKey::FundingSnapshot(id), &acc);
             env.storage().persistent().set(&key, &pos);
+            env.events().publish(
+                (symbol_short!("fund_pay"), id),
+                (pos.trader, payment),
+            );
         }
 
-        // Advance accumulator
-        let acc: i64 = env
+        let new_acc: i64 = env
             .storage()
             .instance()
             .get(&DataKey::FundingAccumulator)
             .unwrap_or(0);
-        let delta = i64::from(rate_bps) * 1_000_000;
-        let new_acc = acc.saturating_add(delta);
-        env.storage()
-            .instance()
-            .set(&DataKey::FundingAccumulator, &new_acc);
 
         funding.last_settlement = now;
         env.storage()
@@ -398,7 +419,7 @@ impl Perpetuals {
 
         let result = FundingSettlement {
             rate_bps,
-            longs_pay,
+            longs_pay: rate_bps > 0,
             total_payments,
             new_accumulator: new_acc,
             timestamp: now,
@@ -437,6 +458,8 @@ impl Perpetuals {
         if collateral <= 0 {
             return Err(Error::InsufficientMargin);
         }
+
+        Self::accrue_funding(&env)?;
 
         // Update vAMM state to reflect price impact
         let mut vamm: VammConfig = env
@@ -493,6 +516,10 @@ impl Perpetuals {
 
         env.events()
             .publish((symbol_short!("open_pos"), id), (trader, is_long, size));
+        env.events().publish(
+            (symbol_short!("trade"), id),
+            (is_long, size, entry_price),
+        );
         Ok(id)
     }
 
@@ -513,6 +540,8 @@ impl Perpetuals {
         if pos.status != PositionStatus::Active {
             return Err(Error::PositionNotActive);
         }
+
+        Self::accrue_funding(&env)?;
 
         // Reverse vAMM trade to get exit price
         let mut vamm: VammConfig = env
@@ -542,9 +571,12 @@ impl Perpetuals {
             .instance()
             .get(&DataKey::FundingSnapshot(position_id))
             .unwrap_or(0);
-        let acc_delta = acc - open_acc; // bps × 1_000_000
-                                        // funding_payment = size × acc_delta / (10_000 × 1_000_000)
-        let funding_payment = pos.size * i128::from(acc_delta) / 10_000_000_000i128;
+        let acc_delta = i128::from(acc) - i128::from(open_acc);
+        let funding_payment = pos
+            .size
+            .checked_mul(acc_delta)
+            .ok_or(Error::ArithmeticOverflow)?
+            / 10_000_000_000i128;
         let net_settlement = if pos.is_long {
             pos.collateral + pnl - funding_payment
         } else {
@@ -570,6 +602,10 @@ impl Perpetuals {
         env.events().publish(
             (symbol_short!("close_pos"), position_id),
             (trader, net_settlement),
+        );
+        env.events().publish(
+            (symbol_short!("trade"), position_id),
+            (!pos.is_long, pos.size, exit_price),
         );
         Ok(net_settlement)
     }
@@ -600,16 +636,10 @@ impl Perpetuals {
             .ok_or(Error::NotInitialized)?;
         let current_price = Self::vamm_mark_price_from(&vamm)?;
 
-        let pnl = if pos.is_long {
-            (current_price - pos.entry_price) * pos.size / pos.entry_price
-        } else {
-            (pos.entry_price - current_price) * pos.size / pos.entry_price
-        };
+        let (portfolio_equity, maintenance_threshold) =
+            Self::portfolio_margin(&env, &pos.trader, current_price)?;
 
-        let remaining_margin = pos.collateral + pnl;
-        let maintenance_threshold = pos.collateral * MAINTENANCE_MARGIN_BPS / 10_000;
-
-        if remaining_margin > maintenance_threshold {
+        if portfolio_equity > maintenance_threshold {
             return Err(Error::InsufficientMargin);
         }
 
@@ -630,6 +660,26 @@ impl Perpetuals {
             .persistent()
             .get(&DataKey::Position(position_id))
             .ok_or(Error::PositionNotFound)
+    }
+
+    /// Returns whether a keeper can liquidate a position using cross-margin health.
+    pub fn is_liquidatable(env: Env, position_id: u64) -> Result<bool, Error> {
+        let pos: Position = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Position(position_id))
+            .ok_or(Error::PositionNotFound)?;
+        if pos.status != PositionStatus::Active {
+            return Ok(false);
+        }
+        let vamm: VammConfig = env
+            .storage()
+            .instance()
+            .get(&DataKey::VammConfig)
+            .ok_or(Error::NotInitialized)?;
+        let current_price = Self::vamm_mark_price_from(&vamm)?;
+        let (equity, maintenance) = Self::portfolio_margin(&env, &pos.trader, current_price)?;
+        Ok(equity <= maintenance)
     }
 
     pub fn get_funding_rate(env: Env) -> Result<FundingRate, Error> {
@@ -672,6 +722,122 @@ impl Perpetuals {
             .instance()
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)
+    }
+
+    fn funding_accumulator_at(env: &Env) -> Result<i64, Error> {
+        let funding: FundingRate = env
+            .storage()
+            .instance()
+            .get(&DataKey::FundingRate)
+            .ok_or(Error::NotInitialized)?;
+        let accumulator: i64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::FundingAccumulator)
+            .unwrap_or(0);
+        let last_accrual: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::FundingAccrualTimestamp)
+            .unwrap_or(funding.last_update);
+        let now = env.ledger().timestamp();
+        if now <= last_accrual {
+            return Ok(accumulator);
+        }
+
+        let elapsed = i128::from(now - last_accrual);
+        let delta = i128::from(funding.rate_bps) * 1_000_000 * elapsed
+            / i128::from(FUNDING_PERIOD_SECS);
+        Ok((i128::from(accumulator) + delta)
+            .clamp(i128::from(i64::MIN), i128::from(i64::MAX)) as i64)
+    }
+
+    fn accrue_funding(env: &Env) -> Result<i64, Error> {
+        let now = env.ledger().timestamp();
+        let last_accrual: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::FundingAccrualTimestamp)
+            .unwrap_or(now);
+        let accrued = Self::funding_accumulator_at(env)?;
+        if now > last_accrual {
+            env.storage()
+                .instance()
+                .set(&DataKey::FundingAccumulator, &accrued);
+            env.storage()
+                .instance()
+                .set(&DataKey::FundingAccrualTimestamp, &now);
+        }
+        Ok(accrued)
+    }
+
+    fn portfolio_margin(
+        env: &Env,
+        trader: &Address,
+        current_price: i128,
+    ) -> Result<(i128, i128), Error> {
+        let count: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::PositionCount)
+            .unwrap_or(0);
+        let accumulator = i128::from(Self::funding_accumulator_at(env)?);
+        let mut equity = 0i128;
+        let mut maintenance = 0i128;
+
+        for id in 1..=count {
+            let pos: Option<Position> = env
+                .storage()
+                .persistent()
+                .get(&DataKey::Position(id));
+            let pos = match pos {
+                Some(p) if p.trader == *trader && p.status == PositionStatus::Active => p,
+                _ => continue,
+            };
+            let price_delta = if pos.is_long {
+                current_price - pos.entry_price
+            } else {
+                pos.entry_price - current_price
+            };
+            let pnl = price_delta
+                .checked_mul(pos.size)
+                .ok_or(Error::ArithmeticOverflow)?
+                / pos.entry_price;
+            let open_acc: i64 = env
+                .storage()
+                .instance()
+                .get(&DataKey::FundingSnapshot(id))
+                .unwrap_or(0);
+            let funding_payment = pos
+                .size
+                .checked_mul(accumulator - i128::from(open_acc))
+                .ok_or(Error::ArithmeticOverflow)?
+                / 10_000_000_000i128;
+            let funding_adjustment = if pos.is_long {
+                -funding_payment
+            } else {
+                funding_payment
+            };
+            let notional = pos
+                .size
+                .checked_mul(current_price)
+                .ok_or(Error::ArithmeticOverflow)?
+                / 10_000_000i128;
+            equity = equity
+                .checked_add(pos.collateral)
+                .and_then(|value| value.checked_add(pnl))
+                .and_then(|value| value.checked_add(funding_adjustment))
+                .ok_or(Error::ArithmeticOverflow)?;
+            maintenance = maintenance
+                .checked_add(
+                    notional
+                        .checked_mul(MAINTENANCE_MARGIN_BPS)
+                        .ok_or(Error::ArithmeticOverflow)?
+                        / 10_000,
+                )
+                .ok_or(Error::ArithmeticOverflow)?;
+        }
+        Ok((equity, maintenance))
     }
 
     // ── vAMM helpers ──────────────────────────────────────────────────────────
