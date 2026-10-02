@@ -10,7 +10,13 @@
     "lint": "eslint",
     "test": "node ../node_modules/jest/bin/jest.js --runInBand",
     "test:hooks": "jest src/__tests_hooks --no-coverage",
-    "test:theme": "node ../node_modules/jest/bin/jest.js --runInBand src/__tests__/theme src/__tests__/components/ThemeSwitcher.test.tsx"
+    "test:theme": "node ../node_modules/jest/bin/jest.js --runInBand src/__tests__/theme src/__tests__/components/ThemeSwitcher.test.tsx",
+    "analyze": "ANALYZE=true next build",
+    "budget:check": "node ./scripts/checkBudget.mjs",
+    "budget:ci": "npm run build && npm run budget:check",
+    "clean:binary": "node ./scripts/purgeBinary.mjs",
+    "clean:binary:apply": "node ./scripts/purgeBinary.mjs --apply",
+    "postinstall": "node ./scripts/purgeBinary.mjs --check-only"
   },
   "dependencies": {
     "@apollo/client": "^4.1.9",
@@ -44,6 +50,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",
+    "@next/bundle-analyzer": "^15.0.0",
     "@tailwindcss/postcss": "^4",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
@@ -69,6 +76,6 @@
     "@tailwindcss/oxide-linux-x64-gnu": "4.3.2",
     "@tailwindcss/oxide-linux-x64-musl": "4.3.2",
     "lightningcss-linux-x64-gnu": "1.32.0",
-    "lightningcss-linux-x64-musl": "1.32.0"
+    "lightningcsq-linux-x64-musl": "1.32.0"
   }
 }
