@@ -6,7 +6,7 @@ import {
   asyncHandler,
   createHttpError,
 } from '../../middleware/errorHandler.js';
-import { deployBatchContracts } from '../../services/deployService.js';
+import { deployBatchContracts, deployContract } from '../../services/deployService.js';
 import { rateLimitMiddleware } from '../../middleware/rateLimiter.js';
 import { validateRequest } from '../../middleware/validation.js';
 import {
@@ -21,36 +21,39 @@ router.post(
   '/',
   rateLimitMiddleware('deploy'),
   validateRequest({ body: deployBodyV1 }, { format: 'httpError' }),
-  asyncHandler(async (req, res) => {
-    const { wasmPath, contractName, network = 'testnet' } = req.body;
+  asyncHandler(async (req, res, next) => {
+    const {
+      wasmPath,
+      contractName,
+      network = 'testnet',
+      sourceAccount,
+    } = req.body;
 
-    // In a real implementation this would receive a WASM buffer or path
-    // from the compile step. We'll simulate receiving code or an existing compile job.
+    const contract = {
+      id: contractName,
+      contractName,
+      wasmPath,
+      network,
+      sourceAccount,
+    };
 
-    // Here we would typically run: `soroban contract deploy --wasm contract.wasm --source alice --network testnet`
-
-    // For the MVP, if no actual network configs/keys are present,
-    // we simulate the deployment response. A full open-source implementation
-    // would construct a temporary keypair for the user using `stellar-sdk`
-    // or use a predefined funded testnet identity.
-
-    setTimeout(() => {
-      // Generate a random contract ID to simulate successful deploy
-      // Stellar contract IDs start with 'C' and are 56 characters long
-      const contractId =
-        'C' + Math.random().toString(36).substring(2, 54).toUpperCase();
-
-      res.json({
+    try {
+      const result = await deployContract(contract);
+      return res.json({
         success: true,
         status: 'success',
-        contractId,
+        contractId: result.contractId,
         contractName,
         network,
         wasmPath,
         deployedAt: new Date().toISOString(),
         message: `Contract "${contractName}" deployed successfully to ${network}`,
       });
-    }, 1500);
+    } catch (error) {
+      return next(
+        createHttpError(502, 'Contract deployment failed', [error.message])
+      );
+    }
   })
 );
 

@@ -6,7 +6,7 @@ import {
   asyncHandler,
   createHttpError,
 } from '../../middleware/errorHandler.js';
-import { deployBatchContracts } from '../../services/deployService.js';
+import { deployBatchContracts, deployContract } from '../../services/deployService.js';
 import { rateLimitMiddleware } from '../../middleware/rateLimiter.js';
 import { validateRequest } from '../../middleware/validation.js';
 import {
@@ -20,24 +20,39 @@ router.post(
   '/',
   rateLimitMiddleware('deploy'),
   validateRequest({ body: deployBodyV2 }, { format: 'httpError' }),
-  asyncHandler(async (req, res) => {
-    const { wasm_path, contract_name, network = 'testnet' } = req.body;
+  asyncHandler(async (req, res, next) => {
+    const {
+      wasm_path,
+      contract_name,
+      network = 'testnet',
+      source_account,
+    } = req.body;
 
-    setTimeout(() => {
-      const contract_id =
-        'C' + Math.random().toString(36).substring(2, 54).toUpperCase();
+    const contract = {
+      id: contract_name,
+      contractName: contract_name,
+      wasmPath: wasm_path,
+      network,
+      sourceAccount: source_account,
+    };
 
-      res.json({
+    try {
+      const result = await deployContract(contract);
+      return res.json({
         success: true,
         status: 'success',
-        contract_id,
+        contract_id: result.contractId,
         contract_name,
         network,
         wasm_path,
         deployed_at: new Date().toISOString(),
         message: `Contract "${contract_name}" deployed successfully to ${network}`,
       });
-    }, 1500);
+    } catch (error) {
+      return next(
+        createHttpError(502, 'Contract deployment failed', [error.message])
+      );
+    }
   })
 );
 
@@ -59,6 +74,9 @@ router.post(
           contracts: contracts.map((c) => ({
             wasmPath: c.wasm_path,
             contractName: c.contract_name,
+            network: c.network,
+            sourceAccount: c.source_account,
+            dependencies: c.dependencies,
           })),
         },
         { signal: controller.signal }
@@ -68,7 +86,7 @@ router.post(
       return res.json({
         success: true,
         batch_id: result.batchId,
-        deployments: result.deployments.map((d) => ({
+        deployments: (result.deployments || result.contracts || []).map((d) => ({
           contract_id: d.contractId,
           contract_name: d.contractName,
           status: d.status,
