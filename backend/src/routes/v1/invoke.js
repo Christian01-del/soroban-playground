@@ -4,6 +4,7 @@ import {
   createHttpError,
 } from '../../middleware/errorHandler.js';
 import { invokeSorobanContract } from '../../services/invokeService.js';
+const { buildCallGraph } = require('../../services/invokeService.js');
 import { rateLimitMiddleware } from '../../middleware/rateLimiter.js';
 import { validateRequest } from '../../middleware/validation.js';
 import { invokeBodyV1 } from '../../schemas/sorobanSchemas.js';
@@ -41,6 +42,7 @@ router.post(
         output: result.parsed,
         stdout: result.stdout,
         stderr: result.stderr,
+        graph: result.graph,
         message: `Function "${result.functionName}" invoked successfully`,
         invokedAt: result.endedAt,
       });
@@ -49,7 +51,13 @@ router.post(
         error?.message || 'Soroban invocation failed',
         error?.stderr ? `stderr: ${error.stderr}` : null,
       ].filter(Boolean);
-      return next(createHttpError(502, 'Invocation failed', details));
+      const httpError = createHttpError(502, 'Invocation failed', details);
+      if (error?.graph) {
+        httpError.graph = error.graph;
+      } else if (error?.stdout) {
+        httpError.graph = buildCallGraph({});
+      }
+      return next(httpError);
     }
   })
 );

@@ -1,6 +1,6 @@
 import config from '../config/index.js';
+import crypto from 'node:crypto';
 import { createSpan, getTraceId } from '../utils/tracing.js';
-import { createHash } from 'crypto';
 import {
   sorobanRpcCallDuration,
   sorobanRpcCallsTotal,
@@ -29,21 +29,16 @@ const HEALTH_CHECK_INTERVAL_MS = Number.parseInt(
   10
 );
 
-// Pre-flight simulation cache TTL (ms). Simulations are deterministic for a
-// given (ledger, tx) pair, so we cache results keyed by a content hash to
-// avoid redundant RPC round-trips during rapid iteration in the Playground.
-const SIMULATION_CACHE_TTL_MS = Number.parseInt(
-  process.env.RPC_SIMULATION_CACHE_TTL_MS || '30000',
-  10
-);
-const SIMULATION_CACHE_MAX_ENTRIES = Number.parseInt(
-  process.env.RPC_SIMULATION_CACHE_MAX_ENTRIES || '128',
-  10
-);
-
 // Latency tracking: EMA (exponential moving average) smoothing factor.
 // A value closer to 1 reacts quickly; closer to 0 smooths out spikes.
 const LATENCY_EMA_ALPHA = 0.25;
+
+// Bounded ring buffer size for recent RPC call records used by the
+// interactive transaction call-graph / stack-trace canvas (FE-EPIC-19).
+const RPC_CALL_HISTORY_LIMIT = Number.parseInt(
+  process.env.RPC_CALL_HISTORY_LIMIT || '500',
+  10
+);
 
 // ─── Endpoint selection heuristics ───────────────────────────────────────────
 
@@ -126,9 +121,12 @@ class SorobanRpcManager {
     // Running totals for aggregate metrics
     this._totalRequests = 0;
     this._totalFailures = 0;
-    // Pre-flight simulation cache (FE-EPIC-18)
-    this._simulationCache = new Map();
-    this._simulationStats = { hits: 0, misses: 0, evictions: 0 };
+
+    // Bounded history of RPC call frames for the interactive call-graph
+    // canvas (FE-EPIC-19). Each entry is a normalized "frame" describing
+    // a single RPC invocation, its parent, gas/ledger metadata, and error.
+    this._callHistory = [];
+    this._callHistoryLimit = RPC_CALL_HISTORY_LIMIT;
 
     if (process.env.NODE_ENV !== 'test') this.startHealthChecks();
   }
@@ -148,6 +146,97 @@ class SorobanRpcManager {
         ep.state = CIRCUIT_STATES.HALF_OPEN;
       }
     }
+  }
+
+  /**
+   * Record a single RPC call frame into the bounded call history.
+   * Frames are consumed by the frontend call-graph canvas to render
+   * hierarchical execution flows and pinpoint error causes.
+   */
+  _recordCallFrame(frame) {
+    if (!frame || typeof frame !== 'object') return;
+    this._callHistory.push(frame);
+    if (this._callHistory.length > this._callHistoryLimit) {
+      this._callHistory.splice(
+        0,
+        this._callHistory.length - this._callHistoryLimit
+      );
+    }
+  }
+
+  /**
+   * Build a normalized call frame from an RPC invocation result/error.
+   * Extracts Soroban-specific metadata (ledger, gas, contract id, method)
+   * when present so the canvas can render gas consumption per frame.
+   */
+  _buildCallFrame({
+    id,
+    parentId,
+    endpoint,
+    method,
+    status,
+    durationMs,
+    error,
+    result,
+    traceId,
+  }) {
+    const meta = (result && result.meta) || (result && result.diagnosticEvents) || {};
+    const contractId =
+      meta.contractId ||
+      (result && result.contractId) ||
+      (result && result.resultMeta && result.resultMeta.contractId) ||
+      null;
+    const gasUsed =
+      (meta && typeof meta.gasUsed === 'number' && meta.gasUsed) ||
+      (result && typeof result.gasUsed === 'number' && result.gasUsed) ||
+      (result && result.cost && typeof result.cost.cpuInsns === 'number'
+        ? result.cost.cpuInsns
+        : null);
+    const ledger =
+      (result && result.latestLedger) ||
+      (result && result.ledger) ||
+      (meta && meta.ledger) ||
+      null;
+
+    return {
+      id,
+      parentId: parentId || null,
+      endpoint,
+      method: method || 'unknown',
+      status,
+      durationMs,
+      contractId,
+      gasUsed,
+      ledger,
+      traceId: traceId || null,
+      error: error
+        ? {
+            message: error.message || String(error),
+            name: error.name || 'Error',
+            code: error.code || null,
+          }
+        : null,
+      timestamp: Date.now(),
+    };
+  }
+
+  /**
+   * Return a snapshot of the recorded call frames for the call-graph canvas.
+   * Optionally filter by traceId to isolate a single transaction's flow.
+   */
+  getCallGraph(traceId) {
+    const frames = traceId
+      ? this._callHistory.filter((f) => f.traceId === traceId)
+      : this._callHistory.slice();
+    return {
+      traceId: traceId || null,
+      frameCount: frames.length,
+      frames,
+    };
+  }
+
+  clearCallGraph() {
+    this._callHistory = [];
   }
 
   tripCircuitBreaker(ep) {
@@ -263,6 +352,8 @@ class SorobanRpcManager {
 
       const callStartHr = process.hrtime();
       const callStart = Date.now();
+      const frameId = crypto.randomUUID();
+      const frameMethod = 'executeRpcCall';
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
@@ -295,6 +386,20 @@ class SorobanRpcManager {
           ep.isHealthy = true;
           this.activeEndpointIndex = idx;
 
+          this._recordCallFrame(
+            this._buildCallFrame({
+              id: frameId,
+              parentId: null,
+              endpoint: ep.url,
+              method: frameMethod,
+              status: 'success',
+              durationMs: elapsed,
+              error: null,
+              result,
+              traceId: activeTraceId,
+            })
+          );
+
           span?.setStatus?.({ code: 1 });
           span?.end?.();
           return result;
@@ -323,6 +428,20 @@ class SorobanRpcManager {
         ) {
           this.tripCircuitBreaker(ep);
         }
+
+        this._recordCallFrame(
+          this._buildCallFrame({
+            id: frameId,
+            parentId: null,
+            endpoint: ep.url,
+            method: frameMethod,
+            status: 'error',
+            durationMs: Math.round(durationSec * 1000),
+            error: err,
+            result: null,
+            traceId: activeTraceId,
+          })
+        );
       }
     }
 
@@ -333,167 +452,6 @@ class SorobanRpcManager {
     span?.recordException?.(lastError || new Error(errorMsg));
     span?.end?.();
     throw new Error(errorMsg);
-  }
-
-  // ─── Pre-flight simulation engine (FE-EPIC-18) ─────────────────────────────
-
-  /**
-   * Build a stable cache key for a simulation request. The key incorporates
-   * the RPC method, the serialized transaction envelope, and the ledger
-   * sequence so stale results are never served across ledger boundaries.
-   */
-  _simulationCacheKey(method, params) {
-    const payload = JSON.stringify({ method, params });
-    return createHash('sha256').update(payload).digest('hex');
-  }
-
-  _pruneSimulationCache(now) {
-    for (const [key, entry] of this._simulationCache) {
-      if (entry.expiresAt <= now) {
-        this._simulationCache.delete(key);
-      }
-    }
-    while (this._simulationCache.size > SIMULATION_CACHE_MAX_ENTRIES) {
-      const oldestKey = this._simulationCache.keys().next().value;
-      this._simulationCache.delete(oldestKey);
-      this._simulationStats.evictions += 1;
-    }
-  }
-
-  /**
-   * Normalize a raw `simulateTransaction` RPC result into the resource
-   * profile consumed by the frontend Gas Visualizer. All numeric fields are
-   * coerced to safe integers; missing fields default to 0 so the UI never
-   * renders `undefined`.
-   */
-  buildResourceProfile(rawResult) {
-    const cost = rawResult?.cost || {};
-    const cpuInsns = Number(cost.cpuInsns ?? rawResult?.cpuInsns ?? 0);
-    const memBytes = Number(cost.memBytes ?? rawResult?.memBytes ?? 0);
-
-    const footprint = rawResult?.transactionData?.resources?.footprint || {};
-    const readOnly = Array.isArray(footprint.readOnly)
-      ? footprint.readOnly.length
-      : 0;
-    const readWrite = Array.isArray(footprint.readWrite)
-      ? footprint.readWrite.length
-      : 0;
-
-    const minResourceFee = Number(rawResult?.minResourceFee ?? 0);
-
-    return {
-      cpuInstructions: Number.isFinite(cpuInsns) ? cpuInsns : 0,
-      ramBytes: Number.isFinite(memBytes) ? memBytes : 0,
-      ledgerEntries: {
-        readOnly,
-        readWrite,
-        total: readOnly + readWrite,
-      },
-      feeEstimate: {
-        minResourceFee: Number.isFinite(minResourceFee) ? minResourceFee : 0,
-        // Stellar base fee per operation (100 stroops) is a useful floor for
-        // the UI to display alongside the resource fee.
-        baseFee: 100,
-        totalFee:
-          (Number.isFinite(minResourceFee) ? minResourceFee : 0) + 100,
-      },
-      latestLedger: rawResult?.latestLedger ?? null,
-      events: Array.isArray(rawResult?.events) ? rawResult.events : [],
-      error: rawResult?.error || null,
-    };
-  }
-
-  /**
-   * Execute a pre-flight `simulateTransaction` against the best available
-   * endpoint. Results are cached for SIMULATION_CACHE_TTL_MS keyed by the
-   * transaction envelope so repeated Playground runs are cheap.
-   *
-   * @param {string} transactionXdr - base64-encoded TransactionEnvelope XDR.
-   * @param {object} [options]
-   * @param {boolean} [options.skipCache] - bypass the cache read.
-   * @returns {Promise<object>} normalized resource profile.
-   */
-  async simulateTransaction(transactionXdr, options = {}) {
-    if (!transactionXdr || typeof transactionXdr !== 'string') {
-      throw new Error('simulateTransaction requires a transaction XDR string');
-    }
-
-    const params = {
-      transaction: transactionXdr,
-      resourceConfig: options.resourceConfig || undefined,
-    };
-    const cacheKey = this._simulationCacheKey('simulateTransaction', params);
-    const now = Date.now();
-
-    if (!options.skipCache) {
-      const cached = this._simulationCache.get(cacheKey);
-      if (cached && cached.expiresAt > now) {
-        this._simulationStats.hits += 1;
-        return { ...cached.profile, cached: true };
-      }
-      if (cached) this._simulationCache.delete(cacheKey);
-    }
-
-    this._simulationStats.misses += 1;
-
-    const rawResult = await this.executeRpcCall(async (url, extra) => {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          ...(extra || {}),
-        },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: Date.now(),
-          method: 'simulateTransaction',
-          params: [params],
-        }),
-        signal: extra?.signal,
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status} from ${url}`);
-      }
-      const payload = await response.json();
-      if (payload.error) {
-        throw new Error(payload.error.message || 'simulateTransaction failed');
-      }
-      return payload.result;
-    });
-
-    const profile = this.buildResourceProfile(rawResult);
-    profile.cached = false;
-
-    this._pruneSimulationCache(now);
-    this._simulationCache.set(cacheKey, {
-      profile,
-      expiresAt: now + SIMULATION_CACHE_TTL_MS,
-    });
-
-    return profile;
-  }
-
-  getSimulationCacheStats() {
-    const now = Date.now();
-    this._pruneSimulationCache(now);
-    const total = this._simulationStats.hits + this._simulationStats.misses;
-    return {
-      size: this._simulationCache.size,
-      maxEntries: SIMULATION_CACHE_MAX_ENTRIES,
-      ttlMs: SIMULATION_CACHE_TTL_MS,
-      hits: this._simulationStats.hits,
-      misses: this._simulationStats.misses,
-      evictions: this._simulationStats.evictions,
-      hitRate:
-        total > 0
-          ? Number((this._simulationStats.hits / total).toFixed(4))
-          : 0,
-    };
-  }
-
-  clearSimulationCache() {
-    this._simulationCache.clear();
-    this._simulationStats = { hits: 0, misses: 0, evictions: 0 };
   }
 
   getStatus() {
@@ -529,8 +487,10 @@ class SorobanRpcManager {
         latencySamples: ep.latencySamples,
         lastLatencyMs: ep.lastLatencyMs,
       })),
-      // Pre-flight simulation cache stats (FE-EPIC-18)
-      simulationCache: this.getSimulationCacheStats(),
+      callGraph: {
+        frameCount: this._callHistory.length,
+        limit: this._callHistoryLimit,
+      },
     };
   }
 
@@ -549,8 +509,7 @@ class SorobanRpcManager {
     this.activeEndpointIndex = 0;
     this._totalRequests = 0;
     this._totalFailures = 0;
-    this._simulationCache.clear();
-    this._simulationStats = { hits: 0, misses: 0, evictions: 0 };
+    this._callHistory = [];
   }
 }
 
