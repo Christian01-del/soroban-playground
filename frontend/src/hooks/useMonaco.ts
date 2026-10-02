@@ -3,48 +3,69 @@ import type { RefObject } from "react";
 import type * as monaco from "monaco-editor";
 import { scheduleEditorLoad } from "@/lib/editorLoadScheduler";
 import { configureMonacoWorkers } from "@/lib/monacoWorkers";
-import { registerRustLanguage } from "@/lib/rustLanguage";
-import {
-  createRustLanguageWorkerClient,
-  type RustLanguageServiceStatus,
-} from "@/lib/rustLanguageWorker";
 import { getAppliedTheme } from "@/lib/theme/engine";
 import { MONACO_THEME_NAME, registerMonacoTheme } from "@/lib/theme/monaco";
 import { observeTheme } from "@/lib/theme/observe";
+import type { RustFormatDiagnostic } from "@/lib/rustfmtDiagnostics";
 import "monaco-editor/min/vs/style.css";
 
 interface UseMonacoProps {
   language: string;
   value: string;
   onChange: (value: string) => void;
+  onFormat?: (source?: string) => void;
+  formatDiagnostics?: RustFormatDiagnostic[];
 }
 
 interface UseMonacoResult {
   containerRef: RefObject<HTMLDivElement | null>;
   isEditorReady: boolean;
-  languageServiceStatus: RustLanguageServiceStatus | null;
 }
 
 export function useMonaco({
   language,
   value,
   onChange,
+  onFormat,
+  formatDiagnostics,
 }: UseMonacoProps): UseMonacoResult {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const modelRef = useRef<monaco.editor.ITextModel | null>(null);
-  const languageWorkerRef = useRef<ReturnType<
-    typeof createRustLanguageWorkerClient
-  > | null>(null);
+  const monacoRef = useRef<typeof import("monaco-editor") | null>(null);
+  const workerRef = useRef<Worker | null>(null);
   const onChangeRef = useRef(onChange);
+  const onFormatRef = useRef(onFormat);
   const valueRef = useRef(value);
   const [isEditorReady, setIsEditorReady] = useState(false);
-  const [languageServiceStatus, setLanguageServiceStatus] =
-    useState<RustLanguageServiceStatus | null>(null);
 
   useEffect(() => {
     onChangeRef.current = onChange;
   }, [onChange]);
+
+  useEffect(() => {
+    onFormatRef.current = onFormat;
+  }, [onFormat]);
+
+  useEffect(() => {
+    const model = modelRef.current;
+    const monacoAPI = monacoRef.current;
+    if (!isEditorReady || !model || !monacoAPI) return;
+
+    monacoAPI.editor.setModelMarkers(
+      model,
+      "rustfmt",
+      (formatDiagnostics ?? []).map((diagnostic) => ({
+        severity: monacoAPI.MarkerSeverity.Error,
+        startLineNumber: diagnostic.startLineNumber,
+        startColumn: diagnostic.startColumn,
+        endLineNumber: diagnostic.startLineNumber,
+        endColumn: diagnostic.startColumn + 1,
+        message: diagnostic.message,
+        source: "rustfmt",
+      })),
+    );
+  }, [formatDiagnostics, isEditorReady]);
 
   useEffect(() => {
     valueRef.current = value;
@@ -72,9 +93,9 @@ export function useMonaco({
           const rawMonaco = await import("monaco-editor");
           monacoAPI = (rawMonaco as any).default?.editor ? (rawMonaco as any).default : rawMonaco;
           if (disposed || !monacoAPI || !containerRef.current) return;
+          monacoRef.current = monacoAPI;
 
           configureMonacoWorkers();
-          if (language === "rust") registerRustLanguage(monacoAPI);
 
           // Register the design-token theme before the editor reads it.
           registerMonacoTheme(monacoAPI, getAppliedTheme() ?? "dark");
@@ -110,6 +131,15 @@ export function useMonaco({
           modelRef.current = editor.getModel() ?? null;
           setIsEditorReady(true);
 
+          editor.addAction({
+            id: "soroban.format-rust",
+            label: "Format Rust",
+            keybindings: [
+              monacoAPI.KeyMod.CtrlCmd | monacoAPI.KeyCode.KeyS,
+            ],
+            run: () => onFormatRef.current?.(modelRef.current?.getValue()),
+          });
+
           // Re-register the Monaco theme whenever the app theme changes so the
           // editor highlights stay aligned with the CSS tokens.
           stopObservingTheme = observeTheme((mode) => {
@@ -118,58 +148,55 @@ export function useMonaco({
             monacoAPI.editor.setTheme(MONACO_THEME_NAME);
           });
 
-          if (language === "rust") {
-            languageWorkerRef.current = createRustLanguageWorkerClient({
-              createWorker: () =>
-                new Worker(
-                  new URL("../workers/rust-analyzer.worker.ts", import.meta.url),
-                  { type: "module", name: "soroban-rust-language-service" },
-                ),
-              onStatusChange: setLanguageServiceStatus,
-              onDiagnostics: (uri, diagnostics) => {
-                const model = monacoAPI!.editor
-                  .getModels()
-                  .find((candidate) => candidate.uri.toString() === uri);
-                if (!model) return;
+          const worker = new Worker(new URL("../workers/rustAnalyzer.worker.ts", import.meta.url));
+          workerRef.current = worker;
 
-                const markers: monaco.editor.IMarkerData[] = diagnostics.map(
-                  (diagnostic) => ({
-                    severity:
-                      diagnostic.severity === "error"
-                        ? monacoAPI!.MarkerSeverity.Error
-                        : diagnostic.severity === "warning"
-                          ? monacoAPI!.MarkerSeverity.Warning
-                          : monacoAPI!.MarkerSeverity.Info,
-                    startLineNumber: diagnostic.startLineNumber,
-                    startColumn: diagnostic.startColumn,
-                    endLineNumber: diagnostic.endLineNumber,
-                    endColumn: diagnostic.endColumn,
-                    message: diagnostic.message,
-                  }),
-                );
+          worker.onmessage = (event: MessageEvent) => {
+            const { uri, diagnostics } = event.data;
+            if (!modelRef.current || modelRef.current.uri.toString() !== uri) {
+              return;
+            }
 
-                monacoAPI!.editor.setModelMarkers(model, "rustAnalyzer", markers);
-              },
-            });
-          }
+            const markers: monaco.editor.IMarker[] = diagnostics.map((diagnostic: any) => ({
+              severity:
+                diagnostic.severity === "error"
+                  ? monacoAPI!.MarkerSeverity.Error
+                  : diagnostic.severity === "warning"
+                    ? monacoAPI!.MarkerSeverity.Warning
+                    : monacoAPI!.MarkerSeverity.Info,
+              startLineNumber: diagnostic.startLineNumber,
+              startColumn: diagnostic.startColumn,
+              endLineNumber: diagnostic.endLineNumber,
+              endColumn: diagnostic.endColumn,
+              message: diagnostic.message,
+            }));
+
+            monacoAPI!.editor.setModelMarkers(
+              modelRef.current,
+              "rustAnalyzer",
+              markers,
+            );
+          };
 
           editor.onDidChangeModelContent(() => {
-            const model = modelRef.current;
-            const currentValue = model?.getValue();
-            if (model && currentValue !== undefined) {
+            if (modelRef.current) {
+              monacoAPI!.editor.setModelMarkers(modelRef.current, "rustfmt", []);
+            }
+            const currentValue = modelRef.current?.getValue();
+            if (currentValue !== undefined) {
               onChangeRef.current(currentValue);
-              languageWorkerRef.current?.analyze(
-                model.uri.toString(),
-                currentValue,
-              );
+              workerRef.current?.postMessage({
+                uri: modelRef.current?.uri.toString(),
+                code: currentValue,
+              });
             }
           });
 
           if (modelRef.current) {
-            languageWorkerRef.current?.analyze(
-              modelRef.current.uri.toString(),
-              modelRef.current.getValue(),
-            );
+            workerRef.current.postMessage({
+              uri: modelRef.current.uri.toString(),
+              code: modelRef.current.getValue(),
+            });
           }
         } catch (error) {
           console.error("Failed to initialize Monaco editor", error);
@@ -186,12 +213,15 @@ export function useMonaco({
         stopObservingTheme();
         stopObservingTheme = undefined;
       }
-      languageWorkerRef.current?.dispose();
-      languageWorkerRef.current = null;
+      if (workerRef.current) {
+        workerRef.current.terminate();
+        workerRef.current = null;
+      }
       if (editorRef.current) {
         editorRef.current.dispose();
         editorRef.current = null;
       }
+      monacoRef.current = null;
       if (modelRef.current) {
         modelRef.current.dispose();
         modelRef.current = null;
@@ -201,5 +231,5 @@ export function useMonaco({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return { containerRef, isEditorReady, languageServiceStatus };
+  return { containerRef, isEditorReady };
 }
