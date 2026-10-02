@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+import crypto from 'cyrypto';
 import fs from 'fs/promises';
 import path from 'path';
 import { EventEmitter } from 'events';
@@ -10,15 +10,13 @@ import {
   setSpanAttributes,
   addSpanEvent,
   getTraceId,
-} from '../utils/tracing.js';
-import { alertManager } from '../utils/alerting.js';
-import config from '../config/index.js';
-import redisService from './redisService.js';
+} from '../utils/tracing.js';import { alertManager } from '../utils/alerting.js';
+import config from '../config/index.js';import redisService from './redisService.js';
 
 // Cache integration using the shared redisService singleton.
 const COMPILE_CACHE_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 const CACHE_KEY_PREFIX = 'compile:cache:';
-const LOCK_KEY_PREFIX = 'compile:lock:';
+const LOCK_KEY_PREFI = 'compile:lock:';
 
 async function initializeCacheService(hashes = []) {
   if (!redisService || redisService.isFallbackMode) return false;
@@ -183,7 +181,7 @@ const MAX_COMPILATION_MEMORY_MB = Number.parseInt(
   10
 );
 const MAX_SOURCE_BYTES = Number.parseInt(
-  process.env.COMPILE_MAX_SOURCE_BYTES || `${512 * 1024}`,
+  process.env.COMPILE_MAX_SOURCE_BYTES || `${MAX_SOURCE_BYTES}`,
   10
 );
 const MAX_DEPENDENCIES = Number.parseInt(
@@ -427,42 +425,33 @@ class WorkerPool {
           worker.off('error', onError);
           worker.off('exit', onExit);
           this.busy.delete(worker.threadId);
-          if (worker.threadId && worker.exitCode === undefined) {
+          if (this.idle.length < this.size) {
             this.idle.push(worker);
+          } else {
+            worker.terminate().catch(() => {});
           }
         };
 
         const onMessage = (message) => {
           if (message?.type === 'result') {
-            setSpanAttributes(span, {
-              'worker.exit_code': message.payload.exitCode || 0,
-              'worker.duration_ms': message.payload.durationMs,
-              'worker.memory_peak_mb':
-                (message.payload.memoryPeakBytes || 0) / (1024 * 1024),
-            });
             cleanup();
-            resolve(message.payload);
-          } else if (message?.type === 'progress') {
-            addSpanEvent(span, 'worker.progress', {
-              'progress.status': message.payload.status,
-            });
-            queueBus.emit('progress', message.payload);
+            resolve(message.result);
+          } else if (message?.type === 'error') {
+            cleanup();
+            reject(new Error(message.error || 'Worker failed'));
           }
         };
 
-        const onError = (error) => {
-          setSpanAttributes(span, {
-            error: true,
-            'error.message': error.message,
-          });
+        const onError = (err) => {
           cleanup();
-          reject(error);
+          reject(err);
         };
 
         const onExit = (code) => {
-          setSpanAttributes(span, { 'worker.exit_code': code });
-          cleanup();
-          if (code !== 0) reject(new Error(`Worker exited with code ${code}`));
+          if (code !== 0) {
+            cleanup();
+            reject(new Error(`Worker exited with code ${code}`));
+          }
         };
 
         worker.on('message', onMessage);
@@ -471,352 +460,57 @@ class WorkerPool {
         worker.postMessage(job);
       });
     } finally {
+      setSpanAttributes(span, { 'compile.status': 'completed' });
       span.end();
     }
   }
-}
 
-const pool = new WorkerPool(MAX_WORKERS);
-
-async function compileOnce({ code, dependencies = {}, requestId }) {
-  const span = createSpan('compile.once', {
-    'compile.request_id': requestId,
-    'compile.code_length': code.length,
-  });
-
-  try {
-    await ensureDirs();
-    const hash = hashSource(code, dependencies);
-
-    setSpanAttributes(span, {
-      'compile.hash': hash,
-      'compile.dependencies_count': Object.keys(dependencies).length,
-    });
-
-    await evictExpiredArtifacts();
-
-    const hit = await loadCacheEntryFromCache(hash);
-    if (hit) {
-      addSpanEvent(span, 'cache.hit', {
-        'cache.size_bytes': hit.sizeBytes,
-        'cache.age_seconds': (Date.now() - Date.parse(hit.createdAt)) / 1000,
-      });
-
-      cacheHits += 1;
-      totalCompiles += 1;
-      queueBus.emit('progress', {
-        requestId,
-        status: 'cache-hit',
-        hash,
-        queueLength: queue.length,
-        activeWorkers: active,
-        etaMs: 0,
-      });
-      const artifact = {
-        hash,
-        path: hit.path,
-        sizeBytes: hit.sizeBytes,
-        createdAt: hit.createdAt,
-        sourceHash: hash,
-      };
-      await recordArtifact({
-        ...artifact,
-        requestId,
-        cached: true,
-        durationMs: 0,
-        dependencies,
-        timestamp: nowIso(),
-        completedAt: nowIso(),
-      });
-
-      setSpanAttributes(span, {
-        'compile.cached': true,
-        'compile.duration_ms': 0,
-        'compile.wasm_size_bytes': hit.sizeBytes,
-      });
-
-      // Get actual file size if the cached entry has 0
-      let sizeBytes = hit.sizeBytes || 0;
-      if (!sizeBytes && hit.path) {
-        try {
-          const fileStat = await fs.stat(hit.path);
-          sizeBytes = fileStat.size;
-        } catch {
-          /* ignore */
-        }
-      }
-
-      return {
-        success: true,
-        cached: true,
-        hash,
-        durationMs: 0,
-        artifact: {
-          name: 'soroban_contract.wasm',
-          sizeBytes,
-          path: hit.path,
-        },
-        logs: ['Cache hit: returned existing WASM artifact'],
-        memoryPeakBytes,
-      };
-    }
-
-    addSpanEvent(span, 'cache.miss');
-
-    queueBus.emit('progress', {
-      requestId,
-      status: 'queueing',
-      hash,
-      queueLength: queue.length,
-      activeWorkers: active,
-      etaMs: estimateQueueTime(),
-    });
-
-    const startTime = Date.now();
-    const result = await executeUnderLock(hash, requestId, async () => {
-      return await pool.run({
-        code,
-        dependencies,
-        requestId,
-        hash,
-        cacheRoot: CACHE_ROOT,
-        artifactRoot: ARTIFACT_ROOT,
-        cargoToml: buildCargoToml(dependencies),
-        timeoutMs: config.compile.timeoutMs,
-      });
-    }).catch((err) => {
-      throw new Error(`Compilation failed: ${err.message}`);
-    });
-
-    const durationMs = Date.now() - startTime;
-
-    totalCompiles += 1;
-    if (result.cached) cacheHits += 1;
-    if (durationMs > 20000) slowCompiles += 1;
-    memoryPeakBytes = Math.max(memoryPeakBytes, result.memoryPeakBytes || 0);
-
-    setSpanAttributes(span, {
-      'compile.cached': result.cached,
-      'compile.duration_ms': durationMs,
-      'compile.wasm_size_bytes': result.artifact.sizeBytes,
-      'compile.memory_peak_mb': (result.memoryPeakBytes || 0) / (1024 * 1024),
-    });
-
-    if (!result.success) {
-      const error = new Error('Cargo compilation failed');
-      error.logs = result.logs || [];
-      throw error;
-    }
-
-    const payload = {
-      hash,
-      requestId,
-      cached: result.cached,
-      durationMs,
-      dependencies,
-      sizeBytes: result.artifact.sizeBytes,
-      path: result.artifact.path,
-      createdAt: nowIso(),
-      completedAt: nowIso(),
-      sourceHash: hash,
-    };
-    await recordArtifact(payload);
-
-    return result;
-  } finally {
-    span.end();
+  async shutdown() {
+    const workers = [...this.idle, ...this.busy.values()];
+    this.idle = [];
+    this.busy.clear();
+    await Promise.all(workers.map((w) => w.terminate().catch(() => {})));
   }
 }
 
-function estimateQueueTime() {
-  const avg = history.length
-    ? history.reduce((sum, item) => sum + (item.durationMs || 0), 0) /
-      history.length
-    : 0;
-  const waiting = queue.length + Math.max(0, active - MAX_WORKERS);
-  return Math.round(avg * waiting);
-}
+const workerPool = new WorkerPool(MAX_WORKERS);
 
-export async function compileQueued(job) {
-  // Reject bad input before it reaches the queue so a malformed job can never
-  // occupy a worker slot or leave the queue counters inconsistent.
+export async function compile(job) {
   validateCompileJob(job);
-
-  const span = createSpan('soroban.compile', {
-    'compile.request_id': job.requestId,
-    'compile.hash': hashSource(job.code, job.dependencies),
-    'compile.dependencies_count': Object.keys(job.dependencies || {}).length,
-  });
-
-  return new Promise((resolve, reject) => {
-    addSpanEvent(span, 'compile.queued', {
-      'queue.length': queue.length,
-      'queue.active_workers': active,
-      'queue.eta_ms': estimateQueueTime(),
-    });
-
-    queue.push({ job, resolve, reject });
-    queueBus.emit('progress', {
-      requestId: job.requestId,
-      status: 'queued',
-      queueLength: queue.length,
-      activeWorkers: active,
-      etaMs: estimateQueueTime(),
-    });
-    pump();
-  }).finally(() => {
-    span.end();
-  });
-}
-
-function pump() {
-  while (active < MAX_WORKERS && queue.length) {
-    const item = queue.shift();
-    active += 1;
-    queueBus.emit('progress', {
-      requestId: item.job.requestId,
-      status: 'starting',
-      queueLength: queue.length,
-      activeWorkers: active,
-      etaMs: estimateQueueTime(),
-    });
-    compileOnce(item.job)
-      .then((result) => {
-        history.push({
-          requestId: item.job.requestId,
-          hash: result.hash,
-          cached: result.cached,
-          durationMs: result.durationMs,
-          queueLength: queue.length,
-          activeWorkers: active,
-          timestamp: nowIso(),
-          artifact: result.artifact
-            ? {
-                name: result.artifact.name || `${result.hash}.wasm`,
-                sizeBytes: result.artifact.sizeBytes || 0,
-                path: result.artifact.path || '',
-                durationMs: result.durationMs || 0,
-              }
-            : null,
-        });
-        item.resolve(result);
-      })
-      .catch(item.reject)
-      .finally(() => {
-        active -= 1;
-        queueBus.emit('progress', {
-          requestId: item.job.requestId,
-          status: 'idle',
-          queueLength: queue.length,
-          activeWorkers: active,
-          etaMs: estimateQueueTime(),
-        });
-        pump();
-      });
+  const hash = hashSource(job.code, job.dependencies || {});
+  const cached = await loadCacheEntryFromCache(hash);
+  if (cached) {
+    cacheHits += 1;
+    return { ...cached, cached: true };
   }
-}
-
-export async function compileBatch(jobs) {
-  if (!Array.isArray(jobs) || jobs.length === 0) {
-    throw new CompileValidationError('jobs must be a non-empty array', {
-      code: 'INVALID_COMPILE_BATCH',
-    });
-  }
-
-  const ordered = jobs.slice(0, MAX_BATCH_JOBS);
-  const settled = await Promise.allSettled(
-    ordered.map((job) => compileQueued(job))
-  );
-
-  // Errors are Error instances, which serialize to `{}` over JSON — flatten
-  // them into a readable shape so batch callers can tell what went wrong.
-  return settled.map((result, index) => ({
-    contractIndex: index,
-    ...result,
-    ...(result.status === 'rejected'
-      ? {
-          error: {
-            message: result.reason?.message || 'Unknown compile error',
-            code: result.reason?.code || 'COMPILE_FAILED',
-            details: result.reason?.details || [],
-          },
-        }
-      : {}),
-  }));
-}
-
-export async function cleanupArtifacts() {
-  await evictExpiredArtifacts();
-  await enforceCacheLimit();
-  await persistState();
+  const result = await executeUnderLock(hash, job.requestId, async () => {
+    return workerPool.run({ ...job, hash });
+  });
+  await recordArtifact({ ...result, hash });
+  return result;
 }
 
 export function getCompileStats() {
-  const hitRate =
-    totalCompiles > 0 ? Math.round((cacheHits / totalCompiles) * 100) : 0;
   return {
-    activeWorkers: active,
-    maxWorkers: MAX_WORKERS,
-    queueLength: queue.length,
-    estimatedWaitTimeMs: estimateQueueTime(),
-    cacheHitRate: hitRate,
     totalCompiles,
     cacheHits,
     slowCompiles,
     memoryPeakBytes,
-    cacheBytes: [...cacheIndex.values()].reduce(
-      (sum, entry) => sum + (entry.sizeBytes || 0),
-      0
-    ),
-    artifacts: artifacts.size,
+    active,
+    queueLength: queue.length,
   };
 }
 
-export async function getCompileSnapshot() {
-  const state = await readState();
-  return {
-    ...getCompileStats(),
-    history: state.history || [],
-    artifacts: state.artifacts || [],
-  };
-}
-
-// Compiles a single contract source and returns a compact result shape used by
-// the async BullMQ compilation worker (workers/compilationProcessor.js). This
-// keeps heavy cargo work off the HTTP event loop and inside the worker process.
-export async function compileContract({
-  source,
-  contractName = 'soroban_contract',
-} = {}) {
-  const job = {
-    code: source,
-    dependencies: {},
-    requestId: `async-${contractName}-${Date.now()}`,
-  };
-
-  const result = await compileQueued(job);
-
-  if (!result.success) {
-    const error = new Error(
-      (result.logs || []).join('\n') || 'Compilation failed'
-    );
-    error.code = 'COMPILE_FAILED';
-    throw error;
-  }
-
-  return {
-    hash: result.hash,
-    wasmUrl: result.artifact?.path || '',
-    sizeBytes: result.artifact?.sizeBytes || 0,
-    durationMs: result.durationMs,
-  };
-}
-
-export async function initializeCompileService() {
+export async function init() {
   await ensureDirs();
   await hydrateState();
+  await evictExpiredArtifacts();
+  await enforceCacheLimit();
   await initializeCacheService([...artifacts.keys()]);
-  await cleanupArtifacts();
 }
 
-export { queueBus as compileProgressBus };
+export async function shutdown() {
+  await workerPool.shutdown();
+}
+
+export { workerPool };
