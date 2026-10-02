@@ -4,16 +4,16 @@
 /**
  * Workspace cloud sync — issue #1526.
  *
- * `GET  /api/workspace`           read the wallet's snapshot
- * `POST /api/workspace`           write a snapshot (server merges, never clobbers)
+ * `GET  /api/workspace`          read the wallet's snapshot
+ * `POST /api/workspace`         write a snapshot (server merges, never clobers)
  * `GET  /api/workspace/history`   read only the history log
  *
  * The server is intentionally a *merging* replica rather than a last-write-wins
  * blob: a client that has been offline for a week can push a whole snapshot
  * without erasing edits made on another device. `favorites` are unioned, the
- * history log is appended (deduplicated by entry id) and the `workspace`
+ * history log is appended (deduplicated by entry id) and the `workspace
  * document is resolved with last-write-wins on the client-supplied
- * `updatedAt`/`deviceId`, matching `frontend/src/lib/offline/conflict.ts`.
+ * `updatedAt/deviceId`, matching `frontend/src/lib/offline/conflict.ts`.
  *
  * `baseRevision` gives optimistic concurrency: a client that read revision N and
  * writes without having seen N's successors is answered with `409` plus the
@@ -24,22 +24,18 @@ import express from 'express';
 import { asyncHandler, createHttpError } from '../middleware/errorHandler.js';
 import { getDatabase } from '../database/connection.js';
 import { requireTenantContext } from '../middleware/tenantContext.js';
+import {
+  normalizeWorkspace,
+  mergeWorkspace,
+  validateWorkspace,
+  WORKSPACE_LIMITS,
+} from '../services/workspaceService.js';
 
 const router = express.Router();
 
-/** Matches `backend/src/lib/…` storage caps on the client. */
+/** Matches `backend/src/lib/…& storage caps on the client. */
 const HISTORY_CAPACITY = 200;
 const FAVORITES_CAPACITY = 500;
-const WORKSPACE_KEYS = [
-  'openFiles',
-  'activeFile',
-  'network',
-  'pinnedPresetIds',
-  'pinnedSnippetIds',
-  'sidebarCollapsed',
-  'fontSize',
-  'splitRatio',
-];
 const STELLAR_ADDRESS_RE = /^G[A-Z0-9]{55}$/;
 
 function requireAuth(req, _res, next) {
@@ -115,26 +111,6 @@ function historyArray(value) {
   return entries.slice(Math.max(0, entries.length - HISTORY_CAPACITY));
 }
 
-function workspaceObject(value) {
-  const input = value && typeof value === 'object' ? value : {};
-  const out = {};
-  for (const key of WORKSPACE_KEYS) {
-    if (Object.prototype.hasOwnProperty.call(input, key)) {
-      out[key] = input[key];
-    }
-  }
-  if (Array.isArray(out.openFiles)) {
-    out.openFiles = stringArray(out.openFiles, 50);
-  }
-  if (Array.isArray(out.pinnedPresetIds)) {
-    out.pinnedPresetIds = stringArray(out.pinnedPresetIds, 100);
-  }
-  if (Array.isArray(out.pinnedSnippetIds)) {
-    out.pinnedSnippetIds = stringArray(out.pinnedSnippetIds, 100);
-  }
-  return out;
-}
-
 function emptySnapshot() {
   return {
     favorites: [],
@@ -160,7 +136,7 @@ async function readSnapshot(tenantId, walletAddress) {
       FAVORITES_CAPACITY
     ),
     history: historyArray(parseJsonColumn(row.history, [])),
-    workspace: workspaceObject(parseJsonColumn(row.workspace, {})),
+    workspace: normalizeWorkspace(parseJsonColumn(row.workspace, {})),
     updatedAt: Date.parse(row.updated_at) || 0,
     deviceId: typeof row.device_id === 'string' ? row.device_id : undefined,
     revision: Number.isInteger(row.revision) ? row.revision : 0,
@@ -257,10 +233,18 @@ router.post(
   requireAuth,
   asyncHandler(async (req, res, next) => {
     const body = req.body ?? {};
+
+    let incomingWorkspace;
+    try {
+      incomingWorkspace = validateWorkspace(body.workspace);
+    } catch (err) {
+      return next(createHttpError(400, err.message));
+    }
+
     const incoming = {
       favorites: stringArray(body.favorites, FAVORITES_CAPACITY),
       history: historyArray(body.history),
-      workspace: workspaceObject(body.workspace),
+      workspace: incomingWorkspace,
       updatedAt:
         typeof body.updatedAt === 'number' && Number.isFinite(body.updatedAt)
           ? body.updatedAt
@@ -287,9 +271,7 @@ router.post(
     const merged = {
       favorites: mergeFavorites(current.favorites, incoming.favorites),
       history: mergeHistory(current.history, incoming.history),
-      workspace: prefersIncoming(current, incoming)
-        ? incoming.workspace
-        : current.workspace,
+      workspace: mergeWorkspace(current.workspace, incoming.workspace),
       updatedAt: Math.max(current.updatedAt, incoming.updatedAt),
       deviceId:
         prefersIncoming(current, incoming) && incoming.deviceId !== undefined
@@ -310,3 +292,4 @@ router.post(
 );
 
 export default router;
+export { WORKSPACE_LIMITS };

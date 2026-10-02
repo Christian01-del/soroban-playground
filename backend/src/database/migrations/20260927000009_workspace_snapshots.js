@@ -1,10 +1,10 @@
-/**
+/*
  * Migration V009: Workspace cloud sync (issue #1526)
  *
  * One row per (tenant, wallet) holding the merged workspace snapshot:
  * favorites, the append-only deployment/compile history, and the editor
  * workspace document. `revision` gives clients an optimistic-concurrency token
- * so an offline device cannot silently clobber a newer snapshot.
+ * so an offline device cannot silently clober a newer snapshot.
  *
  * Uses the knex schema builder so it works with both SQLite and PostgreSQL.
  */

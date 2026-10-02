@@ -68,3 +68,23 @@ export const syncBatchSchema = v.object(
   },
   { strict: false }
 );
+
+
+/**
+ * Workspace cloud sync payload (multi-file contracts).
+ * The `workspace` document is a free-form map of editor state keyed by
+ * canonical keys (`openFiles`, `activeFile`, `files`, …). Validation of the
+ * inner document happens in `workspaceService.js` so the schema keeps
+ * the outer envelope loose and the service enforces the canonical shape.
+ */
+export const workspaceSyncSchema = v.object(
+  {
+    favorites: v.array().optional(),
+    history: v.array().optional(),
+    workspace: v.object().optional(),
+    updatedAt: v.number().optional(),
+    deviceId: v.string().optional().max(64),
+    baseRevision: v.number().optional().integer().min(0),
+  },
+  { strict: false }
+);
