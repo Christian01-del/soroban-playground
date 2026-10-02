@@ -175,7 +175,7 @@ export class ApiClient {
           this.recordFailure();
           attempt++;
 
-          if (attempt <= maxRetries && this.cbState !== 'OPEN') {
+          if (attempt <= maxRetries && this.getCircuitBreakerState() !== 'OPEN') {
             const backoff = Math.pow(2, attempt - 1) * this.retryDelayMs + Math.random() * 50;
             await new Promise((res) => setTimeout(res, backoff));
             continue;

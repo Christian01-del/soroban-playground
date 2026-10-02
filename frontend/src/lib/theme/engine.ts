@@ -130,16 +130,16 @@ export function resolveThemeState(
   matchMediaImplementation?: ((query: string) => MediaQueryList) | null,
 ): ThemeState {
   const stored = readStoredPreference(storage);
-  if (stored) {
-    return {
-      preference: stored,
-      mode: resolveThemeMode(stored, systemTheme(matchMediaImplementation)),
-      source: "stored",
-    };
+  const osTheme = systemTheme(matchMediaImplementation);
+
+  // An explicit light/dark choice is honoured and attributed to storage; a
+  // persisted "system" preference keeps following the OS and stays attributed
+  // to the system.
+  if (stored && stored !== "system") {
+    return { preference: stored, mode: resolveThemeMode(stored, osTheme), source: "stored" };
   }
 
-  const osTheme = systemTheme(matchMediaImplementation);
-  return { preference: "system", mode: osTheme, source: "system" };
+  return { preference: stored ?? "system", mode: osTheme, source: "system" };
 }
 
 /**
@@ -271,9 +271,10 @@ export function createThemeController(): ThemeController {
       return;
     }
     const stored = readStoredPreference();
-    const next: ThemeState = stored
-      ? { preference: stored, mode: resolveThemeMode(stored, systemTheme()), source: "stored" }
-      : { preference: "system", mode: systemTheme(), source: "system" };
+    const next: ThemeState =
+      stored && stored !== "system"
+        ? { preference: stored, mode: resolveThemeMode(stored, systemTheme()), source: "stored" }
+        : { preference: stored ?? "system", mode: systemTheme(), source: "system" };
     applyTheme(next.mode, doc);
     notify(next);
   };
