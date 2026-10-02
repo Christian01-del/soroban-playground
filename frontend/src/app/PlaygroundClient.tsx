@@ -9,27 +9,42 @@ import React, {
   useState,
 } from "react";
 import { useCompileStore } from "@/state/compileStore";
-import { findTemplate } from "@/lib/templates";
+import { selectIsCompiling } from "@/state/compileStore";
+import {
+  DEFAULT_API_BASE_URL,
+  DEFAULT_CODE,
+  selectAppendLog,
+  usePlaygroundStore,
+} from "@/state/playgroundStore";
+import EditorPane from "@/components/playground/EditorPane";
+import InvokePanel from "@/components/playground/InvokePanel";
+import OutputDrawer from "@/components/playground/OutputDrawer";
 import {
   Activity,
-  BookOpen,
   ChevronRight,
-  Code2,
   Globe,
   LoaderCircle,
   Orbit,
   Server,
   Sparkles,
 } from "lucide-react";
-import Editor from "@/components/Editor";
-import EditorHistoryPanel from "@/components/EditorHistoryPanel";
-import { parseCargoDiagnostics } from "@/utils/cargoDiagnostics";
-import type { CargoDiagnostic } from "@/utils/cargoDiagnostics";
-import { useEditorHistory } from "@/hooks/useEditorHistory";
+import dynamic from "next/dynamic";
+import MobileEditor from "@/components/MobileEditor";
+import { preloadMonacoEditor } from "@/lib/editorLoadScheduler";
+
+const TransactionCallGraphPanel = dynamic(
+  () => import("@/components/TransactionCallGraph"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="rounded-2xl border border-white/8 bg-white/5 p-4 text-xs text-slate-400">
+        Loading transaction call graph…
+      </div>
+    ),
+  },
+);
 import Console from "@/components/Console";
-import { ConsoleAndEventsDrawer } from "@/components/ConsoleAndEventsDrawer";
 import DeployPanel from "@/components/DeployPanel";
-import CallPanel from "@/components/CallPanel";
 import StorageViewer from "@/components/StorageViewer";
 import TransactionCallGraph from "@/components/TransactionCallGraph";
 import StorageTimeline from "@/components/StorageTimeline";
@@ -70,7 +85,6 @@ import SupplyChainPanel, {
   type QualityResult as SupplyChainQuality,
 } from "@/components/SupplyChainPanel";
 import LotteryDashboard from "@/components/LotteryDashboard";
-import ShareSnippet from "@/components/ShareSnippet";
 import { useWallet } from "@/components/providers/WalletProvider";
 import { useTransactionTracker } from "@/hooks/useTransactionTracker";
 import {
@@ -82,30 +96,6 @@ import {
   createInitialStorageTimelineState,
   storageTimelineReducer,
 } from "@/state/storageTimeline";
-import { parseContractAbiFromSource } from "@/utils/contractAbi";
-
-const DEFAULT_CODE = `#![no_std]
-use soroban_sdk::{contract, contractimpl, symbol_short, Env, Symbol};
-
-#[contract]
-pub struct HelloContract;
-
-#[contractimpl]
-impl HelloContract {
-    pub fn hello(_env: Env, name: Symbol) -> Symbol {
-        name
-    }
-
-    pub fn version(_env: Env) -> Symbol {
-        symbol_short!("v1")
-    }
-}
-`;
-
-const DEFAULT_API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ||
-  process.env.NEXT_PUBLIC_BACKEND_URL ||
-  "https://soroban-playground.onrender.com";
 
 type HealthState = "checking" | "online" | "offline";
 
@@ -117,7 +107,6 @@ type CompileResponse = {
   durationMs?: number;
   hash?: string;
   logs?: string[];
-  diagnostics?: unknown[];
   artifact?: {
     name: string;
     sizeBytes: number;
@@ -143,7 +132,6 @@ type ApiErrorPayload = {
   message?: string;
   statusCode?: number;
   details?: unknown;
-  logs?: string[];
 };
 
 type InvokeProgressEvent = {
@@ -279,38 +267,8 @@ export default function Home() {
     return preloadMonacoEditor();
   }, []);
 
-  const [code, setCode] = useState(DEFAULT_CODE);
-  const [loadedTemplateId, setLoadedTemplateId] = useState<string | null>(null);
-  const [logs, setLogs] = useState<string[]>([
-    `Soroban Playground ready.`,
-    `Frontend connected to ${DEFAULT_API_BASE_URL}`,
-  ]);
-
-  /**
-   * The template gallery links here as `/playground?template=<id>`. Resolve the
-   * id against the shared catalog so "Open in IDE" actually loads the source
-   * instead of silently keeping the default contract. Read from
-   * `window.location` rather than `useSearchParams` because this tree is
-   * client-only (`ssr: false`) and the hook would demand a Suspense boundary.
-   *
-   * Only the catalog's own sources are ever loaded: an unknown id is ignored so
-   * the query string cannot inject arbitrary text into the editor.
-   */
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const template = findTemplate(params.get("template"));
-
-    if (!template) {
-      return;
-    }
-
-    setCode(template.code);
-    setLoadedTemplateId(template.id);
-    setLogs((previous) => [
-      ...previous,
-      `Loaded template "${template.name}" into the editor.`,
-    ]);
-  }, []);
+  const appendLog = usePlaygroundStore(selectAppendLog);
+  const isCompiling = useCompileStore(selectIsCompiling);
   const [healthState, setHealthState] = useState<HealthState>("checking");
   const [healthMessage, setHealthMessage] = useState(
     "Checking backend health...",
@@ -318,7 +276,6 @@ export default function Home() {
   const [isIngestionPaused, setIsIngestionPaused] = useState(false);
   const [droppedMessages, setDroppedMessages] = useState(0);
 
-  const [isCompiling, setIsCompiling] = useState(false);
   const [hasCompiled, setHasCompiled] = useState(false);
   const [isDeploying, setIsDeploying] = useState(false);
   const [isInvoking, setIsInvoking] = useState(false);
@@ -361,11 +318,6 @@ export default function Home() {
 
   const [compileSummary, setCompileSummary] = useState<string>();
   const [compileError, setCompileError] = useState<string | null>(null);
-  const [diagnostics, setDiagnostics] = useState<CargoDiagnostic[]>([]);
-  const editorHistory = useEditorHistory(code, (restoredCode) => {
-    setCode(restoredCode);
-    setDiagnostics([]);
-  });
   const [compileStats, setCompileStats] = useState<CompileStats>({
     activeWorkers: 0,
     maxWorkers: 4,
@@ -398,10 +350,6 @@ export default function Home() {
   const [lastArtifactName, setLastArtifactName] =
     useState<string>("contract.wasm");
   const [lastDeployMessage, setLastDeployMessage] = useState<string>();
-  const [contractAbi, setContractAbi] = useState<
-    Array<{ name: string; inputs?: Array<{ name: string; type: string }> }>
-  >([]);
-
   const activeSnapshot = useMemo(
     () =>
       storageTimeline.currentIndex >= 0
@@ -462,14 +410,6 @@ export default function Home() {
   const [govProposals, setGovProposals] = useState<GovernanceProposal[]>([]);
   const [govVotingPower, setGovVotingPower] = useState(0);
   const [isGovLoading, setIsGovLoading] = useState(false);
-
-  const appendLog = useCallback((msg: string) => {
-    setLogs((prev) => [...prev, msg]);
-  }, []);
-
-  useEffect(() => {
-    setContractAbi(parseContractAbiFromSource(code));
-  }, [code]);
 
   const checkHealth = useCallback(async () => {
     setHealthState("checking");
@@ -620,7 +560,7 @@ export default function Home() {
       cancelled = true;
       wsRef.current?.close();
     };
-  }, []);
+  }, [appendLog]);
 
   async function requestJson<T>(path: string, body: Record<string, unknown>) {
     const response = await fetch(`${DEFAULT_API_BASE_URL}${path}`, {
@@ -639,20 +579,14 @@ export default function Home() {
         : typeof payload.details === "string"
           ? payload.details
           : "";
-      const error = new Error(
-        [payload.message, details].filter(Boolean).join(": "),
-      ) as Error & { details?: unknown };
-      error.details = payload.details ?? (payload.logs ? { logs: payload.logs } : undefined);
-      throw error;
+      throw new Error([payload.message, details].filter(Boolean).join(": "));
     }
 
     return payload;
   }
 
   const handleCompile = async () => {
-    setIsCompiling(true);
     setCompileError(null);
-    setDiagnostics([]);
     setCompileSummary(undefined);
     setHasCompiled(false);
     setContractId(undefined);
@@ -668,10 +602,9 @@ export default function Home() {
 
     try {
       const payload = await requestJson<CompileResponse>("/api/compile", {
-        code,
+        code: usePlaygroundStore.getState().code,
       });
       const compileLogs = payload.logs ?? [];
-      setDiagnostics(parseCargoDiagnostics(payload.diagnostics ?? compileLogs));
 
       setHasCompiled(true);
       setLastArtifactName(payload.artifact?.name ?? "contract.wasm");
@@ -703,22 +636,11 @@ export default function Home() {
       compileLogs.forEach((log) => appendLog(`[cargo] ${log}`));
     } catch (error) {
       const message = formatApiError(error);
-      const details =
-        error && typeof error === "object" && "details" in error
-          ? error.details
-          : undefined;
-      const failureLogs =
-        details && typeof details === "object" && "logs" in details
-          ? details.logs
-          : details;
-      setDiagnostics(parseCargoDiagnostics(failureLogs));
       setCompileError(message);
       appendLog(`[error] Compile failed: ${message}`);
 
       // Fail compilation in Zustand store
       useCompileStore.getState().failCompile(message);
-    } finally {
-      setIsCompiling(false);
     }
   };
 
@@ -744,7 +666,7 @@ export default function Home() {
       });
 
       setContractId(payload.contractId);
-      setContractAbi([]);
+      usePlaygroundStore.getState().resetContractAbi();
       setLastDeployMessage(payload.message);
       setStorage({
         contractName: payload.contractName,
@@ -2398,17 +2320,17 @@ export default function Home() {
     }
   };
 
-  const handleFormat = async () => {
+  const handleFormat = useCallback(async () => {
     try {
       const rustfmt = await import("rustfmt");
       // ensure we're accessing the format function properly, it might be a default export or named export
-      const formatted = rustfmt.format(code);
-      setCode(formatted);
+      const formatted = rustfmt.format(usePlaygroundStore.getState().code);
+      usePlaygroundStore.getState().setCode(formatted);
       appendLog("[editor] Code formatted successfully");
     } catch (error) {
       appendLog(`[error] Format failed: ${String(error)}`);
     }
-  };
+  }, [appendLog]);
 
   return (
     <div className="min-h-screen px-4 py-4 text-slate-100 sm:px-6 lg:px-8">
@@ -2501,85 +2423,13 @@ export default function Home() {
           </div>
         </header>
 
-        <main className="grid flex-1 gap-0 lg:grid-cols-[minmax(0,1fr)_440px]">
-          <section className="flex min-h-[560px] flex-col border-b border-white/8 p-4 lg:border-b-0 lg:border-r">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3 px-2">
-              <div>
-                <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
-                  <Code2 size={14} />
-                  Contract Editor
-                </p>
-                <p className="mt-1 text-sm text-slate-300">
-                  Edit `lib.rs`, then compile against the backend toolchain.
-                </p>
-              </div>
-              <a
-                href="https://developers.stellar.org/docs/build/smart-contracts/getting-started"
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:border-cyan-400/40 hover:text-cyan-200"
-              >
-                <BookOpen size={14} />
-                Soroban Docs
-              </a>
-            </div>
-            <Editor
-              code={code}
-              setCode={(value) => {
-                setCode(value);
-                setDiagnostics([]);
-              }}
-              diagnostics={diagnostics}
-            />
-            <EditorHistoryPanel
-              {...editorHistory}
-              currentCode={code}
-              onRestore={editorHistory.restoreSnapshot}
-              onResolveConflict={editorHistory.resolveConflict}
-            />
-          </section>
-
-          <aside className="flex flex-col gap-4 bg-slate-950/40 p-4">
-            <DeployPanel
-              onCompile={handleCompile}
-              onDeploy={handleDeploy}
-              isCompiling={isCompiling}
-              isDeploying={isDeploying}
-              hasCompiled={hasCompiled}
-              compileSummary={compileSummary}
-              compileError={compileError}
-              contractId={contractId}
-            />
-            <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
-                  Compile Metrics
-                </p>
-                <p className="text-xs text-slate-500">
-                  {compileStats.activeWorkers}/{compileStats.maxWorkers} workers
-                </p>
-              </div>
-              <div className="grid grid-cols-3 gap-2 text-xs text-slate-300">
-                <div className="rounded-xl border border-white/8 bg-slate-950/50 p-3">
-                  <p className="text-slate-500">Hit Rate</p>
-                  <p className="mt-1 text-lg font-semibold text-emerald-300">
-                    {compileStats.cacheHitRate}%
-                  </p>
-                </div>
-                <div className="rounded-xl border border-white/8 bg-slate-950/50 p-3">
-                  <p className="text-slate-500">Queue</p>
-                  <p className="mt-1 text-lg font-semibold text-cyan-300">
-                    {compileStats.queueLength}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-white/8 bg-slate-950/50 p-3">
-                  <p className="text-slate-500">Workers</p>
-                  <p className="mt-1 text-lg font-semibold text-orange-300">
-                    {compileStats.activeWorkers}
-                  </p>
-                </div>
-                <Editor code={code} setCode={setCode} />
-              </section>
+        <main className="flex-1">
+          <MobileEditor
+            editor={
+              <EditorPane
+                apiBaseUrl={DEFAULT_API_BASE_URL}
+                onFormat={handleFormat}
+              />
             }
             output={
               <aside className="flex flex-col gap-4 bg-slate-950/40 p-4">
@@ -2642,11 +2492,10 @@ export default function Home() {
                     </div>
                   </div>
                 </div>
-                <CallPanel
+                <InvokePanel
                   onInvoke={handleInvoke}
                   isInvoking={isInvoking}
                   contractId={contractId}
-                  abi={contractAbi}
                 />
                 <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
                   <div className="mb-3 flex items-center justify-between">
@@ -2901,9 +2750,7 @@ export default function Home() {
                   transactions={transactions}
                   onClear={clearTx}
                 />
-                <ConsoleAndEventsDrawer
-                  logs={logs}
-                  baseLineNumber={0}
+                <OutputDrawer
                   droppedMessages={droppedMessages}
                   isIngestionPaused={isIngestionPaused}
                   onIngestionPauseChange={setIsIngestionPaused}
