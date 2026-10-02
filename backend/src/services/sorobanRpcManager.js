@@ -1,5 +1,6 @@
 import config from '../config/index.js';
 import { createSpan, getTraceId } from '../utils/tracing.js';
+import { validateInvocationAuth } from '../utils/invocationAuth.js';
 import {
   sorobanRpcCallDuration,
   sorobanRpcCallsTotal,
@@ -31,6 +32,15 @@ const HEALTH_CHECK_INTERVAL_MS = Number.parseInt(
 // Latency tracking: EMA (exponential moving average) smoothing factor.
 // A value closer to 1 reacts quickly; closer to 0 smooths out spikes.
 const LATENCY_EMA_ALPHA = 0.25;
+
+// ─── Custom Invocation Authorization Matrix (require_auth) ───────────────────
+// In-browser test simulations may inject arbitrary invoker addresses, mock
+// signatures, and custom authorization trees. The mock engine below evaluates
+// a require_auth matrix locally so simulations do not hit the network.
+const AUTH_MATRIX_MAX_DEPTH = Number.parseInt(
+  process.env.AUTH_MATRIX_MAX_DEPTH || '8',
+  10
+);
 
 // ─── Endpoint selection heuristics ───────────────────────────────────────────
 
@@ -78,6 +88,124 @@ function updateLatencyEma(ep, observedMs) {
   ep.lastLatencyMs = observedMs;
 }
 
+// ─── Mock require_auth engine ────────────────────────────────────────────────
+
+/**
+ * Normalize a single authorization entry from the injected matrix.
+ * Accepts either a string invoker address or an object describing the
+ * required auth tree node.
+ */
+function normalizeAuthEntry(entry) {
+  if (typeof entry === 'string') {
+    return { invoker: entry, signature: null, subInvocations: [] };
+  }
+  if (!entry || typeof entry !== 'object') return null;
+  return {
+    invoker: entry.invoker ?? entry.address ?? null,
+    signature: entry.signature ?? entry.mockSignature ?? null,
+    contractId: entry.contractId ?? entry.contract ?? null,
+    fnName: entry.fnName ?? entry.fn ?? null,
+    subInvocations: Array.isArray(entry.subInvocations)
+      ? entry.subInvocations
+      : Array.isArray(entry.sub_invocations)
+        ? entry.sub_invocations
+        : [],
+  };
+}
+
+/**
+ * Recursively evaluate an authorization tree against the injected context.
+ * Returns { authorized, reason, matched } describing the outcome.
+ */
+function evaluateAuthNode(node, context, depth = 0) {
+  if (depth > AUTH_MATRIX_MAX_DEPTH) {
+    return { authorized: false, reason: 'AUTH_MATRIX_MAX_DEPTH_EXCEEDED' };
+  }
+  const normalized = normalizeAuthEntry(node);
+  if (!normalized) {
+    return { authorized: false, reason: 'INVALID_AUTH_ENTRY' };
+  }
+
+  const { invoker, signature, contractId, fnName, subInvocations } = normalized;
+  const allowedInvokers = context.invokers || [];
+  const allowedSignatures = context.signatures || [];
+
+  if (!invoker) {
+    return { authorized: false, reason: 'MISSING_INVOKER' };
+  }
+  if (allowedInvokers.length > 0 && !allowedInvokers.includes(invoker)) {
+    return { authorized: false, reason: 'INVOKER_NOT_AUTHORIZED', invoker };
+  }
+  if (contractId && context.contractId && contractId !== context.contractId) {
+    return { authorized: false, reason: 'CONTRACT_MISMATCH', contractId };
+  }
+  if (fnName && context.fnName && fnName !== context.fnName) {
+    return { authorized: false, reason: 'FN_MISMATCH', fnName };
+  }
+  if (signature) {
+    if (allowedSignatures.length > 0 && !allowedSignatures.includes(signature)) {
+      return { authorized: false, reason: 'SIGNATURE_NOT_AUTHORIZED', signature };
+    }
+    if (context.requireSignature && !allowedSignatures.includes(signature)) {
+      return { authorized: false, reason: 'SIGNATURE_REQUIRED', signature };
+    }
+  } else if (context.requireSignature) {
+    return { authorized: false, reason: 'SIGNATURE_REQUIRED' };
+  }
+
+  for (const child of subInvocations) {
+    const childResult = evaluateAuthNode(child, context, depth + 1);
+    if (!childResult.authorized) return childResult;
+  }
+
+  return { authorized: true, reason: 'AUTHORIZED', invoker };
+}
+
+/**
+ * Build a mock authorization matrix from an injected simulation payload.
+ * The payload shape mirrors what the Playground UI sends from the browser:
+ *   { invokers: [...], signatures: [...], tree: {...}, requireSignature: bool }
+ */
+function buildMockAuthMatrix(payload = {}) {
+  const invokers = Array.isArray(payload.invokers)
+    ? payload.invokers.filter((v) => typeof v === 'string')
+    : [];
+  const signatures = Array.isArray(payload.signatures)
+    ? payload.signatures.filter((v) => typeof v === 'string')
+    : [];
+  const tree = payload.tree ?? payload.authTree ?? null;
+  const requireSignature = Boolean(payload.requireSignature);
+  return { invokers, signatures, tree, requireSignature };
+}
+
+/**
+ * Evaluate a custom invocation authorization matrix locally.
+ * Returns a structured result suitable for surfacing in the simulation UI.
+ */
+function evaluateInvocationAuth(payload = {}) {
+  const matrix = buildMockAuthMatrix(payload);
+  const context = {
+    invokers: matrix.invokers,
+    signatures: matrix.signatures,
+    contractId: payload.contractId ?? null,
+    fnName: payload.fnName ?? null,
+    requireSignature: matrix.requireSignature,
+  };
+
+  if (!matrix.tree) {
+    // No explicit tree: fall back to flat invoker/signature checks.
+    if (matrix.invokers.length === 0) {
+      return { authorized: false, reason: 'NO_INVOKERS_PROVIDED' };
+    }
+    if (matrix.requireSignature && matrix.signatures.length === 0) {
+      return { authorized: false, reason: 'SIGNATURE_REQUIRED' };
+    }
+    return { authorized: true, reason: 'AUTHORIZED_FLAT' };
+  }
+
+  return evaluateAuthNode(matrix.tree, context);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 class SorobanRpcManager {
@@ -113,6 +241,8 @@ class SorobanRpcManager {
     // Running totals for aggregate metrics
     this._totalRequests = 0;
     this._totalFailures = 0;
+    // Mock authorization matrix state for in-browser simulations
+    this._authMatrix = null;
 
     if (process.env.NODE_ENV !== 'test') this.startHealthChecks();
   }
@@ -140,6 +270,34 @@ class SorobanRpcManager {
     console.warn(
       `[RPC Circuit Breaker] Tripped OPEN for endpoint ${ep.url} (failures: ${ep.failCount})`
     );
+  }
+
+  /**
+   * Inject a custom invocation authorization matrix for simulations.
+   * Validates the payload schema before persisting it on the manager.
+   */
+  setAuthMatrix(payload = {}) {
+    const validation = validateInvocationAuth(payload);
+    if (!validation.valid) {
+      throw new Error(
+        `Invalid invocation auth matrix: ${validation.errors.join(', ')}`
+      );
+    }
+    this._authMatrix = buildMockAuthMatrix(payload);
+    return this._authMatrix;
+  }
+
+  /**
+   * Evaluate the currently injected authorization matrix (or a one-off
+   * payload) without performing any network calls.
+   */
+  evaluateAuth(payload = null) {
+    const source = payload ?? this._authMatrix ?? {};
+    return evaluateInvocationAuth(source);
+  }
+
+  clearAuthMatrix() {
+    this._authMatrix = null;
   }
 
   async checkEndpointHealth(ep) {
@@ -370,8 +528,10 @@ class SorobanRpcManager {
     this.activeEndpointIndex = 0;
     this._totalRequests = 0;
     this._totalFailures = 0;
+    this._authMatrix = null;
   }
 }
 
 export const sorobanRpcManager = new SorobanRpcManager();
+export { evaluateInvocationAuth, buildMockAuthMatrix, evaluateAuthNode };
 export default sorobanRpcManager;

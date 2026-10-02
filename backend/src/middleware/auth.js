@@ -42,7 +42,7 @@ export async function authenticate(req, res, next) {
       throw createHttpError(401, 'Unauthorized: Invalid or expired token');
     }
 
-    if (payload.tokenType === 'refresh') {
+    if (payload.tokenType === 'refresh' || payload.type === 'refresh') {
       throw createHttpError(
         401,
         'Unauthorized: Refresh tokens are not valid for access'
@@ -60,6 +60,13 @@ export async function authenticate(req, res, next) {
       if (blacklisted) {
         throw createHttpError(401, 'Unauthorized: Token revoked');
       }
+    }
+
+    if (
+      payload.familyId &&
+      (await redisService.get(`bl_family:${payload.familyId}`))
+    ) {
+      throw createHttpError(401, 'Unauthorized: Token family revoked');
     }
 
     try {

@@ -24,10 +24,11 @@ use soroban_sdk::{contract, contractimpl, symbol_short, Address, Bytes, Env, Str
 
 use crate::storage::{
     accumulate_daily_volume, get_admin, get_daily_limit, get_deposit, get_deposit_count,
-    get_expiry_seconds, get_fee_bps, get_proof, get_stats, get_validator_quorum, is_initialized,
-    is_paused, is_relayer, is_validator, set_admin, set_daily_limit, set_deposit,
-    set_deposit_count, set_expiry_seconds, set_fee_bps, set_paused, set_relayer, set_stats,
-    set_validator, set_validator_quorum, submit_validator_vote,
+    get_expiry_seconds, get_fee_bps, get_proof, get_source_chain_id, get_stats,
+    get_validator_quorum, is_initialized, is_paused, is_relayer, is_validator, set_admin,
+    set_daily_limit, set_deposit, set_deposit_count, set_expiry_seconds, set_fee_bps,
+    set_paused, set_relayer, set_source_chain_id, set_stats, set_validator,
+    set_validator_quorum, submit_validator_vote,
 };
 use crate::types::{BridgeStats, Deposit, DepositStatus, Error, ProofStatus, ValidatorProof};
 
@@ -61,6 +62,9 @@ impl BridgeContract {
         set_daily_limit(&env, daily_limit);
         set_paused(&env, false);
         set_deposit_count(&env, 0);
+        // Stamp a default source-chain ID so the domain separator is never empty.
+        // Admins should call `set_source_chain_id` with the real chain identifier.
+        set_source_chain_id(&env, &Bytes::from_slice(&env, b"unset"));
         Ok(())
     }
 
@@ -99,6 +103,54 @@ impl BridgeContract {
         }
         set_daily_limit(&env, limit);
         Ok(())
+    }
+
+    /// Configure the source chain identifier used in the cross-chain domain separator.
+    ///
+    /// Every validator proof and mint confirmation is bound to this ID so that
+    /// proofs produced against one source chain cannot be replayed on a bridge
+    /// instance configured for a different chain.
+    pub fn set_source_chain_id(
+        env: Env,
+        admin: Address,
+        source_chain_id: Bytes,
+    ) -> Result<(), Error> {
+        Self::assert_admin(&env, &admin)?;
+        if source_chain_id.len() == 0 {
+            return Err(Error::InvalidAmount);
+        }
+        set_source_chain_id(&env, &source_chain_id);
+        env.events()
+            .publish((symbol_short!("chain_id"),), source_chain_id);
+        Ok(())
+    }
+
+    /// Current source chain ID bound into the domain separator.
+    pub fn get_source_chain_id(env: Env) -> Bytes {
+        get_source_chain_id(&env)
+    }
+
+    /// Domain separator for cross-chain replay protection.
+    ///
+    /// Combines a fixed protocol tag with this bridge instance's source chain ID.
+    /// Validators MUST include this in every proof preimage.
+    pub fn domain_separator(env: Env) -> Bytes {
+        let mut out = Bytes::new(&env);
+        out.append(&Bytes::from_slice(&env, b"bridge-v1:"));
+        out.append(&get_source_chain_id(&env));
+        out
+    }
+
+    /// Chain-bound proof digest: `sha256(domain_separator || deposit_id || payload)`.
+    ///
+    /// This is the value validators submit via `submit_proof`. The contract
+    /// re-derives it on submission so a payload from chain A cannot verify as
+    /// a proof on a bridge configured for chain B.
+    pub fn chain_bound_proof_hash(env: Env, deposit_id: u32, payload: Bytes) -> Bytes {
+        let mut preimage = Self::domain_separator(env.clone());
+        preimage.append(&Bytes::from_slice(&env, &deposit_id.to_be_bytes()));
+        preimage.append(&payload);
+        env.crypto().sha256(&preimage).into()
     }
 
     /// Register or deregister a relayer address.
@@ -393,7 +445,11 @@ impl BridgeContract {
         // Ensure the deposit exists.
         let _ = get_deposit(&env, deposit_id)?;
 
-        let proof = submit_validator_vote(&env, deposit_id, &validator, &proof_hash)?;
+                // Chain-bind the proof: validators must submit the digest of
+        // (domain_separator || deposit_id || payload). The contract re-derives
+        // it so a payload from another source chain cannot verify here.
+        let bound = Self::chain_bound_proof_hash(env.clone(), deposit_id, proof_hash.clone());
+        let proof = submit_validator_vote(&env, deposit_id, &validator, &bound)?;
 
         env.events().publish(
             (symbol_short!("proof_sub"), deposit_id),
@@ -401,6 +457,7 @@ impl BridgeContract {
                 validator,
                 proof.vote_count,
                 proof.status == ProofStatus::Verified,
+                proof.source_chain_id.clone(),
             ),
         );
 
@@ -430,6 +487,10 @@ impl BridgeContract {
         let proof = get_proof(&env, deposit_id).ok_or(Error::ProofNotVerified)?;
         if proof.status != ProofStatus::Verified {
             return Err(Error::ProofNotVerified);
+        }
+        // Reject proofs created against a different source chain.
+        if proof.source_chain_id != get_source_chain_id(&env) {
+            return Err(Error::ChainIdMismatch);
         }
 
         let mut deposit = get_deposit(&env, deposit_id)?;

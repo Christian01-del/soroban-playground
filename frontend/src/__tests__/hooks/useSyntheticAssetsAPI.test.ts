@@ -20,7 +20,7 @@ beforeEach(() => {
 
 describe("useSyntheticAssetsAPI", () => {
   beforeEach(() => {
-    (useAuth as jest.Mock).mockReturnValue({ token: mockToken });
+    (useAuth as jest.Mock).mockReturnValue({ getAuthToken: async () => mockToken });
   });
 
   describe("loading state", () => {
@@ -227,7 +227,7 @@ describe("useSyntheticAssetsAPI", () => {
     });
 
     it("omits Authorization header when token is absent", async () => {
-      (useAuth as jest.Mock).mockReturnValue({ token: null });
+      (useAuth as jest.Mock).mockReturnValue({ getAuthToken: async () => null });
 
       mockFetch.mockResolvedValueOnce({
         ok: true,

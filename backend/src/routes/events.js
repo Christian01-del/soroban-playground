@@ -1,6 +1,5 @@
 import express from 'express';
-import { asyncHandler, createHttpError } from '../middleware/errorHandler.js';
-import eventSchemaService from '../services/eventSchemaService.js';
+import { asyncHandler, createHttpError } from '../middleware/errorHandler.js';import eventSchemaService from '../services/eventSchemaService.js';
 import { sendSuccess } from '../utils/response.js';
 
 const router = express.Router();

@@ -1,112 +1,24 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { Star, StarOff, FileCode2, Tag, Layers, BookOpen } from "lucide-react";
 import FavoritesSearchBar from "@/components/FavoritesSearchBar";
 import FavoritesFilter, {
   FavoritesFilterState,
 } from "@/components/FavoritesFilter";
+import { useWorkspace } from "@/components/providers/WorkspaceProvider";
+import { writeJson } from "@/lib/offline/storage";
+import { LEGACY_FAVORITES_KEYS } from "@/lib/sync/workspaceStore";
+import { TEMPLATES, type Template } from "@/lib/templates";
 
-const FAVORITES_KEY = "template_favorites";
+/**
+ * Pre-workspace key, still written so older cached chunks and bookmarks do not
+ * lose the user's stars. One of {@link LEGACY_FAVORITES_KEYS}; the store folds
+ * all of them into the workspace on first read.
+ */
+const FAVORITES_KEY = LEGACY_FAVORITES_KEYS[0];
 
-export interface Template {
-  id: string;
-  name: string;
-  description: string;
-  category: string;
-  tags: string[];
-  difficulty: "Beginner" | "Intermediate" | "Advanced";
-  code: string;
-}
-
-const TEMPLATES: Template[] = [
-  {
-    id: "hello-world",
-    name: "Hello World",
-    description: "Minimal Soroban contract that returns a greeting string.",
-    category: "Basics",
-    tags: ["beginner", "storage"],
-    difficulty: "Beginner",
-    code: `#![no_std]\nuse soroban_sdk::{contract, contractimpl, Env, Symbol, symbol_short};\n\n#[contract]\npub struct HelloContract;\n\n#[contractimpl]\nimpl HelloContract {\n    pub fn hello(env: Env, to: Symbol) -> Vec<Symbol> {\n        vec![&env, symbol_short!(\"Hello\"), to]\n    }\n}`,
-  },
-  {
-    id: "fungible-token",
-    name: "Fungible Token",
-    description: "SEP-41 compliant token with mint, transfer, and allowance.",
-    category: "Tokens",
-    tags: ["token", "defi", "sep41"],
-    difficulty: "Intermediate",
-    code: `// Fungible Token contract skeleton\n// Implements basic ERC-20-style interface`,
-  },
-  {
-    id: "nft-mint",
-    name: "NFT Mint",
-    description:
-      "Non-fungible token contract with minting and ownership transfer.",
-    category: "Tokens",
-    tags: ["nft", "token"],
-    difficulty: "Intermediate",
-    code: `// NFT Mint contract skeleton`,
-  },
-  {
-    id: "multisig",
-    name: "Multisig Wallet",
-    description: "M-of-N multisig contract for shared treasury control.",
-    category: "Security",
-    tags: ["multisig", "governance", "wallet"],
-    difficulty: "Advanced",
-    code: `// Multisig Wallet contract skeleton`,
-  },
-  {
-    id: "vesting",
-    name: "Token Vesting",
-    description: "Linear vesting schedule with cliff period support.",
-    category: "Finance",
-    tags: ["vesting", "defi", "token"],
-    difficulty: "Intermediate",
-    code: `// Vesting contract skeleton`,
-  },
-  {
-    id: "escrow",
-    name: "Escrow",
-    description: "Two-party escrow with arbiter dispute resolution.",
-    category: "Finance",
-    tags: ["escrow", "defi"],
-    difficulty: "Intermediate",
-    code: `// Escrow contract skeleton`,
-  },
-  {
-    id: "storage-counter",
-    name: "Storage Counter",
-    description: "Simple persistent counter showing ledger storage patterns.",
-    category: "Basics",
-    tags: ["beginner", "storage"],
-    difficulty: "Beginner",
-    code: `// Storage counter skeleton`,
-  },
-  {
-    id: "oracle",
-    name: "Price Oracle",
-    description: "On-chain price feed with admin update and TTL management.",
-    category: "DeFi",
-    tags: ["oracle", "defi", "price-feed"],
-    difficulty: "Advanced",
-    code: `// Oracle contract skeleton`,
-  },
-];
-
-function loadFavorites(): Set<string> {
-  try {
-    const raw = localStorage.getItem(FAVORITES_KEY);
-    return new Set(raw ? JSON.parse(raw) : []);
-  } catch {
-    return new Set();
-  }
-}
-
-function saveFavorites(favorites: Set<string>) {
-  localStorage.setItem(FAVORITES_KEY, JSON.stringify([...favorites]));
-}
+export type { Template };
 
 const DIFFICULTY_COLOR: Record<Template["difficulty"], string> = {
   Beginner: "text-green-700 bg-green-50",
@@ -114,8 +26,26 @@ const DIFFICULTY_COLOR: Record<Template["difficulty"], string> = {
   Advanced: "text-red-700 bg-red-50",
 };
 
+/** #1526 — one-line honest state for the workspace sync. */
+const SYNC_BADGE: Record<string, { label: string; className: string }> = {
+  idle: { label: "Local only", className: "border-slate-700 text-slate-400" },
+  loading: { label: "Syncing…", className: "border-sky-500/40 text-sky-300" },
+  synced: { label: "Synced", className: "border-emerald-500/40 text-emerald-300" },
+  queued: { label: "Queued for sync", className: "border-amber-500/40 text-amber-300" },
+  offline: { label: "Saved offline", className: "border-amber-500/40 text-amber-300" },
+  error: { label: "Sync failed", className: "border-red-500/40 text-red-300" },
+};
+
 export default function TemplateLibraryPage() {
-  const [favorites, setFavorites] = useState<Set<string>>(new Set());
+  // #1526 — favorites now live in the synced workspace snapshot, so they follow
+  // the user across devices and are queued when the network is down.
+  const {
+    snapshot: workspace,
+    toggleFavorite,
+    status: syncStatus,
+    error: syncError,
+    conflicts,
+  } = useWorkspace();
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [filters, setFilters] = useState<FavoritesFilterState>({
@@ -124,18 +54,16 @@ export default function TemplateLibraryPage() {
   });
   const [previewId, setPreviewId] = useState<string | null>(null);
 
-  useEffect(() => {
-    setFavorites(loadFavorites());
-  }, []);
+  const favorites = useMemo(
+    () => new Set(workspace.favorites),
+    [workspace.favorites],
+  );
 
-  const toggleFavorite = (id: string) => {
-    setFavorites((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      saveFavorites(next);
-      return next;
-    });
-  };
+  // Keep writing the legacy key so anything still reading it (bookmarks, older
+  // cached chunks) does not silently lose the user's stars.
+  useEffect(() => {
+    writeJson(FAVORITES_KEY, workspace.favorites);
+  }, [workspace.favorites]);
 
   const allCategories = useMemo(
     () => [...new Set(TEMPLATES.map((t) => t.category))].sort(),
@@ -238,6 +166,30 @@ export default function TemplateLibraryPage() {
             className="mb-4"
           />
 
+          {/* Workspace sync state (#1526) — says where the stars actually live. */}
+          <div
+            data-testid="workspace-sync-badge"
+            className="mb-3 flex flex-wrap items-center gap-2"
+          >
+            <span
+              className={[
+                "rounded-full border px-2 py-0.5 text-[11px] font-medium",
+                SYNC_BADGE[syncStatus]?.className ?? SYNC_BADGE.idle.className,
+              ].join(" ")}
+            >
+              {SYNC_BADGE[syncStatus]?.label ?? SYNC_BADGE.idle.label}
+            </span>
+            {conflicts.length > 0 ? (
+              <span className="text-[11px] text-amber-600">
+                {conflicts.length} field
+                {conflicts.length === 1 ? "" : "s"} needed a merge decision
+              </span>
+            ) : null}
+            {syncError ? (
+              <span className="text-[11px] text-red-500">{syncError}</span>
+            ) : null}
+          </div>
+
           {/* Results count */}
           <p className="text-xs text-gray-500 mb-3">
             {filtered.length} template{filtered.length !== 1 ? "s" : ""}
@@ -260,6 +212,7 @@ export default function TemplateLibraryPage() {
                 return (
                   <div
                     key={template.id}
+                    data-testid={`template-card-${template.id}`}
                     className="bg-white border border-gray-200 rounded-lg p-4 flex flex-col hover:shadow-md transition-shadow"
                   >
                     <div className="flex items-start justify-between mb-2">

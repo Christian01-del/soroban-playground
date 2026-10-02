@@ -1,5 +1,6 @@
 import warrantyRoutes from './warranty.js';
 import favoritesRoutes from './favorites.js';
+import workspaceRoutes from './workspace.js';
 import searchRoutes from './search.js';
 import projectsRoutes from './projects.js';
 import express from 'express';
@@ -18,6 +19,19 @@ import patentsRouter from './patents.js';
 import tokenBurnRouter from './tokenBurn.js';
 import oracleRouter from './oracle.js';
 import verificationRouter from './verification.js';
+import bugBountyRoutes from './bugBountyRoutes.js';
+import sportsRoutes from './sports.routes.js';
+import escrowRoutes from './escrow.js';
+import nftAmmRoutes from './nftAmm.js';
+import lendingRoutes from './lending.js';
+import socialRoutes from './social.js';
+import pauseToggleRoutes from './pauseToggle.js';
+import tokenGatedAccessRoutes from './tokenGatedAccess.js';
+import priceAggregatorRoutes from './priceAggregator.js';
+import tokenizedReitRoutes from './tokenizedReit.js';
+import readinessRulesRoutes from './readinessRules.routes.js';
+import { stellarIdValidation } from '../middleware/stellarIdValidation.js';
+import { rateLimit } from 'express-rate-limit';
 import {
   versionTransformer,
   requestTransformerV2,
@@ -32,6 +46,15 @@ import {
 } from '../middleware/apiVersioning.js';
 
 const router = express.Router();
+
+// Rate limit for state-mutating newly mounted gateways (#1491).
+const mutatingRouteLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many requests, please try again later' },
+});
 
 // Version discovery endpoint
 router.get('/versions', (req, res) => {
@@ -130,14 +153,26 @@ router.use('/patents', patentsRouter);
 router.use('/token-burn', tokenBurnRouter);
 router.use('/search', searchRoutes);
 
-import bugBountyRoutes from './bugBountyRoutes.js';
 router.use('/bug-bounty', bugBountyRoutes);
+
+// Previously orphaned controllers (#1491) — canonical prefixes + Stellar ID validation.
+router.use('/sports', stellarIdValidation, sportsRoutes);
+router.use('/escrow', stellarIdValidation, mutatingRouteLimiter, escrowRoutes);
+router.use('/nft-amm', stellarIdValidation, mutatingRouteLimiter, nftAmmRoutes);
+router.use('/lending', stellarIdValidation, mutatingRouteLimiter, lendingRoutes);
+router.use('/social', stellarIdValidation, socialRoutes);
+router.use('/pause-toggle', stellarIdValidation, mutatingRouteLimiter, pauseToggleRoutes);
+router.use('/token-gated-access', stellarIdValidation, tokenGatedAccessRoutes);
+router.use('/price-aggregator', stellarIdValidation, priceAggregatorRoutes);
+router.use('/tokenized-reit', stellarIdValidation, mutatingRouteLimiter, tokenizedReitRoutes);
+router.use('/readiness', readinessRulesRoutes);
 
 import musicLicensingRoutes from './musicLicensingRoutes.js';
 router.use('/music-licensing', musicLicensingRoutes);
 
 router.use('/warranty', warrantyRoutes);
 router.use('/favorites', favoritesRoutes);
+router.use('/workspace', workspaceRoutes);
 router.use('/projects', projectsRoutes);
 
 import sorobanRpcManager from '../services/sorobanRpcManager.js';

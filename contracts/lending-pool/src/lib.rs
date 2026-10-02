@@ -30,12 +30,16 @@
 
 #![no_std]
 
+pub mod auction;
+
 #[cfg(test)]
 mod test;
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env,
 };
+
+pub use auction::{Auction, AuctionPhase};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -69,6 +73,15 @@ pub enum Error {
     LiquidationExceedsCloseFactor = 10,
     SelfLiquidationNotAllowed = 11,
     Overflow = 12,
+    AuctionNotFound = 13,
+    AuctionNotActive = 14,
+    AuctionNotExpired = 15,
+    BidTooLow = 16,
+    InvalidAuctionPhase = 17,
+    StabilityPoolEmpty = 18,
+    AuctionAlreadySettled = 19,
+    PriceExceedsMax = 20,
+    VaultNotFound = 21,
 }
 
 // ── Storage types ─────────────────────────────────────────────────────────────
@@ -149,53 +162,53 @@ fn set_paused(env: &Env, paused: bool) {
         .set(&symbol_short!("paused"), &paused);
 }
 
-fn get_position(env: &Env, user: &Address) -> UserPosition {
+pub(crate) fn get_position(env: &Env, user: &Address) -> UserPosition {
     env.storage()
         .persistent()
         .get(&(symbol_short!("pos"), user.clone()))
         .unwrap_or_default()
 }
 
-fn set_position(env: &Env, user: &Address, pos: &UserPosition) {
+pub(crate) fn set_position(env: &Env, user: &Address, pos: &UserPosition) {
     env.storage()
         .persistent()
         .set(&(symbol_short!("pos"), user.clone()), pos);
 }
 
-fn get_total_deposited(env: &Env) -> i128 {
+pub(crate) fn get_total_deposited(env: &Env) -> i128 {
     env.storage()
         .instance()
         .get::<_, i128>(&symbol_short!("tot_dep"))
         .unwrap_or(0)
 }
 
-fn set_total_deposited(env: &Env, val: i128) {
+pub(crate) fn set_total_deposited(env: &Env, val: i128) {
     env.storage()
         .instance()
         .set(&symbol_short!("tot_dep"), &val);
 }
 
-fn get_total_borrowed(env: &Env) -> i128 {
+pub(crate) fn get_total_borrowed(env: &Env) -> i128 {
     env.storage()
         .instance()
         .get::<_, i128>(&symbol_short!("tot_brw"))
         .unwrap_or(0)
 }
 
-fn set_total_borrowed(env: &Env, val: i128) {
+pub(crate) fn set_total_borrowed(env: &Env, val: i128) {
     env.storage()
         .instance()
         .set(&symbol_short!("tot_brw"), &val);
 }
 
-fn get_bad_debt(env: &Env) -> i128 {
+pub(crate) fn get_bad_debt(env: &Env) -> i128 {
     env.storage()
         .instance()
         .get::<_, i128>(&symbol_short!("bad_dbt"))
         .unwrap_or(0)
 }
 
-fn set_bad_debt(env: &Env, val: i128) {
+pub(crate) fn set_bad_debt(env: &Env, val: i128) {
     env.storage()
         .instance()
         .set(&symbol_short!("bad_dbt"), &val);
@@ -510,6 +523,123 @@ impl LendingPool {
         Ok(reduced)
     }
 
+    // ── Two-Phase Collateralized Debt Auction ─────────────────────────────────
+
+    /// Register/link a vault ID to an owner user address.
+    pub fn create_vault(env: Env, user: Address, vault_id: u64) -> Result<(), Error> {
+        ensure_initialized(&env)?;
+        not_paused(&env)?;
+        user.require_auth();
+        auction::set_vault_owner(&env, vault_id, &user);
+        Ok(())
+    }
+
+    /// Kicks off a liquidation auction for an undercollateralized vault.
+    pub fn kick_liquidation_auction(
+        env: Env,
+        vault_id: u64,
+        bad_debt: i128,
+    ) -> Result<u64, Error> {
+        ensure_initialized(&env)?;
+        not_paused(&env)?;
+        auction::kick_liquidation_auction_impl(&env, vault_id, bad_debt)
+    }
+
+    /// Kicks off a custom configurable liquidation auction.
+    pub fn kick_auction(
+        env: Env,
+        caller: Address,
+        vault_id: u64,
+        borrower: Address,
+        debt_amount: i128,
+        collateral_amount: i128,
+        start_price: i128,
+        reserve_price: i128,
+        english_duration: u64,
+        dutch_duration: u64,
+    ) -> Result<u64, Error> {
+        ensure_initialized(&env)?;
+        not_paused(&env)?;
+        auction::kick_auction_detailed_impl(
+            &env,
+            &caller,
+            vault_id,
+            &borrower,
+            debt_amount,
+            collateral_amount,
+            start_price,
+            reserve_price,
+            english_duration,
+            dutch_duration,
+        )
+    }
+
+    /// Place an ascending English bid during the English auction phase.
+    pub fn bid_english(
+        env: Env,
+        bidder: Address,
+        auction_id: u64,
+        amount: i128,
+    ) -> Result<(), Error> {
+        ensure_initialized(&env)?;
+        not_paused(&env)?;
+        auction::bid_english_impl(&env, &bidder, auction_id, amount)
+    }
+
+    /// Settle the auction after the English phase expires with a winning bid.
+    pub fn settle_english_auction(env: Env, auction_id: u64) -> Result<(), Error> {
+        ensure_initialized(&env)?;
+        not_paused(&env)?;
+        auction::settle_english_auction_impl(&env, auction_id)
+    }
+
+    /// Purchase collateral in the Dutch auction phase at current continuously decayed price.
+    pub fn buy_dutch(
+        env: Env,
+        bidder: Address,
+        auction_id: u64,
+        max_price: i128,
+    ) -> Result<i128, Error> {
+        ensure_initialized(&env)?;
+        not_paused(&env)?;
+        auction::buy_dutch_impl(&env, &bidder, auction_id, max_price)
+    }
+
+    // ── Secondary Stability Pool & Bad-Debt Socialization Fallback ────────────
+
+    /// Deposit funds into the secondary stability pool.
+    pub fn deposit_stability_pool(
+        env: Env,
+        depositor: Address,
+        amount: i128,
+    ) -> Result<(), Error> {
+        ensure_initialized(&env)?;
+        not_paused(&env)?;
+        auction::deposit_stability_pool_impl(&env, &depositor, amount)
+    }
+
+    /// Withdraw funds from the secondary stability pool.
+    pub fn withdraw_stability_pool(
+        env: Env,
+        depositor: Address,
+        amount: i128,
+    ) -> Result<(), Error> {
+        ensure_initialized(&env)?;
+        not_paused(&env)?;
+        auction::withdraw_stability_pool_impl(&env, &depositor, amount)
+    }
+
+    /// Socialize unbid debt from an expired Dutch auction via stability pool fallback.
+    pub fn socialize_unbid_auction(
+        env: Env,
+        caller: Address,
+        auction_id: u64,
+    ) -> Result<(), Error> {
+        ensure_initialized(&env)?;
+        not_paused(&env)?;
+        auction::socialize_unbid_auction_impl(&env, &caller, auction_id)
+    }
+
     // ── Read-only queries ─────────────────────────────────────────────────────
 
     /// Returns aggregate pool statistics including bad-debt accumulator.
@@ -533,6 +663,30 @@ impl LendingPool {
             return i128::MAX;
         }
         health_factor_scaled(pos.deposited, pos.borrowed)
+    }
+
+    pub fn get_stability_pool_balance(env: Env) -> i128 {
+        auction::get_stability_pool_total(&env)
+    }
+
+    pub fn get_user_stability_deposit(env: Env, user: Address) -> i128 {
+        auction::get_user_stability_balance(&env, &user)
+    }
+
+    pub fn get_auction(env: Env, auction_id: u64) -> Result<Auction, Error> {
+        auction::get_auction_storage(&env, auction_id)
+    }
+
+    pub fn get_auction_price(env: Env, auction_id: u64) -> Result<i128, Error> {
+        let auct = auction::get_auction_storage(&env, auction_id)?;
+        let now = env.ledger().timestamp();
+        Ok(auction::compute_auction_price(&auct, now))
+    }
+
+    pub fn get_auction_phase(env: Env, auction_id: u64) -> Result<AuctionPhase, Error> {
+        let auct = auction::get_auction_storage(&env, auction_id)?;
+        let now = env.ledger().timestamp();
+        Ok(auction::compute_auction_phase(&auct, now))
     }
 }
 

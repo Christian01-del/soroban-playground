@@ -16,7 +16,7 @@ import { Upload } from '@aws-sdk/lib-storage';
 import { Readable } from 'stream';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import crypto from 'crypto';
+import crypto from 'cypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -438,19 +438,3 @@ export class StorageService {
     return getSignedUrl(this.client, command, { expiresIn });
   }
 }
-
-// Singleton instance
-let storageServiceInstance = null;
-
-/**
- * Get or create StorageService singleton
- * @returns {StorageService}
- */
-export function getStorageService() {
-  if (!storageServiceInstance) {
-    storageServiceInstance = new StorageService();
-  }
-  return storageServiceInstance;
-}
-
-export default StorageService;

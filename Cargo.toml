@@ -66,6 +66,7 @@ members = [
     "contracts/interest-rate-model",
     "contracts/job-marketplace",
     "contracts/key-value-store",
+    "contracts/lending-pool",
     "contracts/lending-protocol",
     "contracts/limit-order-book",
     "contracts/loan-syndication",
@@ -127,6 +128,7 @@ members = [
     "contracts/token-vesting",
     "contracts/token_contract",
     "contracts/tokenized-reit",
+    "contracts/twamm",
     "contracts/twap-oracle",
     "contracts/upgradeable",
     "contracts/vc-vesting",
@@ -143,6 +145,7 @@ members = [
     "crates/common-security",
     "crates/common-math",
     "crates/common-ttl",
+    "contracts/account-abstraction",
 ]
 
 # Dependencies shared by the root crate and the `indexer` service. Declaring

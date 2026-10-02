@@ -83,6 +83,7 @@ import {
 } from './services/queueService.js';
 import backgroundJobsRoute from './routes/backgroundJobs.js';
 import predictionMarketRoute from './routes/predictionMarket.js';
+import twammRoute from './routes/twamm.js';
 import {
   startWebhookDispatcher,
   stopWebhookDispatcher,
@@ -284,6 +285,7 @@ if (
 }
 
 app.use('/api/prediction-market', predictionMarketRoute);
+app.use('/api/twamm', twammRoute);
 app.use('/metrics', metricsRoute);
 
 // GraphQL & Swagger
