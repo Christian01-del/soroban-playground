@@ -1,7 +1,15 @@
 "use client";
 
-import React, { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import { useCompileStore } from "@/state/compileStore";
+import { findTemplate } from "@/lib/templates";
 import {
   Activity,
   BookOpen,
@@ -13,23 +21,11 @@ import {
   Server,
   Sparkles,
 } from "lucide-react";
-import dynamic from "next/dynamic";
-import MobileEditor from "@/components/MobileEditor";
-import { preloadMonacoEditor } from "@/lib/editorLoadScheduler";
-
-const Editor = dynamic(() => import("@/components/Editor"), {
-  ssr: false,
-  loading: () => (
-    <div className="flex items-center justify-center h-full w-full text-gray-500">
-      <div className="flex flex-col items-center gap-3">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-500" />
-        <span className="text-xs font-mono text-gray-400">
-          Loading editor...
-        </span>
-      </div>
-    </div>
-  ),
-});
+import Editor from "@/components/Editor";
+import EditorHistoryPanel from "@/components/EditorHistoryPanel";
+import { parseCargoDiagnostics } from "@/utils/cargoDiagnostics";
+import type { CargoDiagnostic } from "@/utils/cargoDiagnostics";
+import { useEditorHistory } from "@/hooks/useEditorHistory";
 import Console from "@/components/Console";
 import { ConsoleAndEventsDrawer } from "@/components/ConsoleAndEventsDrawer";
 import DeployPanel from "@/components/DeployPanel";
@@ -121,6 +117,7 @@ type CompileResponse = {
   durationMs?: number;
   hash?: string;
   logs?: string[];
+  diagnostics?: unknown[];
   artifact?: {
     name: string;
     sizeBytes: number;
@@ -146,6 +143,7 @@ type ApiErrorPayload = {
   message?: string;
   statusCode?: number;
   details?: unknown;
+  logs?: string[];
 };
 
 type InvokeProgressEvent = {
@@ -282,10 +280,37 @@ export default function Home() {
   }, []);
 
   const [code, setCode] = useState(DEFAULT_CODE);
+  const [loadedTemplateId, setLoadedTemplateId] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([
     `Soroban Playground ready.`,
     `Frontend connected to ${DEFAULT_API_BASE_URL}`,
   ]);
+
+  /**
+   * The template gallery links here as `/playground?template=<id>`. Resolve the
+   * id against the shared catalog so "Open in IDE" actually loads the source
+   * instead of silently keeping the default contract. Read from
+   * `window.location` rather than `useSearchParams` because this tree is
+   * client-only (`ssr: false`) and the hook would demand a Suspense boundary.
+   *
+   * Only the catalog's own sources are ever loaded: an unknown id is ignored so
+   * the query string cannot inject arbitrary text into the editor.
+   */
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const template = findTemplate(params.get("template"));
+
+    if (!template) {
+      return;
+    }
+
+    setCode(template.code);
+    setLoadedTemplateId(template.id);
+    setLogs((previous) => [
+      ...previous,
+      `Loaded template "${template.name}" into the editor.`,
+    ]);
+  }, []);
   const [healthState, setHealthState] = useState<HealthState>("checking");
   const [healthMessage, setHealthMessage] = useState(
     "Checking backend health...",
@@ -336,6 +361,11 @@ export default function Home() {
 
   const [compileSummary, setCompileSummary] = useState<string>();
   const [compileError, setCompileError] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<CargoDiagnostic[]>([]);
+  const editorHistory = useEditorHistory(code, (restoredCode) => {
+    setCode(restoredCode);
+    setDiagnostics([]);
+  });
   const [compileStats, setCompileStats] = useState<CompileStats>({
     activeWorkers: 0,
     maxWorkers: 4,
@@ -433,47 +463,71 @@ export default function Home() {
   const [govVotingPower, setGovVotingPower] = useState(0);
   const [isGovLoading, setIsGovLoading] = useState(false);
 
-  const appendLog = (msg: string) => {
+  const appendLog = useCallback((msg: string) => {
     setLogs((prev) => [...prev, msg]);
-  };
+  }, []);
 
   useEffect(() => {
     setContractAbi(parseContractAbiFromSource(code));
   }, [code]);
 
+  const checkHealth = useCallback(async () => {
+    setHealthState("checking");
+    try {
+      const response = await fetch(`${DEFAULT_API_BASE_URL}/api/health`, {
+        method: "GET",
+      }).catch(() => null);
+
+      if (response && response.ok) {
+        const payload = await response.json();
+        setHealthState("online");
+        setHealthMessage(
+          `Backend online · ${payload?.data?.runtime?.node ?? "runtime ready"}`,
+        );
+        return true;
+      }
+
+      // If deep health check returned non-200, check liveness probe
+      const liveRes = await fetch(`${DEFAULT_API_BASE_URL}/health/live`, {
+        method: "GET",
+      }).catch(() => null);
+
+      if (liveRes && liveRes.ok) {
+        setHealthState("online");
+        setHealthMessage("Backend online (degraded mode)");
+        return true;
+      }
+
+      throw new Error(
+        `Health check failed with ${response ? response.status : "network error"}`
+      );
+    } catch (error) {
+      setHealthState("offline");
+      setHealthMessage(
+        `Backend unavailable at ${DEFAULT_API_BASE_URL}. Start the backend server to compile and deploy.`,
+      );
+      appendLog(`[warn] ${formatApiError(error)}`);
+      return false;
+    }
+  }, [appendLog]);
+
   useEffect(() => {
     let cancelled = false;
 
-    async function checkHealth() {
-      setHealthState("checking");
-      try {
-        const response = await fetch(`${DEFAULT_API_BASE_URL}/api/health`, {
-          method: "GET",
-        });
-
-        if (!response.ok) {
-          throw new Error(`Health check failed with ${response.status}`);
-        }
-
-        const payload = await response.json();
-        if (!cancelled) {
-          setHealthState("online");
-          setHealthMessage(
-            `Backend online · ${payload?.data?.runtime?.node ?? "runtime unknown"}`,
-          );
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setHealthState("offline");
-          setHealthMessage(
-            `Backend unavailable at ${DEFAULT_API_BASE_URL}. Start the backend server to compile and deploy.`,
-          );
-          appendLog(`[warn] ${formatApiError(error)}`);
-        }
-      }
-    }
-
     checkHealth();
+
+    // If offline, poll every 10s to auto-recover when backend warms up
+    const interval = setInterval(() => {
+      if (!cancelled && healthState !== "online") {
+        checkHealth();
+      }
+    }, 10000);
+
+    const onOnline = () => {
+      if (!cancelled) checkHealth();
+    };
+    window.addEventListener("online", onOnline);
+
     (async () => {
       try {
         const response = await fetch(
@@ -492,8 +546,10 @@ export default function Home() {
 
     return () => {
       cancelled = true;
+      clearInterval(interval);
+      window.removeEventListener("online", onOnline);
     };
-  }, []);
+  }, [checkHealth, healthState]);
 
   useEffect(() => {
     let cancelled = false;
@@ -583,7 +639,11 @@ export default function Home() {
         : typeof payload.details === "string"
           ? payload.details
           : "";
-      throw new Error([payload.message, details].filter(Boolean).join(": "));
+      const error = new Error(
+        [payload.message, details].filter(Boolean).join(": "),
+      ) as Error & { details?: unknown };
+      error.details = payload.details ?? (payload.logs ? { logs: payload.logs } : undefined);
+      throw error;
     }
 
     return payload;
@@ -592,6 +652,7 @@ export default function Home() {
   const handleCompile = async () => {
     setIsCompiling(true);
     setCompileError(null);
+    setDiagnostics([]);
     setCompileSummary(undefined);
     setHasCompiled(false);
     setContractId(undefined);
@@ -610,6 +671,7 @@ export default function Home() {
         code,
       });
       const compileLogs = payload.logs ?? [];
+      setDiagnostics(parseCargoDiagnostics(payload.diagnostics ?? compileLogs));
 
       setHasCompiled(true);
       setLastArtifactName(payload.artifact?.name ?? "contract.wasm");
@@ -641,6 +703,15 @@ export default function Home() {
       compileLogs.forEach((log) => appendLog(`[cargo] ${log}`));
     } catch (error) {
       const message = formatApiError(error);
+      const details =
+        error && typeof error === "object" && "details" in error
+          ? error.details
+          : undefined;
+      const failureLogs =
+        details && typeof details === "object" && "logs" in details
+          ? details.logs
+          : details;
+      setDiagnostics(parseCargoDiagnostics(failureLogs));
       setCompileError(message);
       appendLog(`[error] Compile failed: ${message}`);
 
@@ -2373,22 +2444,33 @@ export default function Home() {
                 <p className="truncate font-mono text-xs text-slate-200">
                   {DEFAULT_API_BASE_URL}
                 </p>
-                <p
-                  className={`mt-2 flex items-center gap-2 text-xs ${
-                    healthState === "online"
-                      ? "text-emerald-300"
-                      : healthState === "offline"
-                        ? "text-rose-300"
-                        : "text-amber-300"
-                  }`}
-                >
-                  {healthState === "checking" ? (
-                    <LoaderCircle size={14} className="animate-spin" />
-                  ) : (
-                    <Activity size={14} />
+                <div className="mt-2 flex items-center justify-between gap-2 text-xs">
+                  <p
+                    className={`flex items-center gap-2 ${
+                      healthState === "online"
+                        ? "text-emerald-300"
+                        : healthState === "offline"
+                          ? "text-rose-300"
+                          : "text-amber-300"
+                    }`}
+                  >
+                    {healthState === "checking" ? (
+                      <LoaderCircle size={14} className="animate-spin" />
+                    ) : (
+                      <Activity size={14} />
+                    )}
+                    <span className="truncate">{healthMessage}</span>
+                  </p>
+                  {healthState === "offline" && (
+                    <button
+                      type="button"
+                      onClick={() => checkHealth()}
+                      className="shrink-0 rounded border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium text-rose-300 transition hover:bg-rose-500/20"
+                    >
+                      Retry
+                    </button>
                   )}
-                  {healthMessage}
-                </p>
+                </div>
               </div>
 
               <div className="rounded-2xl border border-white/8 bg-white/5 px-4 py-3">
@@ -2419,42 +2501,82 @@ export default function Home() {
           </div>
         </header>
 
-        <main className="flex-1">
-          <MobileEditor
-            editor={
-              <section className="flex min-h-[560px] flex-col border-b border-white/8 p-4 lg:border-b-0 lg:border-r">
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-3 px-2">
-                  <div>
-                    <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
-                      <Code2 size={14} />
-                      Contract Editor
-                    </p>
-                    <p className="mt-1 text-sm text-slate-300">
-                      Edit `lib.rs`, then compile against the backend toolchain.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={handleFormat}
-                      className="inline-flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1.5 text-xs font-medium text-emerald-200 transition hover:bg-emerald-400/20"
-                    >
-                      <Code2 size={14} />
-                      Format
-                    </button>
-                    <a
-                      href="https://developers.stellar.org/docs/build/smart-contracts/getting-started"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:border-cyan-400/40 hover:text-cyan-200"
-                    >
-                      <BookOpen size={14} />
-                      Soroban Docs
-                    </a>
-                    <ShareSnippet
-                      code={code}
-                      apiBaseUrl={DEFAULT_API_BASE_URL}
-                    />
-                  </div>
+        <main className="grid flex-1 gap-0 lg:grid-cols-[minmax(0,1fr)_440px]">
+          <section className="flex min-h-[560px] flex-col border-b border-white/8 p-4 lg:border-b-0 lg:border-r">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3 px-2">
+              <div>
+                <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                  <Code2 size={14} />
+                  Contract Editor
+                </p>
+                <p className="mt-1 text-sm text-slate-300">
+                  Edit `lib.rs`, then compile against the backend toolchain.
+                </p>
+              </div>
+              <a
+                href="https://developers.stellar.org/docs/build/smart-contracts/getting-started"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:border-cyan-400/40 hover:text-cyan-200"
+              >
+                <BookOpen size={14} />
+                Soroban Docs
+              </a>
+            </div>
+            <Editor
+              code={code}
+              setCode={(value) => {
+                setCode(value);
+                setDiagnostics([]);
+              }}
+              diagnostics={diagnostics}
+            />
+            <EditorHistoryPanel
+              {...editorHistory}
+              currentCode={code}
+              onRestore={editorHistory.restoreSnapshot}
+              onResolveConflict={editorHistory.resolveConflict}
+            />
+          </section>
+
+          <aside className="flex flex-col gap-4 bg-slate-950/40 p-4">
+            <DeployPanel
+              onCompile={handleCompile}
+              onDeploy={handleDeploy}
+              isCompiling={isCompiling}
+              isDeploying={isDeploying}
+              hasCompiled={hasCompiled}
+              compileSummary={compileSummary}
+              compileError={compileError}
+              contractId={contractId}
+            />
+            <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                  Compile Metrics
+                </p>
+                <p className="text-xs text-slate-500">
+                  {compileStats.activeWorkers}/{compileStats.maxWorkers} workers
+                </p>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-xs text-slate-300">
+                <div className="rounded-xl border border-white/8 bg-slate-950/50 p-3">
+                  <p className="text-slate-500">Hit Rate</p>
+                  <p className="mt-1 text-lg font-semibold text-emerald-300">
+                    {compileStats.cacheHitRate}%
+                  </p>
+                </div>
+                <div className="rounded-xl border border-white/8 bg-slate-950/50 p-3">
+                  <p className="text-slate-500">Queue</p>
+                  <p className="mt-1 text-lg font-semibold text-cyan-300">
+                    {compileStats.queueLength}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-white/8 bg-slate-950/50 p-3">
+                  <p className="text-slate-500">Workers</p>
+                  <p className="mt-1 text-lg font-semibold text-orange-300">
+                    {compileStats.activeWorkers}
+                  </p>
                 </div>
                 <Editor code={code} setCode={setCode} />
               </section>

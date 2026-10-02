@@ -18,29 +18,35 @@
 #                /health HEALTHCHECK. The binary is installed into
 #                /usr/local/bin so the compose bind-mount of ./indexer:/app
 #                never hides it.
+#
+# The indexer is a member of the root Cargo workspace (issue #1585), so the
+# build context is the repository root and the build uses the root Cargo.lock:
+#
+#   docker build -f indexer/Dockerfile .
+#
+# indexer/Dockerfile.dockerignore trims the context to the Rust sources.
+# Only the indexer and its dependencies are compiled (`-p soroban-indexer`),
+# using the `release-server` profile (unwinding panics, opt-level 3) rather
+# than the WASM-tuned `release` profile.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Stage 1 — dependency snapshot. Only Cargo manifests are copied, so the
-# chef recipe stays small and cacheable.
-FROM rust:1.80-bookworm AS planner
+# Stage 1 — dependency snapshot of the whole workspace (cargo needs every
+# member manifest to resolve it). The recipe only changes with manifests.
+FROM rust:1.91-bookworm AS planner
 WORKDIR /app
 RUN cargo install cargo-chef --locked
-COPY Cargo.toml Cargo.lock ./
-COPY migrations ./migrations
-COPY src ./src
+COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
 # Stage 2 — dependency cache + release build. `cargo chef cook` compiles every
 # dependency once; the resulting layer is reused unless Cargo.toml changes.
-FROM rust:1.80-bookworm AS builder
+FROM rust:1.91-bookworm AS builder
 WORKDIR /app
 RUN cargo install cargo-chef --locked
 COPY --from=planner /app/recipe.json recipe.json
-RUN cargo chef cook --release --recipe-path recipe.json
-COPY Cargo.toml Cargo.lock ./
-COPY migrations ./migrations
-COPY src ./src
-RUN cargo build --release --bin soroban-indexer
+RUN cargo chef cook --profile release-server -p soroban-indexer --recipe-path recipe.json
+COPY . .
+RUN cargo build --profile release-server -p soroban-indexer --bin soroban-indexer
 
 # Stage 3 — runtime. Only the binary plus the libraries the service needs.
 # libssl-dev + libsqlite3-dev keep sqlx (rustls/sqlite/postgres) happy;
@@ -60,7 +66,7 @@ RUN useradd --create-home --uid 10001 appuser
 
 WORKDIR /app
 
-COPY --from=builder /app/target/release/soroban-indexer /usr/local/bin/soroban-indexer
+COPY --from=builder /app/target/release-server/soroban-indexer /usr/local/bin/soroban-indexer
 
 # The compose file bind-mounts ./indexer:/app and a named volume at /app/data
 # (the default DATABASE_URL is sqlite:///app/data/indexer.db).

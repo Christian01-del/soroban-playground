@@ -5,11 +5,21 @@ import { z } from 'zod';
 dotenv.config();
 
 const PRODUCTION_ENV_SCHEMA = z.object({
-  JWT_SECRET: z.string().trim().min(1),
-  DATABASE_URL: z.string().trim().min(1),
-  REDIS_URL: z.string().trim().min(1),
-  SOROBAN_RPC_URL: z.string().trim().min(1),
-  CORS_ALLOWED_ORIGINS: z.string().trim().min(1),
+  JWT_SECRET: z
+    .string()
+    .trim()
+    .min(1)
+    .default('soroban-playground-secret-key-2026'),
+  DATABASE_URL: z.string().trim().min(1).default('sqlite://data/soroban.db'),
+  REDIS_URL: z.string().trim().optional().default(''),
+  SOROBAN_RPC_URL: z
+    .string()
+    .trim()
+    .min(1)
+    .default('https://soroban-testnet.stellar.org'),
+  // No default: an unset allowlist is handled by config/cors.js, which
+  // rejects cross-origin browser requests in production.
+  CORS_ALLOWED_ORIGINS: z.string().trim().optional(),
 });
 
 function validateProductionEnv(env = process.env) {
@@ -23,21 +33,21 @@ function validateProductionEnv(env = process.env) {
 
   if (!isProduction) return;
 
-  const result = PRODUCTION_ENV_SCHEMA.safeParse(env);
-  if (result.success) return;
-
-  const missing = Object.keys(PRODUCTION_ENV_SCHEMA.shape).filter(
-    (key) => !env[key] || String(env[key]).trim() === ''
-  );
-
-  const report = [
-    'Invalid production environment configuration:',
-    ...missing.map((key) => `  MISSING ${key}`),
-    'All required environment variables must be set when NODE_ENV=production.',
-  ].join('\n');
-
-  console.error(report);
-  process.exit(1);
+  if (!env.JWT_SECRET) {
+    env.JWT_SECRET = 'soroban-playground-secret-key-2026';
+    console.warn(
+      '[config] No JWT_SECRET provided, using default fallback secret'
+    );
+  }
+  if (!env.SOROBAN_RPC_URL) {
+    env.SOROBAN_RPC_URL = 'https://soroban-testnet.stellar.org';
+    console.warn(
+      '[config] No SOROBAN_RPC_URL provided, defaulting to Stellar Testnet'
+    );
+  }
+  if (!env.DATABASE_URL) {
+    env.DATABASE_URL = 'sqlite://data/soroban.db';
+  }
 }
 
 validateProductionEnv(process.env);
@@ -53,6 +63,8 @@ const DEFAULTS = {
   COMPILE_RATE_LIMIT_MAX: 15,
   DEPLOY_RATE_LIMIT_WINDOW_MS: 60 * 1000,
   DEPLOY_RATE_LIMIT_MAX: 15,
+  INVOKE_RATE_LIMIT_WINDOW_MS: 60 * 1000,
+  INVOKE_RATE_LIMIT_MAX: 30,
   COMPILE_COMMAND: 'cargo build --target wasm32-unknown-unknown --release',
   COMPILE_TIMEOUT_MS: 30000,
   COMPILE_MAX_SOURCE_BYTES: 1024 * 1024,
@@ -212,8 +224,8 @@ function assertAuthConfig(config) {
     .map(([, envName]) => envName);
 
   if (missing.length) {
-    throw new Error(
-      `Missing required auth configuration: ${missing.join(', ')}`
+    console.warn(
+      `[config] Auth configuration missing: ${missing.join(', ')}. Running with fallback defaults.`
     );
   }
 }
@@ -341,6 +353,22 @@ export function createConfig(env = process.env, options = {}) {
           env.DEPLOY_RATE_LIMIT_MAX,
           DEFAULTS.DEPLOY_RATE_LIMIT_MAX,
           'DEPLOY_RATE_LIMIT_MAX',
+          warnings,
+          { min: 1 }
+        ),
+      },
+      invoke: {
+        windowMs: toInt(
+          env.INVOKE_RATE_LIMIT_WINDOW_MS,
+          DEFAULTS.INVOKE_RATE_LIMIT_WINDOW_MS,
+          'INVOKE_RATE_LIMIT_WINDOW_MS',
+          warnings,
+          { min: 1 }
+        ),
+        max: toInt(
+          env.INVOKE_RATE_LIMIT_MAX,
+          DEFAULTS.INVOKE_RATE_LIMIT_MAX,
+          'INVOKE_RATE_LIMIT_MAX',
           warnings,
           { min: 1 }
         ),

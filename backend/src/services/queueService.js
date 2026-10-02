@@ -8,8 +8,23 @@ import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { ExpressAdapter } from '@bull-board/express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { getDlqQueueName, routeFailedJobToDlq } from './bullmqDlqService.js';
+import {
+  getDlqQueueName,
+  routeFailedJobToDlq,
+  replayDlqJobs,
+} from './bullmqDlqService.js';
 import config from '../config/index.js';
+
+/**
+ * Priority tiers for compilation and deployment jobs (#1577).
+ * Higher number = higher BullMQ priority (processed first).
+ */
+export const JOB_PRIORITY = {
+  CRITICAL: 1, // urgent user-triggered deploys
+  HIGH: 5, // interactive compile requests
+  NORMAL: 10, // background batch jobs
+  LOW: 20, // scheduled / background tasks
+};
 
 const _filename = fileURLToPath(import.meta.url);
 const _dirname = path.dirname(_filename);
@@ -118,10 +133,12 @@ export function initializeQueues() {
     },
   });
 
+  // Compilation queue: priority-enabled so HIGH/CRITICAL jobs are processed first.
   queues.compilation = new Queue('compilation', {
     connection: createConnection('queue-compilation'),
     defaultJobOptions: {
       attempts: QUEUE_JOB_ATTEMPTS,
+      priority: JOB_PRIORITY.NORMAL,
       backoff: {
         type: 'exponential',
         delay: QUEUE_RETRY_BACKOFF_MS,
@@ -131,10 +148,12 @@ export function initializeQueues() {
     },
   });
 
+  // Deployment queue: priority-enabled; CRITICAL tier for urgent contract deploys.
   queues.deployment = new Queue('deployment', {
     connection: createConnection('queue-deployment'),
     defaultJobOptions: {
       attempts: QUEUE_JOB_ATTEMPTS,
+      priority: JOB_PRIORITY.NORMAL,
       backoff: {
         type: 'exponential',
         delay: QUEUE_RETRY_BACKOFF_MS,
@@ -314,7 +333,11 @@ async function setupCronJobs() {
 }
 
 /**
- * Add a job to a specific queue.
+ * Add a job to a specific queue with optional priority tier.
+ * @param {string} queueName - Target queue name
+ * @param {string} jobName   - BullMQ job name
+ * @param {object} data      - Job payload
+ * @param {object} options   - BullMQ job options (priority, attempts, etc.)
  */
 export async function addJob(queueName, jobName, data, options = {}) {
   const queue = queues[queueName];
@@ -322,6 +345,151 @@ export async function addJob(queueName, jobName, data, options = {}) {
     throw new Error(`Queue "${queueName}" not found or not initialized`);
   }
   return await queue.add(jobName, data, options);
+}
+
+/**
+ * Add a priority-tagged compilation job (#1577).
+ * @param {string} jobName - BullMQ job name
+ * @param {object} data    - Job payload ({ source, contractName })
+ * @param {'CRITICAL'|'HIGH'|'NORMAL'|'LOW'} [tier='HIGH'] - Priority tier
+ */
+export async function addCompilationJob(jobName, data, tier = 'HIGH') {
+  const priority = JOB_PRIORITY[tier] ?? JOB_PRIORITY.HIGH;
+  return addJob('compilation', jobName, data, { priority });
+}
+
+/**
+ * Add a priority-tagged deployment job (#1577).
+ * @param {string} jobName - BullMQ job name
+ * @param {object} data    - Job payload ({ wasmPath, contractName, network })
+ * @param {'CRITICAL'|'HIGH'|'NORMAL'|'LOW'} [tier='NORMAL'] - Priority tier
+ */
+export async function addDeploymentJob(jobName, data, tier = 'NORMAL') {
+  const priority = JOB_PRIORITY[tier] ?? JOB_PRIORITY.NORMAL;
+  return addJob('deployment', jobName, data, { priority });
+}
+
+/**
+ * Retrieve failed jobs from a DLQ for inspection.
+ * @param {'compilation'|'deployment'} queueName - Source queue name
+ * @param {{ start?: number, end?: number }} opts  - Pagination options
+ * @returns {Promise<Array>} - Array of DLQ job descriptors
+ */
+export async function getDlqJobs(queueName, { start = 0, end = 49 } = {}) {
+  const dlqName = `${queueName}Dlq`;
+  const dlqQueue = queues[dlqName];
+  if (!dlqQueue) {
+    throw new Error(`DLQ queue "${dlqName}" not found`);
+  }
+  const jobs = await dlqQueue.getJobs(
+    ['waiting', 'active', 'failed', 'delayed'],
+    start,
+    end,
+    true
+  );
+  return jobs.map((job) => ({
+    id: job.id,
+    name: job.name,
+    originalQueue: job.data?.originalQueue ?? queueName,
+    originalJobId: job.data?.originalJobId ?? null,
+    failedReason: job.data?.failure?.failedReason ?? job.failedReason,
+    attemptsMade: job.data?.failure?.attemptsMade ?? job.attemptsMade,
+    failedAt: job.data?.failure?.failedAt ?? null,
+    stacktrace: job.data?.failure?.stacktrace ?? [],
+    data: job.data,
+    opts: job.opts,
+  }));
+}
+
+/**
+ * Replay a specific job from the DLQ back into the source queue.
+ * @param {'compilation'|'deployment'} queueName - Source queue name
+ * @param {string} dlqJobId - DLQ job ID to replay
+ */
+export async function replayDlqJob(queueName, dlqJobId) {
+  const dlqName = `${queueName}Dlq`;
+  const dlqQueue = queues[dlqName];
+  const sourceQueue = queues[queueName];
+  if (!dlqQueue || !sourceQueue) {
+    throw new Error(`Queue pair "${queueName}" / "${dlqName}" not initialized`);
+  }
+  const allDlqJobs = await dlqQueue.getJobs(
+    ['waiting', 'active', 'failed', 'delayed'],
+    0,
+    -1,
+    true
+  );
+  const target = allDlqJobs.find((j) => j.id === dlqJobId);
+  if (!target) {
+    throw new Error(`DLQ job "${dlqJobId}" not found in queue "${dlqName}"`);
+  }
+  const replayed = await replayDlqJobs({
+    sourceQueue,
+    dlqQueue: {
+      // replayDlqJobs expects a getJobs function that returns the subset
+      getJobs: async () => [target],
+    },
+    limit: 1,
+  });
+  return replayed[0] ?? null;
+}
+
+/**
+ * Replay all failed DLQ jobs for a source queue.
+ * @param {'compilation'|'deployment'} queueName - Source queue name
+ * @param {number} [limit=50] - Max jobs to replay in one call
+ */
+export async function replayAllDlqJobs(queueName, limit = 50) {
+  const dlqName = `${queueName}Dlq`;
+  const dlqQueue = queues[dlqName];
+  const sourceQueue = queues[queueName];
+  if (!dlqQueue || !sourceQueue) {
+    throw new Error(`Queue pair "${queueName}" / "${dlqName}" not initialized`);
+  }
+  return replayDlqJobs({ sourceQueue, dlqQueue, limit });
+}
+
+/**
+ * Delete a specific job from the DLQ (discard without replay).
+ * @param {'compilation'|'deployment'} queueName - Source queue name
+ * @param {string} dlqJobId - DLQ job ID to delete
+ */
+export async function deleteDlqJob(queueName, dlqJobId) {
+  const dlqName = `${queueName}Dlq`;
+  const dlqQueue = queues[dlqName];
+  if (!dlqQueue) {
+    throw new Error(`DLQ queue "${dlqName}" not found`);
+  }
+  const job = await dlqQueue.getJob(dlqJobId);
+  if (!job) {
+    throw new Error(`DLQ job "${dlqJobId}" not found in queue "${dlqName}"`);
+  }
+  await job.remove();
+  return { removed: true, id: dlqJobId };
+}
+
+/**
+ * Get counts of waiting, active, completed, and failed jobs per queue.
+ * Useful for dashboards and health checks.
+ * @returns {Promise<Record<string, object>>}
+ */
+export async function getQueueMetrics() {
+  const metrics = {};
+  for (const [name, queue] of Object.entries(queues)) {
+    try {
+      const counts = await queue.getJobCounts(
+        'waiting',
+        'active',
+        'completed',
+        'failed',
+        'delayed'
+      );
+      metrics[name] = counts;
+    } catch {
+      metrics[name] = { error: 'unavailable' };
+    }
+  }
+  return metrics;
 }
 
 /**

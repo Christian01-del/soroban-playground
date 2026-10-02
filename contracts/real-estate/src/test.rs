@@ -6,6 +6,8 @@
 use super::*;
 use soroban_sdk::{testutils::Address as _, Env, String};
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 fn setup() -> (Env, Address, RealEstateContractClient<'static>) {
     let env = Env::default();
     env.mock_all_auths();
@@ -25,6 +27,19 @@ fn add_property(env: &Env, client: &RealEstateContractClient, admin: &Address) -
     )
 }
 
+/// Create a whitelisted investor for use in tests.
+fn approved_investor(
+    env: &Env,
+    client: &RealEstateContractClient,
+    admin: &Address,
+) -> Address {
+    let investor = Address::generate(env);
+    client.approve_investor(admin, &investor);
+    investor
+}
+
+// ── Initialisation ────────────────────────────────────────────────────────────
+
 #[test]
 fn test_initialize_sets_admin() {
     let (_env, admin, client) = setup();
@@ -39,6 +54,67 @@ fn test_initialize_twice_fails() {
         Err(Ok(Error::AlreadyInitialized))
     );
 }
+
+// ── KYC / AML whitelist management ───────────────────────────────────────────
+
+#[test]
+fn test_default_kyc_status_is_pending() {
+    let (env, _admin, client) = setup();
+    let stranger = Address::generate(&env);
+    assert_eq!(client.kyc_status(&stranger), KycStatus::Pending);
+}
+
+#[test]
+fn test_approve_investor_sets_approved() {
+    let (env, admin, client) = setup();
+    let investor = Address::generate(&env);
+    client.approve_investor(&admin, &investor);
+    assert_eq!(client.kyc_status(&investor), KycStatus::Approved);
+}
+
+#[test]
+fn test_revoke_investor_sets_revoked() {
+    let (env, admin, client) = setup();
+    let investor = Address::generate(&env);
+    client.approve_investor(&admin, &investor);
+    client.revoke_investor(&admin, &investor);
+    assert_eq!(client.kyc_status(&investor), KycStatus::Revoked);
+}
+
+#[test]
+fn test_approve_after_revoke_restores_approved() {
+    let (env, admin, client) = setup();
+    let investor = Address::generate(&env);
+    client.approve_investor(&admin, &investor);
+    client.revoke_investor(&admin, &investor);
+    client.approve_investor(&admin, &investor);
+    assert_eq!(client.kyc_status(&investor), KycStatus::Approved);
+}
+
+#[test]
+fn test_non_admin_cannot_approve_investor() {
+    let (env, _admin, client) = setup();
+    let stranger = Address::generate(&env);
+    let victim = Address::generate(&env);
+    assert_eq!(
+        client.try_approve_investor(&stranger, &victim),
+        Err(Ok(Error::Unauthorized))
+    );
+}
+
+#[test]
+fn test_non_admin_cannot_revoke_investor() {
+    let (env, admin, client) = setup();
+    let investor = Address::generate(&env);
+    client.approve_investor(&admin, &investor);
+    let attacker = Address::generate(&env);
+    assert_eq!(
+        client.try_revoke_investor(&attacker, &investor),
+        Err(Ok(Error::Unauthorized))
+    );
+}
+
+// ── Property management ───────────────────────────────────────────────────────
 
 #[test]
 fn test_list_property_stores_data() {
@@ -100,23 +176,37 @@ fn test_delist_property() {
     assert!(!client.get_property(&id).is_listed);
 }
 
+// ── buy_shares – KYC/AML enforcement ─────────────────────────────────────────
+
 #[test]
-fn test_buy_shares_on_delisted_fails() {
+fn test_buy_shares_pending_investor_blocked() {
     let (env, admin, client) = setup();
     let id = add_property(&env, &client, &admin);
-    client.delist_property(&admin, &id);
-    let investor = Address::generate(&env);
+    let investor = Address::generate(&env); // status = Pending, never approved
     assert_eq!(
         client.try_buy_shares(&investor, &id, &10),
-        Err(Ok(Error::NotForSale))
+        Err(Ok(Error::NotWhitelisted))
     );
 }
 
 #[test]
-fn test_buy_shares_updates_ownership_and_property() {
+fn test_buy_shares_revoked_investor_blocked() {
     let (env, admin, client) = setup();
     let id = add_property(&env, &client, &admin);
     let investor = Address::generate(&env);
+    client.approve_investor(&admin, &investor);
+    client.revoke_investor(&admin, &investor);
+    assert_eq!(
+        client.try_buy_shares(&investor, &id, &10),
+        Err(Ok(Error::Blacklisted))
+    );
+}
+
+#[test]
+fn test_buy_shares_approved_investor_succeeds() {
+    let (env, admin, client) = setup();
+    let id = add_property(&env, &client, &admin);
+    let investor = approved_investor(&env, &client, &admin);
     let cost = client.buy_shares(&investor, &id, &100);
     assert_eq!(cost, 100 * 1_000_000);
     assert_eq!(client.get_ownership(&investor, &id).shares, 100);
@@ -124,10 +214,22 @@ fn test_buy_shares_updates_ownership_and_property() {
 }
 
 #[test]
+fn test_buy_shares_on_delisted_fails() {
+    let (env, admin, client) = setup();
+    let id = add_property(&env, &client, &admin);
+    client.delist_property(&admin, &id);
+    let investor = approved_investor(&env, &client, &admin);
+    assert_eq!(
+        client.try_buy_shares(&investor, &id, &10),
+        Err(Ok(Error::NotForSale))
+    );
+}
+
+#[test]
 fn test_buy_shares_zero_fails() {
     let (env, admin, client) = setup();
     let id = add_property(&env, &client, &admin);
-    let investor = Address::generate(&env);
+    let investor = approved_investor(&env, &client, &admin);
     assert_eq!(
         client.try_buy_shares(&investor, &id, &0),
         Err(Ok(Error::ZeroShares))
@@ -138,7 +240,7 @@ fn test_buy_shares_zero_fails() {
 fn test_buy_shares_exceeds_supply_fails() {
     let (env, admin, client) = setup();
     let id = add_property(&env, &client, &admin);
-    let investor = Address::generate(&env);
+    let investor = approved_investor(&env, &client, &admin);
     assert_eq!(
         client.try_buy_shares(&investor, &id, &1001),
         Err(Ok(Error::ExceedsTotalSupply))
@@ -146,11 +248,11 @@ fn test_buy_shares_exceeds_supply_fails() {
 }
 
 #[test]
-fn test_multiple_investors_accumulate_shares_sold() {
+fn test_multiple_whitelisted_investors_accumulate_shares_sold() {
     let (env, admin, client) = setup();
     let id = add_property(&env, &client, &admin);
-    let alice = Address::generate(&env);
-    let bob = Address::generate(&env);
+    let alice = approved_investor(&env, &client, &admin);
+    let bob = approved_investor(&env, &client, &admin);
     client.buy_shares(&alice, &id, &300);
     client.buy_shares(&bob, &id, &500);
     assert_eq!(client.get_property(&id).shares_sold, 800);
@@ -160,11 +262,112 @@ fn test_multiple_investors_accumulate_shares_sold() {
 fn test_buy_more_shares_accumulates() {
     let (env, admin, client) = setup();
     let id = add_property(&env, &client, &admin);
-    let investor = Address::generate(&env);
+    let investor = approved_investor(&env, &client, &admin);
     client.buy_shares(&investor, &id, &100);
     client.buy_shares(&investor, &id, &200);
     assert_eq!(client.get_ownership(&investor, &id).shares, 300);
 }
+
+// ── transfer_shares – KYC/AML enforcement ────────────────────────────────────
+
+#[test]
+fn test_transfer_shares_both_approved_succeeds() {
+    let (env, admin, client) = setup();
+    let id = add_property(&env, &client, &admin);
+    let alice = approved_investor(&env, &client, &admin);
+    let bob = approved_investor(&env, &client, &admin);
+    client.buy_shares(&alice, &id, &400);
+    client.transfer_shares(&alice, &bob, &id, &150);
+    assert_eq!(client.get_ownership(&alice, &id).shares, 250);
+    assert_eq!(client.get_ownership(&bob, &id).shares, 150);
+}
+
+#[test]
+fn test_transfer_shares_pending_sender_blocked() {
+    let (env, admin, client) = setup();
+    let id = add_property(&env, &client, &admin);
+    // alice owns shares (added directly via internal state won't work, so we
+    // first approve, buy, then revoke to simulate a revoked owner trying to transfer)
+    let alice = approved_investor(&env, &client, &admin);
+    let bob = approved_investor(&env, &client, &admin);
+    client.buy_shares(&alice, &id, &100);
+    // Revoke alice after purchase
+    client.revoke_investor(&admin, &alice);
+    assert_eq!(
+        client.try_transfer_shares(&alice, &bob, &id, &50),
+        Err(Ok(Error::Blacklisted))
+    );
+}
+
+#[test]
+fn test_transfer_shares_pending_recipient_blocked() {
+    let (env, admin, client) = setup();
+    let id = add_property(&env, &client, &admin);
+    let alice = approved_investor(&env, &client, &admin);
+    let bob = Address::generate(&env); // Pending – never approved
+    client.buy_shares(&alice, &id, &100);
+    assert_eq!(
+        client.try_transfer_shares(&alice, &bob, &id, &50),
+        Err(Ok(Error::NotWhitelisted))
+    );
+}
+
+#[test]
+fn test_transfer_shares_revoked_recipient_blocked() {
+    let (env, admin, client) = setup();
+    let id = add_property(&env, &client, &admin);
+    let alice = approved_investor(&env, &client, &admin);
+    let bob = Address::generate(&env);
+    client.approve_investor(&admin, &bob);
+    client.revoke_investor(&admin, &bob); // revoked after approval
+    client.buy_shares(&alice, &id, &100);
+    assert_eq!(
+        client.try_transfer_shares(&alice, &bob, &id, &50),
+        Err(Ok(Error::Blacklisted))
+    );
+}
+
+#[test]
+fn test_transfer_all_shares_removes_sender() {
+    let (env, admin, client) = setup();
+    let id = add_property(&env, &client, &admin);
+    let alice = approved_investor(&env, &client, &admin);
+    let bob = approved_investor(&env, &client, &admin);
+    client.buy_shares(&alice, &id, &100);
+    client.transfer_shares(&alice, &bob, &id, &100);
+    assert_eq!(
+        client.try_get_ownership(&alice, &id),
+        Err(Ok(Error::NoShares))
+    );
+}
+
+#[test]
+fn test_transfer_exceeds_shares_fails() {
+    let (env, admin, client) = setup();
+    let id = add_property(&env, &client, &admin);
+    let alice = approved_investor(&env, &client, &admin);
+    let bob = approved_investor(&env, &client, &admin);
+    client.buy_shares(&alice, &id, &100);
+    assert_eq!(
+        client.try_transfer_shares(&alice, &bob, &id, &101),
+        Err(Ok(Error::InsufficientShares))
+    );
+}
+
+#[test]
+fn test_transfer_zero_shares_fails() {
+    let (env, admin, client) = setup();
+    let id = add_property(&env, &client, &admin);
+    let alice = approved_investor(&env, &client, &admin);
+    let bob = approved_investor(&env, &client, &admin);
+    client.buy_shares(&alice, &id, &100);
+    assert_eq!(
+        client.try_transfer_shares(&alice, &bob, &id, &0),
+        Err(Ok(Error::ZeroShares))
+    );
+}
+
+// ── Rental distribution ───────────────────────────────────────────────────────
 
 #[test]
 fn test_deposit_rental_updates_property() {
@@ -190,8 +393,8 @@ fn test_deposit_rental_zero_fails() {
 fn test_claim_rental_pro_rata() {
     let (env, admin, client) = setup();
     let id = add_property(&env, &client, &admin);
-    let alice = Address::generate(&env);
-    let bob = Address::generate(&env);
+    let alice = approved_investor(&env, &client, &admin);
+    let bob = approved_investor(&env, &client, &admin);
     client.buy_shares(&alice, &id, &250);
     client.buy_shares(&bob, &id, &750);
     client.deposit_rental(&admin, &id, &1_000_000);
@@ -203,7 +406,7 @@ fn test_claim_rental_pro_rata() {
 fn test_claim_rental_nothing_to_claim_fails() {
     let (env, admin, client) = setup();
     let id = add_property(&env, &client, &admin);
-    let investor = Address::generate(&env);
+    let investor = approved_investor(&env, &client, &admin);
     client.buy_shares(&investor, &id, &100);
     assert_eq!(
         client.try_claim_rental(&investor, &id),
@@ -215,7 +418,7 @@ fn test_claim_rental_nothing_to_claim_fails() {
 fn test_claim_rental_twice_second_fails() {
     let (env, admin, client) = setup();
     let id = add_property(&env, &client, &admin);
-    let investor = Address::generate(&env);
+    let investor = approved_investor(&env, &client, &admin);
     client.buy_shares(&investor, &id, &1000);
     client.deposit_rental(&admin, &id, &5_000_000);
     client.claim_rental(&investor, &id);
@@ -229,11 +432,13 @@ fn test_claim_rental_twice_second_fails() {
 fn test_new_investor_does_not_claim_old_rental() {
     let (env, admin, client) = setup();
     let id = add_property(&env, &client, &admin);
-    let early = Address::generate(&env);
-    let late = Address::generate(&env);
+    let early = approved_investor(&env, &client, &admin);
+    let late = approved_investor(&env, &client, &admin);
     client.buy_shares(&early, &id, &500);
     client.deposit_rental(&admin, &id, &1_000_000);
     client.buy_shares(&late, &id, &500);
+    // late investor's rental_claimed is snapshotted at the current
+    // total_rental_deposited, so they get nothing from before their purchase.
     assert_eq!(
         client.try_claim_rental(&late, &id),
         Err(Ok(Error::NothingToClaim))
@@ -246,63 +451,56 @@ fn test_new_investor_does_not_claim_old_rental() {
 fn test_claimable_rental_view() {
     let (env, admin, client) = setup();
     let id = add_property(&env, &client, &admin);
-    let investor = Address::generate(&env);
+    let investor = approved_investor(&env, &client, &admin);
     client.buy_shares(&investor, &id, &1000);
     client.deposit_rental(&admin, &id, &2_000_000);
     assert_eq!(client.claimable_rental(&investor, &id), 2_000_000);
 }
 
+// ── Revoked investor cannot claim new shares but retains rental rights ────────
+
 #[test]
-fn test_transfer_shares_moves_ownership() {
+fn test_revoked_investor_can_still_claim_rental() {
+    // Revoking KYC does not forfeit accumulated rental income – only
+    // new share-acquisition and incoming transfers are blocked.
     let (env, admin, client) = setup();
     let id = add_property(&env, &client, &admin);
-    let alice = Address::generate(&env);
-    let bob = Address::generate(&env);
-    client.buy_shares(&alice, &id, &400);
-    client.transfer_shares(&alice, &bob, &id, &150);
-    assert_eq!(client.get_ownership(&alice, &id).shares, 250);
-    assert_eq!(client.get_ownership(&bob, &id).shares, 150);
+    let investor = approved_investor(&env, &client, &admin);
+    client.buy_shares(&investor, &id, &1000);
+    client.deposit_rental(&admin, &id, &3_000_000);
+    // Admin revokes the investor (e.g., sanction update)
+    client.revoke_investor(&admin, &investor);
+    // Investor still holds shares and can claim their earned income.
+    assert_eq!(client.claim_rental(&investor, &id), 3_000_000);
 }
 
 #[test]
-fn test_transfer_all_shares_removes_sender() {
+fn test_revoked_investor_cannot_buy_more_shares() {
     let (env, admin, client) = setup();
     let id = add_property(&env, &client, &admin);
-    let alice = Address::generate(&env);
-    let bob = Address::generate(&env);
-    client.buy_shares(&alice, &id, &100);
-    client.transfer_shares(&alice, &bob, &id, &100);
+    let investor = approved_investor(&env, &client, &admin);
+    client.buy_shares(&investor, &id, &100);
+    client.revoke_investor(&admin, &investor);
     assert_eq!(
-        client.try_get_ownership(&alice, &id),
-        Err(Ok(Error::NoShares))
+        client.try_buy_shares(&investor, &id, &1),
+        Err(Ok(Error::Blacklisted))
     );
 }
 
-#[test]
-fn test_transfer_exceeds_shares_fails() {
-    let (env, admin, client) = setup();
-    let id = add_property(&env, &client, &admin);
-    let alice = Address::generate(&env);
-    let bob = Address::generate(&env);
-    client.buy_shares(&alice, &id, &100);
-    assert_eq!(
-        client.try_transfer_shares(&alice, &bob, &id, &101),
-        Err(Ok(Error::InsufficientShares))
-    );
-}
+// ── Edge-case: self-transfer between same address ─────────────────────────────
 
 #[test]
-fn test_transfer_zero_shares_fails() {
+fn test_self_transfer_approved_succeeds() {
     let (env, admin, client) = setup();
     let id = add_property(&env, &client, &admin);
-    let alice = Address::generate(&env);
-    let bob = Address::generate(&env);
-    client.buy_shares(&alice, &id, &100);
-    assert_eq!(
-        client.try_transfer_shares(&alice, &bob, &id, &0),
-        Err(Ok(Error::ZeroShares))
-    );
+    let alice = approved_investor(&env, &client, &admin);
+    client.buy_shares(&alice, &id, &200);
+    // transferring to yourself should not error
+    client.transfer_shares(&alice, &alice, &id, &100);
+    assert_eq!(client.get_ownership(&alice, &id).shares, 200);
 }
+
+// ── Misc / miscellaneous ──────────────────────────────────────────────────────
 
 #[test]
 fn test_property_count_increments() {
@@ -311,4 +509,10 @@ fn test_property_count_increments() {
     add_property(&env, &client, &admin);
     add_property(&env, &client, &admin);
     assert_eq!(client.property_count(), 2);
+}
+
+#[test]
+fn test_is_initialized_returns_true() {
+    let (_env, _admin, client) = setup();
+    assert!(client.is_initialized());
 }

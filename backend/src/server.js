@@ -2,16 +2,24 @@
 // SPDX-License-Identifier: MIT
 
 import express from 'express';
-import cors from 'cors';
 import morgan from 'morgan';
 import fs from 'fs';
 import path from 'path';
 import cookieParser from 'cookie-parser';
 import { fileURLToPath } from 'url';
 
+import { initializeTracing } from './tracing.js';
 import config from './config/index.js';
 import { validateEnv } from './config/env.js';
-import { corsOptions } from './config/cors.js';
+if (process.env.NODE_ENV !== 'test') {
+  initializeTracing();
+}
+import { createCorsPolicy } from './config/cors.js';
+import {
+  getCachedOrigins,
+  startOriginCacheRefresh,
+  stopOriginCacheRefresh,
+} from './services/corsWhitelistService.js';
 import {
   applyServerTuning,
   createAlpnServer,
@@ -32,6 +40,7 @@ import metricsRoute, {
 } from './routes/metrics.js';
 import oracleRoute from './routes/oracle.js';
 import { rateLimitMiddleware } from './middleware/rateLimiter.js';
+import { rejectPrototypePollution } from './middleware/validation.js';
 import oracleQueueRoute from './routes/oracleQueue.js';
 import { oracleWorkerPool } from './services/oracleWorkerPool.js';
 import migrationRoute from './routes/migration.js';
@@ -74,6 +83,7 @@ import {
 } from './services/queueService.js';
 import backgroundJobsRoute from './routes/backgroundJobs.js';
 import predictionMarketRoute from './routes/predictionMarket.js';
+import twammRoute from './routes/twamm.js';
 import {
   startWebhookDispatcher,
   stopWebhookDispatcher,
@@ -85,6 +95,9 @@ import batchSubmitterRoute from './routes/batchSubmitter.js';
 import { setupSwagger } from './docs/swagger.js';
 import { negotiateApiVersion } from './middleware/apiVersioning.js';
 import { deprecationHeaders } from './middleware/deprecationHeaders.js';
+import queuesRoute from './routes/queues.js';
+import rpcRoute from './routes/rpc.js';
+import { validateStartupEnv } from './config/envSchema.js';
 
 const _filename = fileURLToPath(import.meta.url);
 const _dirname = path.dirname(_filename);
@@ -105,6 +118,8 @@ if (process.env.NODE_ENV !== 'test') {
     }
     process.exit(1);
   }
+  // Run Zod-based strict schema validation on startup (#1578)
+  validateStartupEnv({ strict: false, logger: console });
 }
 
 const app = express();
@@ -174,17 +189,23 @@ const PORT = process.env.PORT || 5000;
 // Basic middleware
 applyDdosProtection(app);
 applySecurityHeaders(app);
+// Redis-backed global token bucket, applied once before any route. Route
+// limits for compile/deploy/invoke use separate buckets (scoped by name).
 app.use(rateLimitMiddleware('global'));
 app.use(morgan('combined'));
-app.use(cors(corsOptions));
+// CORS: env allowlist + FRONTEND_URL + the live DB whitelist. Untrusted
+// Origins are rejected before they reach any route.
+const corsPolicy = createCorsPolicy(process.env, getCachedOrigins);
+for (const warning of corsPolicy.warnings) console.warn(`[CORS] ${warning}`);
+app.use(corsPolicy.enforceOriginIsolation);
+app.use(corsPolicy.corsMiddleware);
 app.use(express.json({ limit: '5mb' }));
+// Reject __proto__/constructor/prototype keys before any handler or
+// transformer copies request data into objects.
+app.use(rejectPrototypePollution);
 app.use(cookieParser());
 app.use(compressionMiddleware);
 app.use(http2PushMiddleware);
-
-// Apply the Redis-backed global limiter before any API route is dispatched.
-// Route-specific compile/deploy limits remain available through the factory.
-app.use(rateLimitMiddleware('global'));
 
 // Strict Transport Security (HSTS) headers
 app.use((req, res, next) => {
@@ -246,6 +267,10 @@ app.use('/api/deploy-queue', deployQueueRoute);
 app.use('/api/backup', backupRoute);
 app.use('/api/auth', authRoute);
 app.use('/api/background-jobs', backgroundJobsRoute);
+// Queue management & DLQ inspection (#1577)
+app.use('/api/queues', queuesRoute);
+// RPC router status & circuit-breaker reset (#1575)
+app.use('/api/rpc', rpcRoute);
 
 if (
   config.app?.env === 'development' ||
@@ -260,6 +285,7 @@ if (
 }
 
 app.use('/api/prediction-market', predictionMarketRoute);
+app.use('/api/twamm', twammRoute);
 app.use('/metrics', metricsRoute);
 
 // GraphQL & Swagger
@@ -313,9 +339,18 @@ let ledgerSyncServiceInstance = null;
 // Initialize Database & Boot Services
 initializeDatabase()
   .then(async (db) => {
-    if (redisService.client?.duplicate) {
+    await runStartupMigrations().catch((err) =>
+      console.warn('[StartupMigrations] Warning:', err.message)
+    );
+    if (
+      redisService.client?.duplicate &&
+      redisService.client.status === 'ready'
+    ) {
       websocketRedisClient = redisService.client.duplicate();
-      await websocketRedisClient.connect();
+      websocketRedisClient.on('error', () => {});
+      if (websocketRedisClient.status === 'wait') {
+        await websocketRedisClient.connect().catch(() => {});
+      }
     }
     setupWebsocketServer(server, {
       heartbeatInterval: 30000,
@@ -327,6 +362,7 @@ initializeDatabase()
       console.error('[CompileService] Initialization error:', err)
     );
 
+    await startOriginCacheRefresh();
     oracleWorkerPool.start();
     startCleanupWorker();
     startBackupScheduler();
@@ -346,7 +382,10 @@ initializeDatabase()
       ledgerSyncServiceInstance.start();
     }
 
-    if (process.env.NODE_ENV !== 'test') {
+    if (
+      process.env.NODE_ENV !== 'test' ||
+      process.env.LISTEN_IN_TEST === 'true'
+    ) {
       server.listen(PORT, () => {
         const protocol = hasCertificates ? 'https' : 'http';
         console.log(
@@ -382,6 +421,7 @@ async function gracefulShutdown(signal) {
     // 1. Stop background workers and queue consumers
     console.log('[Shutdown] Stopping background workers...');
     stopCleanupWorker();
+    stopOriginCacheRefresh();
     stopWebhookDispatcher();
     stopCertificateWatch();
     cacheInvalidator.stop().catch(() => {});

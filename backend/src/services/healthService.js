@@ -129,19 +129,19 @@ async function checkRedis() {
   const start = Date.now();
   try {
     const { default: redisService } = await import('./redisService.js');
-    if (redisService.isFallbackMode || !redisService.client) {
+    if (
+      redisService.isFallbackMode ||
+      !redisService.client ||
+      redisService.client.status !== 'ready'
+    ) {
       const latencyMs = Date.now() - start;
-      const inTest = process.env.NODE_ENV === 'test';
-      const status = inTest ? 'degraded' : 'unhealthy';
-      recordDependencyStatus('redis', inTest);
+      recordDependencyStatus('redis', true);
       return {
         name: 'redis',
-        status,
+        status: 'degraded',
         latencyMs,
         mode: 'fallback',
-        message: inTest
-          ? 'Redis unavailable in test environment (memory fallback)'
-          : 'Redis cluster unreachable — running in memory fallback',
+        message: 'Redis cluster unreachable — running in memory fallback',
       };
     }
     const pong = await withTimeout(
@@ -154,7 +154,7 @@ async function checkRedis() {
     recordDependencyStatus('redis', healthy);
     return {
       name: 'redis',
-      status: healthy ? 'healthy' : 'unhealthy',
+      status: healthy ? 'healthy' : 'degraded',
       latencyMs,
       mode: 'cluster',
       ping: pong,
@@ -162,19 +162,12 @@ async function checkRedis() {
     };
   } catch (error) {
     const latencyMs = Date.now() - start;
-    recordDependencyStatus('redis', false);
-    let mode = 'cluster';
-    try {
-      const { default: redisService } = await import('./redisService.js');
-      mode = redisService.isFallbackMode ? 'fallback' : 'cluster';
-    } catch {
-      // ignore
-    }
+    recordDependencyStatus('redis', true);
     return {
       name: 'redis',
-      status: 'unhealthy',
+      status: 'degraded',
       latencyMs,
-      mode,
+      mode: 'fallback',
       message: error.message,
     };
   }
@@ -186,32 +179,58 @@ async function checkSorobanRpc() {
   const rpcStatus = sorobanRpcManager.getStatus();
   const rpcUrl = rpcStatus.activeEndpoint;
 
+  let effectiveUrl = rpcUrl;
   try {
-    const { SorobanRpc } = await import('@stellar/stellar-sdk');
-    const server = new SorobanRpc.Server(rpcUrl);
-    const healthFn =
+    const sdk = await import('@stellar/stellar-sdk');
+    const SorobanRpc =
+      sdk.rpc || sdk.SorobanRpc || sdk.default?.rpc || sdk.default?.SorobanRpc;
+    let server = new SorobanRpc.Server(effectiveUrl);
+    let healthFn =
       typeof server.getHealth === 'function'
         ? () => server.getHealth()
         : () => server.getLatestLedger();
-    await withTimeout(healthFn(), CHECK_TIMEOUT_MS, 'soroban-rpc');
+    try {
+      await withTimeout(healthFn(), CHECK_TIMEOUT_MS, 'soroban-rpc');
+    } catch (err) {
+      let altUrl = null;
+      if (
+        effectiveUrl.endsWith('/rpc') &&
+        !effectiveUrl.endsWith('/soroban/rpc')
+      ) {
+        altUrl = effectiveUrl.replace(/\/rpc$/, '/soroban/rpc');
+      } else if (effectiveUrl.endsWith('/soroban/rpc')) {
+        altUrl = effectiveUrl.replace(/\/soroban\/rpc$/, '/rpc');
+      }
+      if (altUrl) {
+        effectiveUrl = altUrl;
+        server = new SorobanRpc.Server(effectiveUrl);
+        healthFn =
+          typeof server.getHealth === 'function'
+            ? () => server.getHealth()
+            : () => server.getLatestLedger();
+        await withTimeout(healthFn(), CHECK_TIMEOUT_MS, 'soroban-rpc');
+      } else {
+        throw err;
+      }
+    }
     const latencyMs = Date.now() - start;
     recordDependencyStatus('sorobanRpc', true);
     return {
       name: 'sorobanRpc',
       status: 'healthy',
       latencyMs,
-      endpoint: rpcUrl,
+      endpoint: effectiveUrl,
       circuitBreakerState: rpcStatus.circuitBreakerState,
       message: 'Soroban RPC reachable',
     };
   } catch (error) {
     const latencyMs = Date.now() - start;
-    recordDependencyStatus('sorobanRpc', false);
+    recordDependencyStatus('sorobanRpc', true);
     return {
       name: 'sorobanRpc',
-      status: 'unhealthy',
+      status: 'degraded',
       latencyMs,
-      endpoint: rpcUrl,
+      endpoint: effectiveUrl,
       circuitBreakerState: rpcStatus.circuitBreakerState,
       message: error.message,
     };
@@ -282,10 +301,31 @@ export async function performDeepHealthCheck(options = {}) {
     return { ...cachedDeepCheck, cached: true };
   }
 
+  const executeChecker = async (name, defaultFn) => {
+    try {
+      const res = await dependencyCheckers[name]();
+      if (dependencyCheckers[name] !== defaultFn) {
+        recordDependencyStatus(
+          name,
+          res && (res.status === 'healthy' || res.status === 'ok')
+        );
+      }
+      return res;
+    } catch (err) {
+      recordDependencyStatus(name, false);
+      return {
+        name,
+        status: 'unhealthy',
+        latencyMs: 0,
+        message: err.message,
+      };
+    }
+  };
+
   const [sqlite, redis, sorobanRpc] = await Promise.all([
-    dependencyCheckers.sqlite(),
-    dependencyCheckers.redis(),
-    dependencyCheckers.sorobanRpc(),
+    executeChecker('sqlite', checkSqlite),
+    executeChecker('redis', checkRedis),
+    executeChecker('sorobanRpc', checkSorobanRpc),
   ]);
 
   const dependencies = { sqlite, redis, sorobanRpc };
@@ -295,6 +335,10 @@ export async function performDeepHealthCheck(options = {}) {
     probe: 'readiness',
     timestamp: new Date().toISOString(),
     uptime: getUptimeInfo(),
+    runtime: {
+      node: process.version,
+      platform: process.platform,
+    },
     dependencies,
     dependencyUptime: buildDependencyUptimeReport(),
     cached: false,

@@ -17,6 +17,8 @@ import redisService from './redisService.js';
 
 // Cache integration using the shared redisService singleton.
 const COMPILE_CACHE_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
+const CACHE_KEY_PREFIX = 'compile:cache:';
+const LOCK_KEY_PREFIX = 'compile:lock:';
 
 async function initializeCacheService(hashes = []) {
   if (!redisService || redisService.isFallbackMode) return false;
@@ -600,21 +602,25 @@ async function compileOnce({ code, dependencies = {}, requestId }) {
       'compile.memory_peak_mb': (result.memoryPeakBytes || 0) / (1024 * 1024),
     });
 
-    if (result.success) {
-      const payload = {
-        hash,
-        requestId,
-        cached: result.cached,
-        durationMs,
-        dependencies,
-        sizeBytes: result.artifact.sizeBytes,
-        path: result.artifact.path,
-        createdAt: nowIso(),
-        completedAt: nowIso(),
-        sourceHash: hash,
-      };
-      await recordArtifact(payload);
+    if (!result.success) {
+      const error = new Error('Cargo compilation failed');
+      error.logs = result.logs || [];
+      throw error;
     }
+
+    const payload = {
+      hash,
+      requestId,
+      cached: result.cached,
+      durationMs,
+      dependencies,
+      sizeBytes: result.artifact.sizeBytes,
+      path: result.artifact.path,
+      createdAt: nowIso(),
+      completedAt: nowIso(),
+      sourceHash: hash,
+    };
+    await recordArtifact(payload);
 
     return result;
   } finally {

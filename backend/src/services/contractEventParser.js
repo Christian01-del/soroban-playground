@@ -105,6 +105,14 @@ export function registerHandler(contractType, fn) {
   handlers.set(contractType, fn);
 }
 
+export function unregisterHandler(contractType) {
+  return handlers.delete(contractType);
+}
+
+export function clearHandlers() {
+  handlers.clear();
+}
+
 function invokeHandler(fn, parsed, type) {
   if (typeof fn !== 'function') return;
   try {

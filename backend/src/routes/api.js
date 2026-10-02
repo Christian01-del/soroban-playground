@@ -1,5 +1,6 @@
 import warrantyRoutes from './warranty.js';
 import favoritesRoutes from './favorites.js';
+import workspaceRoutes from './workspace.js';
 import searchRoutes from './search.js';
 import projectsRoutes from './projects.js';
 import express from 'express';
@@ -18,6 +19,19 @@ import patentsRouter from './patents.js';
 import tokenBurnRouter from './tokenBurn.js';
 import oracleRouter from './oracle.js';
 import verificationRouter from './verification.js';
+import bugBountyRoutes from './bugBountyRoutes.js';
+import sportsRoutes from './sports.routes.js';
+import escrowRoutes from './escrow.js';
+import nftAmmRoutes from './nftAmm.js';
+import lendingRoutes from './lending.js';
+import socialRoutes from './social.js';
+import pauseToggleRoutes from './pauseToggle.js';
+import tokenGatedAccessRoutes from './tokenGatedAccess.js';
+import priceAggregatorRoutes from './priceAggregator.js';
+import tokenizedReitRoutes from './tokenizedReit.js';
+import readinessRulesRoutes from './readinessRules.routes.js';
+import { stellarIdValidation } from '../middleware/stellarIdValidation.js';
+import { rateLimit } from 'express-rate-limit';
 import {
   versionTransformer,
   requestTransformerV2,
@@ -30,9 +44,17 @@ import {
   negotiateApiVersion,
   rejectUnsupportedUriVersion,
 } from '../middleware/apiVersioning.js';
-import { rateLimitMiddleware } from '../middleware/rateLimiter.js';
 
 const router = express.Router();
+
+// Rate limit for state-mutating newly mounted gateways (#1491).
+const mutatingRouteLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many requests, please try again later' },
+});
 
 // Version discovery endpoint
 router.get('/versions', (req, res) => {
@@ -45,8 +67,8 @@ router.get('/versions', (req, res) => {
 // v1 Routes
 const v1Router = express.Router();
 v1Router.use(versionTransformer('v1'));
-v1Router.use('/compile', rateLimitMiddleware('compile'));
-v1Router.use('/deploy', rateLimitMiddleware('deploy'));
+// compile/deploy/invoke limits are attached per-route inside each router so
+// every request is counted exactly once.
 v1Router.use('/compile', v1Compile);
 v1Router.use('/deploy', v1Deploy);
 v1Router.use('/invoke', v1Invoke);
@@ -58,8 +80,6 @@ v1Router.use('/lottery', v2Lottery);
 const v2Router = express.Router();
 v2Router.use(versionTransformer('v2'));
 v2Router.use(requestTransformerV2); // Optional: transform v1-style requests to v2 if needed (e.g., if we had a single implementation)
-v2Router.use('/compile', rateLimitMiddleware('compile'));
-v2Router.use('/deploy', rateLimitMiddleware('deploy'));
 v2Router.use('/compile', v2Compile);
 v2Router.use('/deploy', v2Deploy);
 v2Router.use('/invoke', v2Invoke);
@@ -133,14 +153,26 @@ router.use('/patents', patentsRouter);
 router.use('/token-burn', tokenBurnRouter);
 router.use('/search', searchRoutes);
 
-import bugBountyRoutes from './bugBountyRoutes.js';
 router.use('/bug-bounty', bugBountyRoutes);
+
+// Previously orphaned controllers (#1491) — canonical prefixes + Stellar ID validation.
+router.use('/sports', stellarIdValidation, sportsRoutes);
+router.use('/escrow', stellarIdValidation, mutatingRouteLimiter, escrowRoutes);
+router.use('/nft-amm', stellarIdValidation, mutatingRouteLimiter, nftAmmRoutes);
+router.use('/lending', stellarIdValidation, mutatingRouteLimiter, lendingRoutes);
+router.use('/social', stellarIdValidation, socialRoutes);
+router.use('/pause-toggle', stellarIdValidation, mutatingRouteLimiter, pauseToggleRoutes);
+router.use('/token-gated-access', stellarIdValidation, tokenGatedAccessRoutes);
+router.use('/price-aggregator', stellarIdValidation, priceAggregatorRoutes);
+router.use('/tokenized-reit', stellarIdValidation, mutatingRouteLimiter, tokenizedReitRoutes);
+router.use('/readiness', readinessRulesRoutes);
 
 import musicLicensingRoutes from './musicLicensingRoutes.js';
 router.use('/music-licensing', musicLicensingRoutes);
 
 router.use('/warranty', warrantyRoutes);
 router.use('/favorites', favoritesRoutes);
+router.use('/workspace', workspaceRoutes);
 router.use('/projects', projectsRoutes);
 
 import sorobanRpcManager from '../services/sorobanRpcManager.js';

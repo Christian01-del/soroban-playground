@@ -20,7 +20,10 @@
 // * The PSM can be individually paused without pausing the broader contract.
 // * Fee revenue accumulates in `PsmFeeVault` and can be collected by admin.
 
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, Symbol};
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Bytes, Env, Symbol};
+
+mod flash_mint;
+pub use flash_mint::{FlashMintConfig, FlashMintDataKey};
 
 // ─── Errors ───────────────────────────────────────────────────────────────────
 
@@ -42,6 +45,12 @@ pub enum Error {
     PsmInsufficientReserve = 11,
     InvalidFeeBps = 12,
     InvalidDebtCeiling = 13,
+    // Flash Mint errors (14+)
+    FlashMintPaused = 14,
+    FlashMintGlobalDebtCeilingExceeded = 15,
+    FlashMintTxDebtCeilingExceeded = 16,
+    FlashMintReentrancyDetected = 17,
+    FlashMintRepaymentFailed = 18,
 }
 
 // ─── Storage keys ─────────────────────────────────────────────────────────────

@@ -18,6 +18,15 @@ fn make_hash(env: &Env, seed: u8) -> BytesN<32> {
     BytesN::from_array(env, &[seed; 32])
 }
 
+fn three_leaf_batch(env: &Env) -> (BytesN<32>, BytesN<32>, BytesN<32>, BytesN<32>) {
+    let first = make_hash(env, 31);
+    let second = make_hash(env, 32);
+    let third = make_hash(env, 33);
+    let first_pair = FileNotary::hash_pair(env, &first, &second);
+    let root = FileNotary::hash_pair(env, &first_pair, &third);
+    (first, second, third, root)
+}
+
 // ── notarize_file ─────────────────────────────────────────────────────────────
 
 #[test]
@@ -162,4 +171,146 @@ fn test_initialize_twice_panics() {
         client.initialize(&admin);
     });
     assert!(result.is_err());
+}
+
+// ── Merkle batch notarization ────────────────────────────────────────────────
+
+#[test]
+fn test_batch_proof_verifies_odd_width_tree() {
+    let (env, _, user, client) = setup();
+    let (first, second, third, root) = three_leaf_batch(&env);
+    let metadata = soroban_sdk::String::from_str(&env, "three files");
+    client.notarize_batch(&user, &root, &3, &metadata);
+
+    let mut proof = soroban_sdk::Vec::new(&env);
+    proof.push_back(first_pair_for_test(&env, &first, &second));
+    let record = client.verify_batch_proof(&root, &third, &2, &proof);
+
+    assert_eq!(record.owner, user);
+    assert_eq!(record.metadata, metadata);
+    assert_eq!(record.leaf_count, 3);
+    assert!(record.verified);
+}
+
+#[test]
+fn test_batch_proof_verifies_leaf_with_two_siblings() {
+    let (env, _, user, client) = setup();
+    let (first, second, third, root) = three_leaf_batch(&env);
+    let metadata = soroban_sdk::String::from_str(&env, "three files");
+    client.notarize_batch(&user, &root, &3, &metadata);
+
+    let mut proof = soroban_sdk::Vec::new(&env);
+    proof.push_back(second);
+    proof.push_back(third);
+    assert!(client
+        .verify_batch_proof(&root, &first, &0, &proof)
+        .verified);
+}
+
+    #[test]
+    fn test_batch_proof_hashes_right_child_after_sibling() {
+        let (env, _, user, client) = setup();
+        let (first, second, third, root) = three_leaf_batch(&env);
+        let metadata = soroban_sdk::String::from_str(&env, "three files");
+        client.notarize_batch(&user, &root, &3, &metadata);
+
+        let mut proof = soroban_sdk::Vec::new(&env);
+        proof.push_back(first);
+        proof.push_back(third);
+        assert!(client
+        .verify_batch_proof(&root, &second, &1, &proof)
+        .verified);
+    }
+
+#[test]
+fn test_batch_proof_rejects_wrong_sibling_and_invalid_index() {
+    let (env, _, user, client) = setup();
+    let (first, second, _, root) = three_leaf_batch(&env);
+    let metadata = soroban_sdk::String::from_str(&env, "three files");
+    client.notarize_batch(&user, &root, &3, &metadata);
+
+    let mut bad_proof = soroban_sdk::Vec::new(&env);
+    bad_proof.push_back(make_hash(&env, 99));
+    bad_proof.push_back(make_hash(&env, 33));
+    assert_eq!(
+        client.try_verify_batch_proof(&root, &first, &0, &bad_proof),
+        Err(Ok(Error::InvalidProof))
+    );
+
+    let mut proof = soroban_sdk::Vec::new(&env);
+    proof.push_back(second);
+    proof.push_back(make_hash(&env, 33));
+    assert_eq!(
+        client.try_verify_batch_proof(&root, &first, &3, &proof),
+        Err(Ok(Error::InvalidProof))
+    );
+}
+
+#[test]
+fn test_batch_proof_rejects_missing_or_extra_siblings() {
+    let (env, _, user, client) = setup();
+    let (first, second, third, root) = three_leaf_batch(&env);
+    let metadata = soroban_sdk::String::from_str(&env, "three files");
+    client.notarize_batch(&user, &root, &3, &metadata);
+
+    let missing = soroban_sdk::Vec::new(&env);
+    assert_eq!(
+        client.try_verify_batch_proof(&root, &first, &0, &missing),
+        Err(Ok(Error::InvalidProof))
+    );
+
+    let mut extra = soroban_sdk::Vec::new(&env);
+    extra.push_back(second);
+    extra.push_back(third);
+    extra.push_back(make_hash(&env, 34));
+    assert_eq!(
+        client.try_verify_batch_proof(&root, &first, &0, &extra),
+        Err(Ok(Error::InvalidProof))
+    );
+}
+
+#[test]
+fn test_batch_registration_rejects_duplicate_empty_and_oversized_batch() {
+    let (env, _, user, client) = setup();
+    let (_, _, _, root) = three_leaf_batch(&env);
+    let metadata = soroban_sdk::String::from_str(&env, "batch");
+    client.notarize_batch(&user, &root, &3, &metadata);
+    assert_eq!(
+        client.try_notarize_batch(&user, &root, &3, &metadata),
+        Err(Ok(Error::AlreadyNotarized))
+    );
+
+    assert_eq!(
+        client.try_notarize_batch(&user, &make_hash(&env, 40), &0, &metadata),
+        Err(Ok(Error::InvalidBatchSize))
+    );
+    assert_eq!(
+        client.try_notarize_batch(&user, &make_hash(&env, 41), &((1u64 << 32) + 1), &metadata),
+        Err(Ok(Error::InvalidBatchSize))
+    );
+}
+
+#[test]
+fn test_unknown_root_and_revoked_batch_cannot_verify() {
+    let (env, _, user, client) = setup();
+    let (first, second, _, root) = three_leaf_batch(&env);
+    let metadata = soroban_sdk::String::from_str(&env, "three files");
+    let mut proof = soroban_sdk::Vec::new(&env);
+    proof.push_back(second);
+    proof.push_back(make_hash(&env, 33));
+
+    assert_eq!(
+        client.try_verify_batch_proof(&root, &first, &0, &proof),
+        Err(Ok(Error::NotFound))
+    );
+    client.notarize_batch(&user, &root, &3, &metadata);
+    client.revoke_batch(&user, &root);
+    assert_eq!(
+        client.try_verify_batch_proof(&root, &first, &0, &proof),
+        Err(Ok(Error::NotFound))
+    );
+}
+
+fn first_pair_for_test(env: &Env, first: &BytesN<32>, second: &BytesN<32>) -> BytesN<32> {
+    FileNotary::hash_pair(env, first, second)
 }

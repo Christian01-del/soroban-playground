@@ -1,6 +1,6 @@
-use crate::db::trait_::{Database, Event, Quorum, Vote, Oracle, AuditEntry, Ledger, LedgerInsert};
-use async_trait::async_trait;
+use crate::db::trait_::{AuditEntry, Database, Event, Ledger, Oracle, Quorum, RollbackStats, Vote};
 use anyhow::Result;
+use async_trait::async_trait;
 use sqlx::postgres::PgPool;
 
 pub struct PostgresDatabase {
@@ -21,7 +21,7 @@ impl Database for PostgresDatabase {
     async fn save_event(&self, event: &Event) -> Result<()> {
         sqlx::query(
             "INSERT INTO events (id, contract_id, ledger, ledger_closed_at, event_type, data) 
-             VALUES ($1, $2, $3, $4, $5, $6)"
+             VALUES ($1, $2, $3, $4, $5, $6)",
         )
         .bind(&event.id)
         .bind(&event.contract_id)
@@ -39,7 +39,7 @@ impl Database for PostgresDatabase {
         for event in events {
             sqlx::query(
                 "INSERT INTO events (id, contract_id, ledger, ledger_closed_at, event_type, data) 
-                 VALUES ($1, $2, $3, $4, $5, $6)"
+                 VALUES ($1, $2, $3, $4, $5, $6)",
             )
             .bind(&event.id)
             .bind(&event.contract_id)
@@ -68,7 +68,7 @@ impl Database for PostgresDatabase {
         let limit = limit as i64;
         let res = sqlx::query_as::<_, Event>(
             "SELECT id, contract_id, ledger, ledger_closed_at, event_type, data FROM events 
-             WHERE contract_id = $1 ORDER BY ledger DESC LIMIT $2"
+             WHERE contract_id = $1 ORDER BY ledger DESC LIMIT $2",
         )
         .bind(contract_id)
         .bind(limit)
@@ -86,7 +86,7 @@ impl Database for PostgresDatabase {
         let limit = limit as i64;
         let res = sqlx::query_as::<_, Event>(
             "SELECT id, contract_id, ledger, ledger_closed_at, event_type, data \
-             FROM events ORDER BY ledger DESC LIMIT $1"
+             FROM events ORDER BY ledger DESC LIMIT $1",
         )
         .bind(limit)
         .fetch_all(&self.pool)
@@ -136,7 +136,7 @@ impl Database for PostgresDatabase {
     async fn get_active_quorums(&self) -> Result<Vec<Quorum>> {
         let res = sqlx::query_as::<_, Quorum>(
             "SELECT id, quorum_type, state, strategy, threshold, target_id, created_at, expires_at 
-             FROM quorums WHERE state IN ('collecting', 'threshold_reached')"
+             FROM quorums WHERE state IN ('collecting', 'threshold_reached')",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -148,7 +148,7 @@ impl Database for PostgresDatabase {
     async fn save_vote(&self, vote: &Vote) -> Result<()> {
         sqlx::query(
             "INSERT INTO votes (id, quorum_id, oracle_id, choice, data, timestamp) 
-             VALUES ($1, $2, $3, $4, $5, $6)"
+             VALUES ($1, $2, $3, $4, $5, $6)",
         )
         .bind(&vote.id)
         .bind(&vote.quorum_id)
@@ -175,7 +175,7 @@ impl Database for PostgresDatabase {
 
     async fn get_oracle(&self, id: &str) -> Result<Option<Oracle>> {
         let res = sqlx::query_as::<_, Oracle>(
-            "SELECT id, name, reputation, active FROM oracles WHERE id = $1"
+            "SELECT id, name, reputation, active FROM oracles WHERE id = $1",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -193,11 +193,9 @@ impl Database for PostgresDatabase {
     }
 
     async fn get_all_oracles(&self) -> Result<Vec<Oracle>> {
-        let res = sqlx::query_as::<_, Oracle>(
-            "SELECT id, name, reputation, active FROM oracles"
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let res = sqlx::query_as::<_, Oracle>("SELECT id, name, reputation, active FROM oracles")
+            .fetch_all(&self.pool)
+            .await?;
         Ok(res)
     }
 
@@ -226,7 +224,7 @@ impl Database for PostgresDatabase {
         let offset = offset as i64;
         let res = sqlx::query_as::<_, AuditEntry>(
             "SELECT id, event_type, actor, payload, prev_hash, entry_hash, merkle_root, timestamp 
-             FROM audit_trail ORDER BY timestamp DESC LIMIT $1 OFFSET $2"
+             FROM audit_trail ORDER BY timestamp DESC LIMIT $1 OFFSET $2",
         )
         .bind(limit)
         .bind(offset)
@@ -238,7 +236,7 @@ impl Database for PostgresDatabase {
     async fn get_last_audit_entry(&self) -> Result<Option<AuditEntry>> {
         let res = sqlx::query_as::<_, AuditEntry>(
             "SELECT id, event_type, actor, payload, prev_hash, entry_hash, merkle_root, timestamp 
-             FROM audit_trail ORDER BY timestamp DESC LIMIT 1"
+             FROM audit_trail ORDER BY timestamp DESC LIMIT 1",
         )
         .fetch_optional(&self.pool)
         .await?;
@@ -248,7 +246,7 @@ impl Database for PostgresDatabase {
     async fn get_audit_entry(&self, id: &str) -> Result<Option<AuditEntry>> {
         let res = sqlx::query_as::<_, AuditEntry>(
             "SELECT id, event_type, actor, payload, prev_hash, entry_hash, merkle_root, timestamp 
-             FROM audit_trail WHERE id = $1"
+             FROM audit_trail WHERE id = $1",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -259,58 +257,78 @@ impl Database for PostgresDatabase {
     // ── Ledger continuity & reorg methods ────────────────────────────────────
 
     async fn get_ledger_tip(&self) -> Result<Option<Ledger>> {
-        let res = sqlx::query_as::<_, Ledger>(
+        let row: Option<LedgerRow> = sqlx::query_as(
             "SELECT sequence, ledger_hash, parent_ledger_hash
-             FROM ledgers ORDER BY sequence DESC LIMIT 1"
+             FROM ledgers ORDER BY sequence DESC LIMIT 1",
         )
         .fetch_optional(&self.pool)
         .await?;
-        Ok(res)
+        Ok(row.map(ledger_from_row))
     }
 
-    async fn save_ledger(&self, ledger: &Ledger) -> Result<LedgerInsert> {
-        let tip = self.get_ledger_tip().await?;
+    async fn get_ledger(&self, sequence: u32) -> Result<Option<Ledger>> {
+        let row: Option<LedgerRow> = sqlx::query_as(
+            "SELECT sequence, ledger_hash, parent_ledger_hash
+             FROM ledgers WHERE sequence = $1",
+        )
+        .bind(i64::from(sequence))
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(ledger_from_row))
+    }
 
-        if let Some(tip) = tip {
-            if tip.sequence >= ledger.sequence {
-                return Ok(LedgerInsert::Duplicate);
-            }
-            if tip.sequence + 1 == ledger.sequence && !tip.ledger_hash.is_empty()
-                && !ledger.parent_ledger_hash.is_empty()
-                && tip.ledger_hash != ledger.parent_ledger_hash
-            {
-                let fork_sequence = self
-                    .find_fork_sequence(ledger.parent_ledger_hash.as_str())
-                    .await?;
-                return Ok(LedgerInsert::Reorg { fork_sequence });
-            }
-        }
+    async fn get_ledger_below(&self, sequence: u32) -> Result<Option<Ledger>> {
+        let row: Option<LedgerRow> = sqlx::query_as(
+            "SELECT sequence, ledger_hash, parent_ledger_hash
+             FROM ledgers WHERE sequence < $1 ORDER BY sequence DESC LIMIT 1",
+        )
+        .bind(i64::from(sequence))
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(ledger_from_row))
+    }
 
+    async fn insert_ledger(&self, ledger: &Ledger) -> Result<()> {
         sqlx::query(
             "INSERT INTO ledgers (sequence, ledger_hash, parent_ledger_hash)
-             VALUES ($1, $2, $3)
-             ON CONFLICT (sequence) DO NOTHING"
+             VALUES ($1, $2, $3)",
         )
-        .bind(ledger.sequence as i64)
+        .bind(i64::from(ledger.sequence))
         .bind(&ledger.ledger_hash)
         .bind(&ledger.parent_ledger_hash)
         .execute(&self.pool)
         .await?;
-        Ok(LedgerInsert::Inserted)
+        Ok(())
     }
 
-    async fn rollback_from_ledger(&self, sequence: u32) -> Result<()> {
+    async fn rollback_from_ledger(&self, sequence: u32, detected_at: u32) -> Result<RollbackStats> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query("DELETE FROM ledgers WHERE sequence >= $1")
-            .bind(sequence as i64)
+        let ledgers_removed = sqlx::query("DELETE FROM ledgers WHERE sequence >= $1")
+            .bind(i64::from(sequence))
             .execute(&mut *tx)
-            .await?;
-        sqlx::query("DELETE FROM events WHERE ledger >= $1")
-            .bind(sequence as i64)
+            .await?
+            .rows_affected();
+        let events_removed = sqlx::query("DELETE FROM events WHERE ledger >= $1")
+            .bind(i64::from(sequence))
             .execute(&mut *tx)
-            .await?;
+            .await?
+            .rows_affected();
+        sqlx::query(
+            "INSERT INTO ledger_reorgs
+               (rolled_back_from, detected_at_sequence, ledgers_removed, events_removed)
+             VALUES ($1, $2, $3, $4)",
+        )
+        .bind(i64::from(sequence))
+        .bind(i64::from(detected_at))
+        .bind(ledgers_removed as i64)
+        .bind(events_removed as i64)
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
-        Ok(())
+        Ok(RollbackStats {
+            ledgers_removed,
+            events_removed,
+        })
     }
 
     async fn find_ledger_gaps(&self) -> Result<Vec<(u32, u32)>> {
@@ -321,7 +339,7 @@ impl Database for PostgresDatabase {
                       LEAD(sequence) OVER (ORDER BY sequence) AS next_seq
                FROM ledgers
              ) gaps
-             WHERE next_seq IS NOT NULL AND next_seq - sequence > 1"
+             WHERE next_seq IS NOT NULL AND next_seq - sequence > 1",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -332,16 +350,12 @@ impl Database for PostgresDatabase {
     }
 }
 
-impl PostgresDatabase {
-    async fn find_fork_sequence(&self, parent_hash: &str) -> Result<u32> {
-        let res: Option<(i64,)> = sqlx::query_as(
-            "SELECT sequence FROM ledgers WHERE ledger_hash = $1 LIMIT 1"
-        )
-        .bind(parent_hash)
-        .fetch_optional(&self.pool)
-        .await?;
-        Ok(res.map(|(s,)| s as u32).unwrap_or(0))
+type LedgerRow = (i64, String, String);
+
+fn ledger_from_row((sequence, ledger_hash, parent_ledger_hash): LedgerRow) -> Ledger {
+    Ledger {
+        sequence: sequence as u32,
+        ledger_hash,
+        parent_ledger_hash,
     }
 }
-
-

@@ -1,9 +1,9 @@
 pub mod merkle;
 
-use crate::db::{Database, AuditEntry};
+use crate::db::{AuditEntry, Database};
 use anyhow::Result;
-use std::sync::Arc;
 use chrono::Utc;
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
 pub struct AuditManager {
@@ -24,18 +24,23 @@ impl AuditManager {
         })
     }
 
-    pub async fn log_event(&self, event_type: &str, actor: &str, payload: &str) -> Result<AuditEntry> {
+    pub async fn log_event(
+        &self,
+        event_type: &str,
+        actor: &str,
+        payload: &str,
+    ) -> Result<AuditEntry> {
         let mut last_hash_guard = self.last_hash.lock().await;
-        
+
         let id = uuid::Uuid::new_v4().to_string();
         let timestamp = Utc::now().to_rfc3339();
-        
+
         // 1. Calculate the hash of this entry (Hash Chain)
         let entry_hash = merkle::calculate_entry_hash(&last_hash_guard, payload);
-        
+
         // 2. In a real system, we might batch these to calculate a Merkle Root.
         // For simplicity, we'll use the entry_hash as the root for now, or implement batching.
-        let merkle_root = entry_hash.clone(); 
+        let merkle_root = entry_hash.clone();
 
         let entry = AuditEntry {
             id,
@@ -49,7 +54,7 @@ impl AuditManager {
         };
 
         self.db.save_audit_entry(&entry).await?;
-        
+
         // Update the chain head
         *last_hash_guard = entry_hash;
 
@@ -63,18 +68,21 @@ impl AuditManager {
         }
 
         // Verify from oldest to newest (trail is DESC, so reverse it)
-        let mut expected_prev_hash = trail.last().map(|e| e.prev_hash.clone()).unwrap_or_default();
-        
+        let mut expected_prev_hash = trail
+            .last()
+            .map(|e| e.prev_hash.clone())
+            .unwrap_or_default();
+
         for entry in trail.iter().rev() {
             if entry.prev_hash != expected_prev_hash {
                 return Ok(false);
             }
-            
+
             let calculated_hash = merkle::calculate_entry_hash(&entry.prev_hash, &entry.payload);
             if entry.entry_hash != calculated_hash {
                 return Ok(false);
             }
-            
+
             expected_prev_hash = entry.entry_hash.clone();
         }
 

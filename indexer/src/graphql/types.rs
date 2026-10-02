@@ -24,15 +24,21 @@ impl Project {
         ctx: &Context<'_>,
         first: Option<i32>,
         after: Option<String>,
-    ) -> Result<connection::Connection<String, Event, connection::EmptyFields, connection::EmptyFields>> {
+    ) -> Result<
+        connection::Connection<String, Event, connection::EmptyFields, connection::EmptyFields>,
+    > {
         use crate::graphql::dataloaders::ProjectEventsLoader;
-        
+
         let loader = ctx.data_unchecked::<dataloader::DataLoader<ProjectEventsLoader>>();
         let events = loader.load_one(self.id.clone()).await?.unwrap_or_default();
 
         let mut connection = connection::Connection::new(false, false);
         let start = match after {
-            Some(cursor) => events.iter().position(|e| e.id == cursor).map(|i| i + 1).unwrap_or(0),
+            Some(cursor) => events
+                .iter()
+                .position(|e| e.id == cursor)
+                .map(|i| i + 1)
+                .unwrap_or(0),
             None => 0,
         };
         let limit = first.unwrap_or(50) as usize;
@@ -42,7 +48,7 @@ impl Project {
         for event in &events[start..end] {
             edges.push(connection::Edge::new(event.id.clone(), event.clone()));
         }
-        
+
         connection.has_previous_page = start > 0;
         connection.has_next_page = end < events.len();
         connection.edges.extend(edges);
@@ -65,7 +71,7 @@ pub struct Event {
     pub ledger_closed_at: String,
     /// The type of the event (e.g., 'transfer', 'mint').
     pub event_type: String,
-    
+
     /// The raw data payload of the event.
     /// This field is restricted to admins only.
     #[graphql(guard = "crate::graphql::auth::RoleGuard::new(\"admin\")")]

@@ -31,6 +31,7 @@ export const ErrorCategory = {
   DATABASE: 'database',
   HANDLER: 'handler',
   CURSOR: 'cursor',
+  STREAM: 'stream',
   UNKNOWN: 'unknown',
 };
 
@@ -61,7 +62,61 @@ function categorizeError(error) {
   if (msg.includes('handler')) {
     return ErrorCategory.HANDLER;
   }
+  if (msg.includes('stream') || msg.includes('subscriber')) {
+    return ErrorCategory.STREAM;
+  }
   return ErrorCategory.UNKNOWN;
+}
+
+// EventStreamBus: in-process pub/sub with multi-topic filtering for the
+// high-throughput event streaming console. Subscribers receive parsed events
+// matching their filter predicate; slow/failing subscribers are isolated.
+export class EventStreamBus {
+  constructor() {
+    this._subscribers = new Set();
+  }
+
+  size() {
+    return this._subscribers.size;
+  }
+
+  /**
+   * Build a predicate that matches events whose topics include ANY of the
+   * provided topic strings. Supports multi-topic filtering for the console.
+   */
+  static topicFilter(topics) {
+    if (!Array.isArray(topics) || topics.length === 0) return null;
+    const wanted = new Set(topics.map((t) => String(t)));
+    return (event) => {
+      const eventTopics = Array.isArray(event?.topics) ? event.topics : [];
+      for (const t of eventTopics) {
+        if (wanted.has(String(t))) return true;
+      }
+      return false;
+    };
+  }
+
+  subscribe(listener, filter = null) {
+    if (typeof listener !== 'function') {
+      throw new TypeError('EventStreamBus.subscribe requires a function');
+    }
+    const entry = { listener, filter };
+    this._subscribers.add(entry);
+    return () => {
+      this._subscribers.delete(entry);
+    };
+  }
+
+  publish(event) {
+    for (const entry of this._subscribers) {
+      try {
+        if (entry.filter && !entry.filter(event)) continue;
+        entry.listener(event);
+      } catch {
+        // Isolate subscriber failures so one consumer cannot stall the indexer
+      }
+    }
+  }
 }
 
 class ContractEventIndexer {
@@ -72,6 +127,9 @@ class ContractEventIndexer {
     this._intervalMs = pollIntervalMs;
     this._db = new DatabaseService();
     this._timer = null;
+
+    // Multi-topic event stream bus for downstream consumers (WS console, exports)
+    this._streamBus = new EventStreamBus();
 
     // Circuit breaker state
     this._cb = {
@@ -108,12 +166,37 @@ class ContractEventIndexer {
   }
 
   /**
+   * Subscribe to the live event stream. Returns an unsubscribe function.
+   * The optional filter is a predicate applied to parsed events.
+   */
+  subscribe(listener, filter = null) {
+    return this._streamBus.subscribe(listener, filter);
+  }
+
+  /**
+   * Subscribe with a multi-topic filter. `topics` is an array of topic
+   * strings; events matching ANY topic are delivered. An optional extra
+   * predicate can be composed on top of the topic match.
+   */
+  subscribeTopics(listener, topics, extraFilter = null) {
+    const topicPredicate = EventStreamBus.topicFilter(topics);
+    if (!topicPredicate) {
+      return this._streamBus.subscribe(listener, extraFilter);
+    }
+    const combined = extraFilter
+      ? (event) => topicPredicate(event) && extraFilter(event)
+      : topicPredicate;
+    return this._streamBus.subscribe(listener, combined);
+  }
+
+  /**
    * Returns a snapshot of the indexer's health status.
    */
   getStatus() {
     return {
       ...this._status,
       circuitBreaker: { ...this._cb },
+      subscribers: this._streamBus.size(),
     };
   }
 
@@ -186,6 +269,11 @@ class ContractEventIndexer {
     this._status.lastError = entry;
     this._status.consecutiveErrors++;
 
+    if (cat === ErrorCategory.STREAM) {
+      // Stream fan-out failures are isolated and must not trip the breaker
+      return;
+    }
+
     if (
       cat === ErrorCategory.RPC_CONNECTION ||
       cat === ErrorCategory.RPC_RESPONSE
@@ -236,7 +324,8 @@ class ContractEventIndexer {
     this._status.lastPollAt = new Date().toISOString();
 
     // Dynamic import defers the SDK load until the first poll
-    const { SorobanRpc } = await import('@stellar/stellar-sdk');
+    const sdk = await import('@stellar/stellar-sdk');
+    const SorobanRpc = sdk.rpc || sdk.SorobanRpc;
     const rpcServer = new SorobanRpc.Server(this._rpcUrl);
     const startLedger = await this._loadCursor();
 
@@ -298,6 +387,13 @@ class ContractEventIndexer {
       parsed.rawXdr,
       parsed.eventType,
     ]);
+
+    try {
+      this._streamBus.publish(parsed);
+    } catch (e) {
+      this._recordError(e, ErrorCategory.STREAM);
+    }
+
     dispatchEvent(parsed);
   }
 }

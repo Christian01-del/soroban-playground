@@ -1,56 +1,50 @@
 import type { NextConfig } from "next";
 
+/**
+ * Static security headers for the Playground (#1540).
+ *
+ * `Content-Security-Policy` is deliberately *not* set here. It is applied by
+ * `src/middleware.ts` instead, because the policy omits `'unsafe-inline'` and
+ * therefore has to carry a nonce that changes on every response; `headers()` is
+ * evaluated once at build time and cannot do that. The two escape hatches it
+ * keeps (`'wasm-unsafe-eval'` for the WASM inspector and in-browser rustfmt, and
+ * `'unsafe-eval'` for the pinned `monaco-languageclient` workers) are documented
+ * on `buildContentSecurityPolicy`.
+ *
+ * The headers below need no per-response value, so keeping them here means they
+ * still apply to any route middleware might not match.
+ */
+const STATIC_SECURITY_HEADERS = [
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+  // Required for the Monaco language-server workers to use SharedArrayBuffer.
+  { key: "Cross-Origin-Embedder-Policy", value: "require-corp" },
+  {
+    key: "Strict-Transport-Security",
+    value: "max-age=63072000; includeSubDomains; preload",
+  },
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "X-DNS-Prefetch-Control", value: "off" },
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  {
+    key: "Permissions-Policy",
+    value: "camera=(), microphone=(), geolocation=()",
+  },
+  // Legacy auditor header. Pinned to `0` because the modern, auditable control
+  // is the CSP; leaving this unset trips a filter-bypass warning in scanners,
+  // and the old `1; mode=block` mode can itself introduce a vulnerability.
+  { key: "X-XSS-Protection", value: "0" },
+  { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
+  { key: "X-Permitted-Cross-Domain-Policies", value: "none" },
+];
+
 const nextConfig: NextConfig = {
   turbopack: {},
   async headers() {
     return [
       {
         source: "/:path*",
-        headers: [
-          {
-            key: "Cross-Origin-Opener-Policy",
-            value: "same-origin",
-          },
-          {
-            key: "Cross-Origin-Embedder-Policy",
-            value: "require-corp",
-          },
-          {
-            key: "Strict-Transport-Security",
-            value: "max-age=63072000; includeSubDomains; preload",
-          },
-          {
-            key: "X-Frame-Options",
-            value: "DENY",
-          },
-          {
-            key: "X-Content-Type-Options",
-            value: "nosniff",
-          },
-          {
-            key: "Referrer-Policy",
-            value: "strict-origin-when-cross-origin",
-          },
-          {
-            key: "Permissions-Policy",
-            value: "camera=(), microphone=(), geolocation=()",
-          },
-          {
-            key: "Content-Security-Policy",
-            value: [
-              "default-src 'self'",
-              "script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'",
-              "style-src 'self' 'unsafe-inline'",
-              "img-src 'self' data: blob:",
-              "font-src 'self'",
-              "connect-src 'self'",
-              "frame-ancestors 'none'",
-              "object-src 'none'",
-              "base-uri 'self'",
-              "form-action 'self'",
-            ].join("; "),
-          },
-        ],
+        headers: STATIC_SECURITY_HEADERS,
       },
     ];
   },
@@ -72,6 +66,20 @@ const nextConfig: NextConfig = {
               name: "monaco-editor",
               chunks: "all",
               priority: 30,
+              enforce: true,
+            },
+            chartJs: {
+              test: /[\\/]node_modules[\\/](@kurkle|chart\.js|react-chartjs-2)[\\/]/,
+              name: "chartjs",
+              chunks: "all",
+              priority: 30,
+              enforce: true,
+            },
+            flowDiagram: {
+              test: /[\\/]node_modules[\\/](reactflow|@reactflow)[\\/]/,
+              name: "reactflow",
+              chunks: "all",
+              priority: 29,
               enforce: true,
             },
           },

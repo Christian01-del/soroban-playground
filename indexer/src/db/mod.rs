@@ -1,11 +1,11 @@
-pub mod trait_;
-pub mod sqlite;
 pub mod postgres;
+pub mod sqlite;
+pub mod trait_;
 
+pub use postgres::PostgresDatabase;
+pub use sqlite::SqliteDatabase;
 #[allow(unused_imports)] // re-exported for the cfg(test) modules and external consumers
 pub use trait_::{AuditEntry, Database, Event, Oracle, Quorum, Vote};
-pub use sqlite::SqliteDatabase;
-pub use postgres::PostgresDatabase;
 
 use anyhow::Result;
 use std::sync::Arc;
