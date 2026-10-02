@@ -7,8 +7,8 @@ import {
   addSpanEvent,
   injectTraceContext,
 } from '../utils/tracing.js';
-const { recordTamperEvidentAuditLog } = await import('./tamperEvidentAuditLogger.js');
-const { spawnTracked, terminateChildProcess } = await import('./childProcessManager.js');
+const { recordTamperEvidentAuditLog } = require('./tamperEvidentAuditLogger.js');
+const { spawnTracked, terminateChildProcess } = require('./childProcessManager.js');
 
 const MAX_CONCURRENT = Number.parseInt(process.env.INVOKE_POOL_SIZE || '3', 10);
 const INVOKE_TIMEOUT_MS = Number.parseInt(
@@ -114,7 +114,7 @@ export function createCliArgs(request) {
     sourceAccount,
     '--network',
     request.network || process.env.DEFAULT_NETWORK || 'testnet',
-    '--',
+    '--'.
     request.functionName,
   ];
 
@@ -171,6 +171,104 @@ function pumpQueue() {
 export class InvokeProgressBus extends EventEmitter {}
 
 export const invokeProgressBus = new InvokeProgressBus();
+
+/**
+ * Normalizes a Soroban CLI JSON output into a hierarchical call graph
+ * suitable for React Flow rendering. The CLI emits either a flat list of
+ * events (diagnostic events from contract execution) or a nested `callTree`
+ * array. This function handles both shapes and produces a stable node/edge
+ * graph with gas attribution and error pin-pointing.
+ */
+export function buildCallGraph(parsed) {
+  const nodes = [];
+  const edges = [];
+  const nodeIds = new Set();
+  let sequence = 0;
+
+  const addNode = (node) => {
+    if (!node || nodeIds.has(node.id)) return null;
+    nodeIds.add(node.id);
+    nodes.push(node);
+    return node.id;
+  };
+
+  const addEdge = (source, target) => {
+    if (!source || !target || source === target) return;
+    edges.push({
+      id: `e${source}-${target}`,
+      source,
+      target,
+      type: 'smoothstep',
+    });
+  };
+
+  const normalizeError = (error) => {
+    if (!error) return null;
+    if (typeof error === 'string') return { message: error };
+    return {
+      message: error.message || error.reason || 'Unknown error',
+      code: error.code,
+      contractId: error.contractId,
+    };
+  };
+
+  const walk = (frame, parentId, index) => {
+    if (!frame || typeof frame !== 'object') return null;
+    const id = frame.id || `frame-${sequence++}`;
+    const gasUsed = Number(frame.gasUsed ?? frame.gas_used ?? 0);
+    const gasLimit = Number(frame.gasLimit ?? frame.gas_limit ?? 0);
+    const error = normalizeError(frame.error);
+    const node = {
+      id,
+      type: 'callFrame',
+      position: { x: index * 280, y: (parentId ? 1 : 0) * 160 },
+      data: {
+        label: frame.functionName ?? frame.function_name ?? 'unknown',
+        contractId: frame.contractId ?? frame.contract_id ?? null,
+        functionName: frame.functionName ?? frame.function_name ?? 'unknown',
+        gasUsed,
+        gasLimit,
+        gasRemaining: Math.max(gasLimit - gasUsed, 0),
+        depth: index,
+        status: error ? 'error' : 'ok',
+        error,
+        events: Array.isArray(frame.events) ? frame.events : [],
+      },
+    };
+    addNode(node);
+    if (parentId) addEdge(parentId, id);
+    const children = frame.subInvocations ?? frame.sub_invocations ?? frame.children ?? [];
+    if (Array.isArray(children)) {
+      children.forEach((child, i) => walk(child, id, i));
+    }
+    return id;
+  };
+
+  if (parsed && Array.isArray(parsed.callTree)) {
+    parsed.callTree.forEach((frame, i) => walk(frame, null, i));
+  } else if (parsed && Array.isArray(parsed.events)) {
+    const rootId = `add-invocation-${sequence++}`;
+    addNode({
+      id: rootId,
+      type: 'callFrame',
+      position: { x: 0, y: 0 },
+      data: {
+        label: 'invocation',
+        contractId: parsed.contractId ?? null,
+        functionName: parsed.functionName ?? 'invocation',
+        gasUsed: Number(parsed.gasUsed ?? 0),
+        gasLimit: Number(parsed.gasLimit ?? 0),
+        gasRemaining: 0,
+        depth: 0,
+        status: 'ok',
+        error: null,
+        events: parsed.events,
+      },
+    });
+  }
+
+  return { nodes, edges };
+}
 
 export async function invokeSorobanContract(request, { signal } = {}) {
   const span = createSpan('soroban.invoke', {
@@ -303,6 +401,11 @@ export async function invokeSorobanContract(request, { signal } = {}) {
           child.on('close', (code) => {
             const endedAt = new Date().toISOString();
             const output = parseCliOutput(stdout);
+            const graph = buildCallGraph(
+              output.parsed && typeof output.parsed === 'object'
+                ? output.parsed
+                : {}
+            );
             const baseResult = {
               success: code === 0,
               status: code === 0 ? 'success' : 'failed',
@@ -310,6 +413,7 @@ export async function invokeSorobanContract(request, { signal } = {}) {
               functionName: request.functionName,
               stdout: output.raw,
               parsed: output.parsed,
+              graph,
               stderr: stderr.trim() || undefined,
               startedAt,
               endedAt,
@@ -347,6 +451,7 @@ export async function invokeSorobanContract(request, { signal } = {}) {
             error.code = code;
             error.stdout = output.raw;
             error.stderr = stderr.trim();
+            error.graph = graph;
             emit('failed', error.message);
             complete(error);
           });
