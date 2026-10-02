@@ -1,6 +1,6 @@
 import config from '../config/index.js';
 import { createSpan, getTraceId } from '../utils/tracing.js';
-import { validateInvocationAuth } from '../utils/invocationAuth.js';
+import { createHash } from 'crypto';
 import {
   sorobanRpcCallDuration,
   sorobanRpcCallsTotal,
@@ -29,18 +29,21 @@ const HEALTH_CHECK_INTERVAL_MS = Number.parseInt(
   10
 );
 
+// Pre-flight simulation cache TTL (ms). Simulations are deterministic for a
+// given (ledger, tx) pair, so we cache results keyed by a content hash to
+// avoid redundant RPC round-trips during rapid iteration in the Playground.
+const SIMULATION_CACHE_TTL_MS = Number.parseInt(
+  process.env.RPC_SIMULATION_CACHE_TTL_MS || '30000',
+  10
+);
+const SIMULATION_CACHE_MAX_ENTRIES = Number.parseInt(
+  process.env.RPC_SIMULATION_CACHE_MAX_ENTRIES || '128',
+  10
+);
+
 // Latency tracking: EMA (exponential moving average) smoothing factor.
 // A value closer to 1 reacts quickly; closer to 0 smooths out spikes.
 const LATENCY_EMA_ALPHA = 0.25;
-
-// ─── Custom Invocation Authorization Matrix (require_auth) ───────────────────
-// In-browser test simulations may inject arbitrary invoker addresses, mock
-// signatures, and custom authorization trees. The mock engine below evaluates
-// a require_auth matrix locally so simulations do not hit the network.
-const AUTH_MATRIX_MAX_DEPTH = Number.parseInt(
-  process.env.AUTH_MATRIX_MAX_DEPTH || '8',
-  10
-);
 
 // ─── Endpoint selection heuristics ───────────────────────────────────────────
 
@@ -88,124 +91,6 @@ function updateLatencyEma(ep, observedMs) {
   ep.lastLatencyMs = observedMs;
 }
 
-// ─── Mock require_auth engine ────────────────────────────────────────────────
-
-/**
- * Normalize a single authorization entry from the injected matrix.
- * Accepts either a string invoker address or an object describing the
- * required auth tree node.
- */
-function normalizeAuthEntry(entry) {
-  if (typeof entry === 'string') {
-    return { invoker: entry, signature: null, subInvocations: [] };
-  }
-  if (!entry || typeof entry !== 'object') return null;
-  return {
-    invoker: entry.invoker ?? entry.address ?? null,
-    signature: entry.signature ?? entry.mockSignature ?? null,
-    contractId: entry.contractId ?? entry.contract ?? null,
-    fnName: entry.fnName ?? entry.fn ?? null,
-    subInvocations: Array.isArray(entry.subInvocations)
-      ? entry.subInvocations
-      : Array.isArray(entry.sub_invocations)
-        ? entry.sub_invocations
-        : [],
-  };
-}
-
-/**
- * Recursively evaluate an authorization tree against the injected context.
- * Returns { authorized, reason, matched } describing the outcome.
- */
-function evaluateAuthNode(node, context, depth = 0) {
-  if (depth > AUTH_MATRIX_MAX_DEPTH) {
-    return { authorized: false, reason: 'AUTH_MATRIX_MAX_DEPTH_EXCEEDED' };
-  }
-  const normalized = normalizeAuthEntry(node);
-  if (!normalized) {
-    return { authorized: false, reason: 'INVALID_AUTH_ENTRY' };
-  }
-
-  const { invoker, signature, contractId, fnName, subInvocations } = normalized;
-  const allowedInvokers = context.invokers || [];
-  const allowedSignatures = context.signatures || [];
-
-  if (!invoker) {
-    return { authorized: false, reason: 'MISSING_INVOKER' };
-  }
-  if (allowedInvokers.length > 0 && !allowedInvokers.includes(invoker)) {
-    return { authorized: false, reason: 'INVOKER_NOT_AUTHORIZED', invoker };
-  }
-  if (contractId && context.contractId && contractId !== context.contractId) {
-    return { authorized: false, reason: 'CONTRACT_MISMATCH', contractId };
-  }
-  if (fnName && context.fnName && fnName !== context.fnName) {
-    return { authorized: false, reason: 'FN_MISMATCH', fnName };
-  }
-  if (signature) {
-    if (allowedSignatures.length > 0 && !allowedSignatures.includes(signature)) {
-      return { authorized: false, reason: 'SIGNATURE_NOT_AUTHORIZED', signature };
-    }
-    if (context.requireSignature && !allowedSignatures.includes(signature)) {
-      return { authorized: false, reason: 'SIGNATURE_REQUIRED', signature };
-    }
-  } else if (context.requireSignature) {
-    return { authorized: false, reason: 'SIGNATURE_REQUIRED' };
-  }
-
-  for (const child of subInvocations) {
-    const childResult = evaluateAuthNode(child, context, depth + 1);
-    if (!childResult.authorized) return childResult;
-  }
-
-  return { authorized: true, reason: 'AUTHORIZED', invoker };
-}
-
-/**
- * Build a mock authorization matrix from an injected simulation payload.
- * The payload shape mirrors what the Playground UI sends from the browser:
- *   { invokers: [...], signatures: [...], tree: {...}, requireSignature: bool }
- */
-function buildMockAuthMatrix(payload = {}) {
-  const invokers = Array.isArray(payload.invokers)
-    ? payload.invokers.filter((v) => typeof v === 'string')
-    : [];
-  const signatures = Array.isArray(payload.signatures)
-    ? payload.signatures.filter((v) => typeof v === 'string')
-    : [];
-  const tree = payload.tree ?? payload.authTree ?? null;
-  const requireSignature = Boolean(payload.requireSignature);
-  return { invokers, signatures, tree, requireSignature };
-}
-
-/**
- * Evaluate a custom invocation authorization matrix locally.
- * Returns a structured result suitable for surfacing in the simulation UI.
- */
-function evaluateInvocationAuth(payload = {}) {
-  const matrix = buildMockAuthMatrix(payload);
-  const context = {
-    invokers: matrix.invokers,
-    signatures: matrix.signatures,
-    contractId: payload.contractId ?? null,
-    fnName: payload.fnName ?? null,
-    requireSignature: matrix.requireSignature,
-  };
-
-  if (!matrix.tree) {
-    // No explicit tree: fall back to flat invoker/signature checks.
-    if (matrix.invokers.length === 0) {
-      return { authorized: false, reason: 'NO_INVOKERS_PROVIDED' };
-    }
-    if (matrix.requireSignature && matrix.signatures.length === 0) {
-      return { authorized: false, reason: 'SIGNATURE_REQUIRED' };
-    }
-    return { authorized: true, reason: 'AUTHORIZED_FLAT' };
-  }
-
-  return evaluateAuthNode(matrix.tree, context);
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 
 class SorobanRpcManager {
@@ -241,8 +126,9 @@ class SorobanRpcManager {
     // Running totals for aggregate metrics
     this._totalRequests = 0;
     this._totalFailures = 0;
-    // Mock authorization matrix state for in-browser simulations
-    this._authMatrix = null;
+    // Pre-flight simulation cache (FE-EPIC-18)
+    this._simulationCache = new Map();
+    this._simulationStats = { hits: 0, misses: 0, evictions: 0 };
 
     if (process.env.NODE_ENV !== 'test') this.startHealthChecks();
   }
@@ -270,34 +156,6 @@ class SorobanRpcManager {
     console.warn(
       `[RPC Circuit Breaker] Tripped OPEN for endpoint ${ep.url} (failures: ${ep.failCount})`
     );
-  }
-
-  /**
-   * Inject a custom invocation authorization matrix for simulations.
-   * Validates the payload schema before persisting it on the manager.
-   */
-  setAuthMatrix(payload = {}) {
-    const validation = validateInvocationAuth(payload);
-    if (!validation.valid) {
-      throw new Error(
-        `Invalid invocation auth matrix: ${validation.errors.join(', ')}`
-      );
-    }
-    this._authMatrix = buildMockAuthMatrix(payload);
-    return this._authMatrix;
-  }
-
-  /**
-   * Evaluate the currently injected authorization matrix (or a one-off
-   * payload) without performing any network calls.
-   */
-  evaluateAuth(payload = null) {
-    const source = payload ?? this._authMatrix ?? {};
-    return evaluateInvocationAuth(source);
-  }
-
-  clearAuthMatrix() {
-    this._authMatrix = null;
   }
 
   async checkEndpointHealth(ep) {
@@ -477,6 +335,167 @@ class SorobanRpcManager {
     throw new Error(errorMsg);
   }
 
+  // ─── Pre-flight simulation engine (FE-EPIC-18) ─────────────────────────────
+
+  /**
+   * Build a stable cache key for a simulation request. The key incorporates
+   * the RPC method, the serialized transaction envelope, and the ledger
+   * sequence so stale results are never served across ledger boundaries.
+   */
+  _simulationCacheKey(method, params) {
+    const payload = JSON.stringify({ method, params });
+    return createHash('sha256').update(payload).digest('hex');
+  }
+
+  _pruneSimulationCache(now) {
+    for (const [key, entry] of this._simulationCache) {
+      if (entry.expiresAt <= now) {
+        this._simulationCache.delete(key);
+      }
+    }
+    while (this._simulationCache.size > SIMULATION_CACHE_MAX_ENTRIES) {
+      const oldestKey = this._simulationCache.keys().next().value;
+      this._simulationCache.delete(oldestKey);
+      this._simulationStats.evictions += 1;
+    }
+  }
+
+  /**
+   * Normalize a raw `simulateTransaction` RPC result into the resource
+   * profile consumed by the frontend Gas Visualizer. All numeric fields are
+   * coerced to safe integers; missing fields default to 0 so the UI never
+   * renders `undefined`.
+   */
+  buildResourceProfile(rawResult) {
+    const cost = rawResult?.cost || {};
+    const cpuInsns = Number(cost.cpuInsns ?? rawResult?.cpuInsns ?? 0);
+    const memBytes = Number(cost.memBytes ?? rawResult?.memBytes ?? 0);
+
+    const footprint = rawResult?.transactionData?.resources?.footprint || {};
+    const readOnly = Array.isArray(footprint.readOnly)
+      ? footprint.readOnly.length
+      : 0;
+    const readWrite = Array.isArray(footprint.readWrite)
+      ? footprint.readWrite.length
+      : 0;
+
+    const minResourceFee = Number(rawResult?.minResourceFee ?? 0);
+
+    return {
+      cpuInstructions: Number.isFinite(cpuInsns) ? cpuInsns : 0,
+      ramBytes: Number.isFinite(memBytes) ? memBytes : 0,
+      ledgerEntries: {
+        readOnly,
+        readWrite,
+        total: readOnly + readWrite,
+      },
+      feeEstimate: {
+        minResourceFee: Number.isFinite(minResourceFee) ? minResourceFee : 0,
+        // Stellar base fee per operation (100 stroops) is a useful floor for
+        // the UI to display alongside the resource fee.
+        baseFee: 100,
+        totalFee:
+          (Number.isFinite(minResourceFee) ? minResourceFee : 0) + 100,
+      },
+      latestLedger: rawResult?.latestLedger ?? null,
+      events: Array.isArray(rawResult?.events) ? rawResult.events : [],
+      error: rawResult?.error || null,
+    };
+  }
+
+  /**
+   * Execute a pre-flight `simulateTransaction` against the best available
+   * endpoint. Results are cached for SIMULATION_CACHE_TTL_MS keyed by the
+   * transaction envelope so repeated Playground runs are cheap.
+   *
+   * @param {string} transactionXdr - base64-encoded TransactionEnvelope XDR.
+   * @param {object} [options]
+   * @param {boolean} [options.skipCache] - bypass the cache read.
+   * @returns {Promise<object>} normalized resource profile.
+   */
+  async simulateTransaction(transactionXdr, options = {}) {
+    if (!transactionXdr || typeof transactionXdr !== 'string') {
+      throw new Error('simulateTransaction requires a transaction XDR string');
+    }
+
+    const params = {
+      transaction: transactionXdr,
+      resourceConfig: options.resourceConfig || undefined,
+    };
+    const cacheKey = this._simulationCacheKey('simulateTransaction', params);
+    const now = Date.now();
+
+    if (!options.skipCache) {
+      const cached = this._simulationCache.get(cacheKey);
+      if (cached && cached.expiresAt > now) {
+        this._simulationStats.hits += 1;
+        return { ...cached.profile, cached: true };
+      }
+      if (cached) this._simulationCache.delete(cacheKey);
+    }
+
+    this._simulationStats.misses += 1;
+
+    const rawResult = await this.executeRpcCall(async (url, extra) => {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(extra || {}),
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: Date.now(),
+          method: 'simulateTransaction',
+          params: [params],
+        }),
+        signal: extra?.signal,
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status} from ${url}`);
+      }
+      const payload = await response.json();
+      if (payload.error) {
+        throw new Error(payload.error.message || 'simulateTransaction failed');
+      }
+      return payload.result;
+    });
+
+    const profile = this.buildResourceProfile(rawResult);
+    profile.cached = false;
+
+    this._pruneSimulationCache(now);
+    this._simulationCache.set(cacheKey, {
+      profile,
+      expiresAt: now + SIMULATION_CACHE_TTL_MS,
+    });
+
+    return profile;
+  }
+
+  getSimulationCacheStats() {
+    const now = Date.now();
+    this._pruneSimulationCache(now);
+    const total = this._simulationStats.hits + this._simulationStats.misses;
+    return {
+      size: this._simulationCache.size,
+      maxEntries: SIMULATION_CACHE_MAX_ENTRIES,
+      ttlMs: SIMULATION_CACHE_TTL_MS,
+      hits: this._simulationStats.hits,
+      misses: this._simulationStats.misses,
+      evictions: this._simulationStats.evictions,
+      hitRate:
+        total > 0
+          ? Number((this._simulationStats.hits / total).toFixed(4))
+          : 0,
+    };
+  }
+
+  clearSimulationCache() {
+    this._simulationCache.clear();
+    this._simulationStats = { hits: 0, misses: 0, evictions: 0 };
+  }
+
   getStatus() {
     this.checkCircuitStates();
     const totalReq = this._totalRequests;
@@ -510,6 +529,8 @@ class SorobanRpcManager {
         latencySamples: ep.latencySamples,
         lastLatencyMs: ep.lastLatencyMs,
       })),
+      // Pre-flight simulation cache stats (FE-EPIC-18)
+      simulationCache: this.getSimulationCacheStats(),
     };
   }
 
@@ -528,10 +549,10 @@ class SorobanRpcManager {
     this.activeEndpointIndex = 0;
     this._totalRequests = 0;
     this._totalFailures = 0;
-    this._authMatrix = null;
+    this._simulationCache.clear();
+    this._simulationStats = { hits: 0, misses: 0, evictions: 0 };
   }
 }
 
 export const sorobanRpcManager = new SorobanRpcManager();
-export { evaluateInvocationAuth, buildMockAuthMatrix, evaluateAuthNode };
 export default sorobanRpcManager;
